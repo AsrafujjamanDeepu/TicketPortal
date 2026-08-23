@@ -80,7 +80,7 @@ namespace TicketPortal.Api.Controllers
             item.EstimatedDurationMinutes = dto.EstimatedDurationMinutes;
             item.DefaultBaseFare = dto.DefaultBaseFare;
             item.IsActive = dto.IsActive;
-            item.UpdatedAtUtc = DateTime.UtcNow;
+            //item.UpdatedAtUtc = DateTime.UtcNow;s
 
             try
             {
@@ -137,7 +137,7 @@ namespace TicketPortal.Api.Controllers
             DefaultBaseFare = x.DefaultBaseFare,
             IsActive = x.IsActive,
             CreatedAtUtc = x.CreatedAtUtc,
-            UpdatedAtUtc = x.UpdatedAtUtc,
+            //UpdatedAtUtc = x.UpdatedAtUtc,
             RowVersion = x.RowVersion,
         };
     }
