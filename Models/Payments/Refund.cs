@@ -1,0 +1,40 @@
+using TicketPortal.Api.Models.Bookings;
+using TicketPortal.Api.Models.Common;
+using TicketPortal.Api.Models.Enums;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+
+namespace TicketPortal.Api.Models.Payments
+{
+    // Money being sent back to a customer, usually following an approved CancellationRequest.
+    public class Refund : AuditableEntity
+    {
+        public Guid BookingId { get; set; }
+        public Guid PaymentId { get; set; } // Which original payment this refund is against.
+        public Guid? CancellationRequestId { get; set; }
+
+        public decimal Amount { get; set; }
+
+        [MaxLength(3)]
+        public string Currency { get; set; } = "BDT";
+
+        public RefundStatus Status { get; set; } = RefundStatus.Requested;
+
+        [MaxLength(250)]
+        public string Reason { get; set; } = string.Empty;
+
+        [MaxLength(100)]
+        public string? GatewayRefundReference { get; set; }
+
+        public DateTime RequestedAtUtc { get; set; } = DateTime.UtcNow;
+        public DateTime? RefundedAtUtc { get; set; }
+
+        public Booking Booking { get; set; } = default!;
+        public Payment Payment { get; set; } = default!;
+        public CancellationRequest? CancellationRequest { get; set; }
+        public ICollection<RefundHistory> Histories { get; set; } = new List<RefundHistory>();
+
+        public bool IsSuccessful() => Status == RefundStatus.Succeeded;
+    }
+}
