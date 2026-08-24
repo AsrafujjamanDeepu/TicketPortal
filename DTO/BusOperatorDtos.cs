@@ -152,6 +152,8 @@ namespace TicketPortal.Api.DTO
 
 
         public string? LegalName { get; set; }
+        public string? RegistrationNumber { get; set; }
+        public string AddressLine { get; set; } = string.Empty;
 
         public string ContactPhone { get; set; } = string.Empty;
 

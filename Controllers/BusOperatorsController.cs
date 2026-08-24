@@ -438,6 +438,8 @@ namespace TicketPortal.Api.Controllers
             Id = op.Id,
             Name = op.Name,
             LegalName = op.LegalName,
+            RegistrationNumber = op.RegistrationNumber,
+            AddressLine = op.AddressLine,
             CreatedAtUtc = op.CreatedAtUtc,
             UpdatedAtUtc = op.UpdatedAtUtc,
             DeletedAtUtc = op.DeletedAtUtc,
