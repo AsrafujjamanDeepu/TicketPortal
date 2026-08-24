@@ -72,30 +72,33 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class PaymentCreateDto
+    // Step 3 of checkout: start a payment attempt. Amount/Currency/CollectedBy/Status are never
+    // taken from the client — PaymentConfirmationService fills those in from the booking itself.
+    public class PaymentInitiateDto
     {
         public Guid BookingId { get; set; }
-        public Guid? PaymentProviderId { get; set; }
+        public string HoldToken { get; set; } = string.Empty;
         public PaymentMethod Method { get; set; }
-        public PaymentGateway Gateway { get; set; } = PaymentGateway.None;
-        public MoneyCollectedBy CollectedBy { get; set; } = MoneyCollectedBy.Platform;
+        public Guid? PaymentProviderId { get; set; }
+    }
+
+    // Step 4: what the payment gateway reports back once it's done. Note there's no Status
+    // field here on purpose — which endpoint you call (Confirm vs Fail) is what decides the
+    // outcome, so it can't be spoofed by just sending a different Status value.
+    // TODO: once a real gateway is wired in, this is where its callback signature gets verified
+    // before any of this is trusted.
+    public class PaymentGatewayResultDto
+    {
+        public string HoldToken { get; set; } = string.Empty;
         public string? GatewayTransactionId { get; set; }
-        public string? MerchantInvoiceNumber { get; set; }
-        public decimal Amount { get; set; }
         public decimal GatewayFeeAmount { get; set; }
-        public decimal NetReceivedAmount { get; set; }
-        public string Currency { get; set; } = "BDT";
-        public PaymentStatus Status { get; set; } = PaymentStatus.Initiated;
-        public DateTime TransactionDateUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? PaidAtUtc { get; set; }
-        public DateTime? FailedAtUtc { get; set; }
         public string? GatewayResponseJson { get; set; }
     }
 
-    public class PaymentUpdateDto : PaymentCreateDto
+    public class PaymentFailDto
     {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+        public string HoldToken { get; set; } = string.Empty;
+        public string? Reason { get; set; }
     }
 
     public class PaymentResponseDto

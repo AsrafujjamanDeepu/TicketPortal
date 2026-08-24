@@ -50,23 +50,16 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // Everything about WHEN a hold starts/expires, its token, and its Status is decided by
+    // SeatHoldService — never by the client. The client only says which seats it wants.
     public class SeatHoldCreateDto
     {
         public Guid TripId { get; set; }
-        public Guid? HeldByUserId { get; set; }
-        public string HoldToken { get; set; } = string.Empty;
-        public DateTime HoldStartedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime HoldExpiresAtUtc { get; set; }
-        public SeatHoldStatus Status { get; set; } = SeatHoldStatus.Active;
-        public string? ClientIpAddress { get; set; }
-        public string? UserAgent { get; set; }
+        public List<Guid> TripSeatIds { get; set; } = new();
     }
 
-    public class SeatHoldUpdateDto : SeatHoldCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
+    // No SeatHoldUpdateDto / raw PUT on purpose: a hold's Status only ever moves through
+    // SeatHoldService (Create → hold, Release, or the expiry sweep) — see SeatHoldsController.
 
     public class SeatHoldResponseDto
     {
@@ -77,6 +70,10 @@ namespace TicketPortal.Api.DTO
         public DateTime HoldStartedAtUtc { get; set; } = DateTime.UtcNow;
         public DateTime HoldExpiresAtUtc { get; set; }
         public SeatHoldStatus Status { get; set; } = SeatHoldStatus.Active;
+
+        // Convenience for the front-end's countdown timer — 0 once the hold is no longer Active.
+        public int SecondsRemaining { get; set; }
+
         public string? ClientIpAddress { get; set; }
         public string? UserAgent { get; set; }
         public DateTime CreatedAtUtc { get; set; }
@@ -84,19 +81,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class SeatHoldItemCreateDto
-    {
-        public Guid SeatHoldId { get; set; }
-        public Guid TripSeatId { get; set; }
-        public decimal FareAtHold { get; set; }
-    }
-
-    public class SeatHoldItemUpdateDto : SeatHoldItemCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO for SeatHoldItem: items are written only as a side effect of
+    // SeatHoldService.HoldSeatsAsync. SeatHoldItemsController is read-only.
     public class SeatHoldItemResponseDto
     {
         public Guid Id { get; set; }
@@ -108,31 +94,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class TicketCreateDto
-    {
-        public Guid BookingId { get; set; }
-        public Guid BookingPassengerId { get; set; }
-        public Guid TripId { get; set; }
-        public Guid TripSeatId { get; set; }
-        public string TicketNumber { get; set; } = string.Empty;
-        public string? ExternalTicketKey { get; set; }
-        public string SeatNumberSnapshot { get; set; } = string.Empty;
-        public string QrCodePayload { get; set; } = string.Empty;
-        public decimal Fare { get; set; }
-        public decimal DiscountAmount { get; set; }
-        public decimal FinalFare { get; set; }
-        public TicketStatus Status { get; set; } = TicketStatus.PendingPayment;
-        public DateTime? IssuedAtUtc { get; set; }
-        public DateTime? CheckedInAtUtc { get; set; }
-        public DateTime? CancelledAtUtc { get; set; }
-    }
-
-    public class TicketUpdateDto : TicketCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO for Ticket: tickets are issued only by PaymentConfirmationService
+    // the moment an online payment is confirmed. TicketsController is read-only.
     public class TicketResponseDto
     {
         public Guid Id { get; set; }

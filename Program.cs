@@ -123,6 +123,9 @@ builder.Services.AddCors(options =>
 builder.Services.AddScoped<SeatHoldService>();
 builder.Services.AddScoped<FinanceLedgerService>();
 builder.Services.AddScoped<CustomerWalletService>();
+// Orchestrates SeatHoldService + FinanceLedgerService for the online payment-confirmation
+// flow — see Services/PaymentConfirmationService.cs.
+builder.Services.AddScoped<PaymentConfirmationService>();
 
 builder.Services.AddHostedService<SeatHoldExpirySweepService>();
 
