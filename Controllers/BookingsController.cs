@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TicketPortal.Api.Models.Bookings;
+using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -40,6 +41,7 @@ namespace TicketPortal.Api.Controllers
 
             var booking = new Booking
             {
+                CustomerProfileId = await ResolveOrCreateCustomerProfileIdAsync(),
                 BusOperatorId = trip.BusOperatorId,
                 TripId = dto.TripId,
                 BoardingTerminalId = dto.BoardingTerminalId,
@@ -255,6 +257,31 @@ namespace TicketPortal.Api.Controllers
 
         private static string GeneratePnr() =>
             "PNR" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+
+        // A booking is always made by a customer, so this is the right place to lazily
+        // provision a CustomerProfile — nothing does it at registration time, since
+        // AccountController.Register is shared by customers and staff alike (see
+        // ApplicationUser's comment: only one of CustomerProfile/StaffProfile gets filled in).
+        // Without this, Booking.CustomerProfileId stayed null forever, so
+        // PaymentsController/TicketsController could never scope "my own" records to a
+        // real customer.
+        private async Task<Guid?> ResolveOrCreateCustomerProfileIdAsync()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(claim, out var userId)) return null;
+
+            var existingId = await db.CustomerProfiles
+                .Where(cp => cp.UserId == userId)
+                .Select(cp => (Guid?)cp.Id)
+                .FirstOrDefaultAsync();
+
+            if (existingId != null) return existingId;
+
+            var profile = new Models.People.CustomerProfile { UserId = userId };
+            db.CustomerProfiles.Add(profile);
+            await db.SaveChangesAsync();
+            return profile.Id;
+        }
 
         private static BookingResponseDto ToResponseDto(Booking booking) => new()
         {

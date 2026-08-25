@@ -3,6 +3,7 @@ using TicketPortal.Api.Models.Identity;
 using TicketPortal.Api.Services;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -126,6 +127,9 @@ builder.Services.AddScoped<CustomerWalletService>();
 // Orchestrates SeatHoldService + FinanceLedgerService for the online payment-confirmation
 // flow — see Services/PaymentConfirmationService.cs.
 builder.Services.AddScoped<PaymentConfirmationService>();
+// Orchestrates FinanceLedgerService + CustomerWalletService for the refund workflow — see
+// Services/RefundProcessingService.cs.
+builder.Services.AddScoped<RefundProcessingService>();
 
 builder.Services.AddHostedService<SeatHoldExpirySweepService>();
 
@@ -173,6 +177,45 @@ builder.Services.AddSwaggerGen(options =>
 
 
 var app = builder.Build();
+
+
+// ============================================================
+// 6.5. Global Exception Handling
+// ============================================================
+
+// This has to be one of the very first things registered so it wraps every other middleware
+// and every controller below it. Before this existed, any exception a controller didn't
+// explicitly catch (like the DbUpdateException from SeatHoldService hitting a bad tripId)
+// propagated all the way up as a raw, "User-Unhandled" crash instead of a clean response.
+// Known/expected exception types get a specific status code; anything truly unexpected still
+// gets a safe generic 500 — full exception detail only in Development, never in production.
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+
+        var (statusCode, message) = exception switch
+        {
+            SeatsUnavailableException ex => (StatusCodes.Status409Conflict, ex.Message),
+            ArgumentException ex => (StatusCodes.Status400BadRequest, ex.Message),
+            InvalidOperationException ex => (StatusCodes.Status400BadRequest, ex.Message),
+            DbUpdateException => (StatusCodes.Status500InternalServerError,
+                "A database error occurred while saving your changes."),
+            _ => (StatusCodes.Status500InternalServerError,
+                "An unexpected error occurred. Please try again.")
+        };
+
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+
+        object body = app.Environment.IsDevelopment() && exception is not null
+            ? new { message, detail = exception.ToString() }
+            : new { message };
+
+        await context.Response.WriteAsJsonAsync(body);
+    });
+});
 
 
 // ============================================================

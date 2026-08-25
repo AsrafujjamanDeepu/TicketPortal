@@ -1,0 +1,158 @@
+using TicketPortal.Api.Data;
+using TicketPortal.Api.Models.Enums;
+using TicketPortal.Api.Models.Payments;
+using Microsoft.EntityFrameworkCore;
+
+namespace TicketPortal.Api.Services
+{
+    // Orchestrates a Refund from Requested through to Succeeded/Failed. Before this existed,
+    // RefundsController let any authenticated user set Status straight to Succeeded with a
+    // made-up GatewayRefundReference — this is what makes a refund's status actually mean
+    // "money really moved", by routing it through FinanceLedgerService (adjusts what the
+    // operator is owed) and CustomerWalletService (actually gives the customer their money
+    // back — the only real "send money to a customer" mechanism this project has today, since
+    // no payment gateway is wired in to refund the original card/mobile-banking payment).
+    public class RefundProcessingService
+    {
+        private readonly AppDbContext _db;
+        private readonly FinanceLedgerService _financeLedgerService;
+        private readonly CustomerWalletService _customerWalletService;
+
+        public RefundProcessingService(
+            AppDbContext db,
+            FinanceLedgerService financeLedgerService,
+            CustomerWalletService customerWalletService)
+        {
+            _db = db;
+            _financeLedgerService = financeLedgerService;
+            _customerWalletService = customerWalletService;
+        }
+
+        // A staff review step before any money moves — matches the business plan's "financing
+        // and accounting" checks rather than letting a refund pay itself out unreviewed.
+        public async Task ApproveAsync(Guid refundId, string? remarks)
+        {
+            var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
+                ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
+
+            if (refund.Status != RefundStatus.Requested)
+            {
+                throw new InvalidOperationException(
+                    $"Refund {refundId} is {refund.Status}; only a Requested refund can be approved.");
+            }
+
+            refund.Status = RefundStatus.Approved;
+            refund.UpdatedAtUtc = DateTime.UtcNow;
+
+            _db.RefundHistories.Add(new RefundHistory
+            {
+                RefundId = refund.Id,
+                Status = RefundStatus.Approved,
+                Remarks = remarks ?? "Refund approved."
+            });
+
+            await _db.SaveChangesAsync();
+        }
+
+        public async Task RejectAsync(Guid refundId, string reason)
+        {
+            var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
+                ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
+
+            if (refund.Status is RefundStatus.Succeeded or RefundStatus.Rejected)
+            {
+                throw new InvalidOperationException(
+                    $"Refund {refundId} is already {refund.Status} and cannot be rejected.");
+            }
+
+            refund.Status = RefundStatus.Rejected;
+            refund.UpdatedAtUtc = DateTime.UtcNow;
+
+            _db.RefundHistories.Add(new RefundHistory
+            {
+                RefundId = refund.Id,
+                Status = RefundStatus.Rejected,
+                Remarks = reason
+            });
+
+            await _db.SaveChangesAsync();
+        }
+
+        // The step that actually moves money. Two separate service calls, each with its own
+        // transaction (FinanceLedgerService and CustomerWalletService each manage their own,
+        // by design — see their own file comments) — so this isn't fully atomic across both:
+        // if the ledger post succeeds but the wallet credit then fails, the operator's side is
+        // already adjusted while the customer hasn't been paid yet. That gap is flagged here
+        // rather than hidden; a real production system would want an outbox/saga pattern to
+        // close it. For now, a Failed status after a partial failure is a deliberate signal to
+        // go check both sides by hand rather than silently trusting either one.
+        public async Task ProcessAsync(Guid refundId)
+        {
+            var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
+                ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
+
+            if (refund.Status != RefundStatus.Approved)
+            {
+                throw new InvalidOperationException(
+                    $"Refund {refundId} is {refund.Status}; only an Approved refund can be processed.");
+            }
+
+            var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == refund.BookingId)
+                ?? throw new InvalidOperationException($"Booking for refund {refundId} no longer exists.");
+
+            refund.Status = RefundStatus.Processing;
+            _db.RefundHistories.Add(new RefundHistory
+            {
+                RefundId = refund.Id,
+                Status = RefundStatus.Processing,
+                Remarks = "Refund processing started."
+            });
+            await _db.SaveChangesAsync();
+
+            try
+            {
+                await _financeLedgerService.PostRefundAsync(
+                    refund.BookingId, refund.Id, booking.BusOperatorId, refund.Amount, refund.Currency);
+
+                if (booking.CustomerProfileId.HasValue)
+                {
+                    await _customerWalletService.CreditAsync(
+                        booking.CustomerProfileId.Value,
+                        refund.Amount,
+                        CustomerWalletTransactionType.RefundCredit,
+                        bookingId: booking.Id,
+                        refundId: refund.Id,
+                        description: $"Refund for booking {booking.Pnr}",
+                        currency: refund.Currency);
+                }
+                // Guest checkout (no CustomerProfile) has no wallet to credit. There's no
+                // payment-gateway refund integration yet either, so a guest refund currently
+                // posts to the operator ledger but has no automated way to actually pay the
+                // guest back — flagged, not solved, until a gateway is wired in.
+
+                refund.Status = RefundStatus.Succeeded;
+                refund.RefundedAtUtc = DateTime.UtcNow;
+                _db.RefundHistories.Add(new RefundHistory
+                {
+                    RefundId = refund.Id,
+                    Status = RefundStatus.Succeeded,
+                    Remarks = "Refund completed."
+                });
+            }
+            catch (Exception ex)
+            {
+                refund.Status = RefundStatus.Failed;
+                _db.RefundHistories.Add(new RefundHistory
+                {
+                    RefundId = refund.Id,
+                    Status = RefundStatus.Failed,
+                    Remarks = $"Refund failed: {ex.Message}"
+                });
+                await _db.SaveChangesAsync();
+                throw;
+            }
+
+            await _db.SaveChangesAsync();
+        }
+    }
+}

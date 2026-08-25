@@ -253,24 +253,17 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class RefundCreateDto
+    // No RefundCreateDto: a Refund is only ever created automatically (by
+    // PaymentConfirmationService today, CancellationRequest handling later) — never directly
+    // by a client. From there it only moves via these two actions, or Process (no body needed).
+    public class RefundApproveDto
     {
-        public Guid BookingId { get; set; }
-        public Guid PaymentId { get; set; }
-        public Guid? CancellationRequestId { get; set; }
-        public decimal Amount { get; set; }
-        public string Currency { get; set; } = "BDT";
-        public RefundStatus Status { get; set; } = RefundStatus.Requested;
-        public string Reason { get; set; } = string.Empty;
-        public string? GatewayRefundReference { get; set; }
-        public DateTime RequestedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? RefundedAtUtc { get; set; }
+        public string? Remarks { get; set; }
     }
 
-    public class RefundUpdateDto : RefundCreateDto
+    public class RefundRejectDto
     {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+        public string Reason { get; set; } = string.Empty;
     }
 
     public class RefundResponseDto
@@ -291,20 +284,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class RefundHistoryCreateDto
-    {
-        public Guid RefundId { get; set; }
-        public RefundStatus Status { get; set; }
-        public DateTime ChangedAtUtc { get; set; } = DateTime.UtcNow;
-        public string? Remarks { get; set; }
-    }
-
-    public class RefundHistoryUpdateDto : RefundHistoryCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO for RefundHistory either: it's written only by
+    // RefundProcessingService. RefundHistoriesController is read-only.
     public class RefundHistoryResponseDto
     {
         public Guid Id { get; set; }

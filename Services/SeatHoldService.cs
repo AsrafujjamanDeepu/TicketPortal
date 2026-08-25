@@ -57,6 +57,15 @@ namespace TicketPortal.Api.Services
                 throw new ArgumentException("At least one seat must be selected.", nameof(tripSeatIds));
             }
 
+            // Without this check, a bad/typo'd tripId doesn't fail until the SaveChangesAsync
+            // below, as a raw foreign-key-violation DbUpdateException — much harder to turn
+            // into a clean 4xx response than a check we control right here.
+            var tripExists = await _db.Trips.AnyAsync(t => t.Id == tripId);
+            if (!tripExists)
+            {
+                throw new InvalidOperationException($"Trip {tripId} does not exist.");
+            }
+
             var now = DateTime.UtcNow;
 
             // Create the hold "envelope" first — the actual timer (3/5 minutes, from holdMinutes).
@@ -75,7 +84,19 @@ namespace TicketPortal.Api.Services
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
             _db.SeatHolds.Add(hold);
-            await _db.SaveChangesAsync();
+
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                // Covers anything the upfront checks above didn't catch (e.g. HeldByUserId
+                // pointing at a user that no longer exists) — turns a raw SQL exception into
+                // something a controller can translate to a clean 4xx instead of a 500.
+                throw new InvalidOperationException(
+                    "Could not create the seat hold — one of the referenced records may no longer exist.", ex);
+            }
 
             // The important line: try to flip every requested seat to Held, but only the ones
             // that are still Available. If "affected" comes back smaller than the number of

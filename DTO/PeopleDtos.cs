@@ -108,24 +108,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class CustomerWalletTransactionCreateDto
-    {
-        public Guid CustomerProfileId { get; set; }
-        public Guid? BookingId { get; set; }
-        public Guid? RefundId { get; set; }
-        public CustomerWalletTransactionType TransactionType { get; set; }
-        public decimal Amount { get; set; }
-        public decimal BalanceAfter { get; set; }
-        public string Currency { get; set; } = "BDT";
-        public string? Description { get; set; }
-    }
-
-    public class CustomerWalletTransactionUpdateDto : CustomerWalletTransactionCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: CustomerWalletService.CreditAsync/DebitAsync is the only writer,
+    // and it always writes the balance change and this row together. CustomerWalletTransactionsController
+    // is read-only.
     public class CustomerWalletTransactionResponseDto
     {
         public Guid Id { get; set; }

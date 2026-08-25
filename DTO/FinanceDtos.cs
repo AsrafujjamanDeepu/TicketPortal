@@ -348,29 +348,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class OperatorWalletCreateDto
-    {
-        public Guid BusOperatorId { get; set; }
-        public decimal TotalOnlineSalesAmount { get; set; }
-        public decimal TotalCounterSalesAmount { get; set; }
-        public decimal PendingSettlementBalance { get; set; }
-        public decimal AvailablePayoutBalance { get; set; }
-        public decimal WithdrawnAmount { get; set; }
-        public decimal TotalPlatformCommission { get; set; }
-        public decimal TotalGatewayCharge { get; set; }
-        public decimal OperatorReceivableFromPlatform { get; set; }
-        public decimal PlatformReceivableFromOperator { get; set; }
-        public DateTime? LastStatementDateUtc { get; set; }
-        public DateTime? LastSettlementDateUtc { get; set; }
-        public bool IsActive { get; set; } = true;
-    }
-
-    public class OperatorWalletUpdateDto : OperatorWalletCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO for OperatorWallet: FinanceLedgerService is the only writer.
+    // OperatorWalletsController is read-only.
     public class OperatorWalletResponseDto
     {
         public Guid Id { get; set; }
@@ -392,29 +371,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class PlatformLedgerCreateDto
-    {
-        public Guid? BookingId { get; set; }
-        public Guid? PaymentId { get; set; }
-        public Guid? RefundId { get; set; }
-        public Guid? BusOperatorId { get; set; }
-        public Guid? OperatorSettlementId { get; set; }
-        public string LedgerNo { get; set; } = string.Empty;
-        public StatementItemType ItemType { get; set; }
-        public SaleChannel? SaleChannel { get; set; }
-        public decimal DebitAmount { get; set; }
-        public decimal CreditAmount { get; set; }
-        public string Currency { get; set; } = "BDT";
-        public string? ReferenceNo { get; set; }
-        public string? Description { get; set; }
-    }
-
-    public class PlatformLedgerUpdateDto : PlatformLedgerCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO for PlatformLedger: it's an append-only diary, and
+    // FinanceLedgerService is the only writer. PlatformLedgersController is read-only.
     public class PlatformLedgerResponseDto
     {
         public Guid Id { get; set; }
