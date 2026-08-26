@@ -292,7 +292,9 @@ namespace TicketPortal.Api.Controllers
             var policy = await db.CancellationPolicies.FindAsync(id);
             if (policy == null) return NotFound();
             if (!await CanManagePolicyOperatorAsync(policy.BusOperatorId)) return Forbid();
-            if (file == null || file.Length == 0) return BadRequest("No file uploaded");
+
+            var validationError = TicketPortal.Api.Extensions.FileUploadValidation.Validate(file);
+            if (validationError != null) return validationError;
 
             var fileName = $"policy_{id}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
             var path = Path.Combine(env.WebRootPath!, "images", fileName);

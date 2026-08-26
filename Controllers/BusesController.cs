@@ -321,7 +321,9 @@ namespace TicketPortal.Api.Controllers
             var bus = await db.Buses.Include(b => b.Images).FirstOrDefaultAsync(b => b.Id == id);
             if (bus == null) return NotFound();
             if (!await CanManageOperatorAsync(bus.BusOperatorId)) return Forbid();
-            if (file == null || file.Length == 0) return BadRequest("No file uploaded");
+
+            var validationError = TicketPortal.Api.Extensions.FileUploadValidation.Validate(file);
+            if (validationError != null) return validationError;
 
             var fileName = $"bus_{id}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
             var path = Path.Combine(env.WebRootPath!, "images", fileName);

@@ -430,7 +430,9 @@ namespace TicketPortal.Api.Controllers
             var passenger = await db.BookingPassengers
                 .FirstOrDefaultAsync(p => p.Id == passengerId && p.BookingId == bookingId);
             if (passenger == null) return NotFound();
-            if (file == null || file.Length == 0) return BadRequest("No file uploaded");
+
+            var validationError = TicketPortal.Api.Extensions.FileUploadValidation.Validate(file);
+            if (validationError != null) return validationError;
 
             var fileName = $"passenger_{passengerId}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
             var path = Path.Combine(env.WebRootPath!, "images", fileName);

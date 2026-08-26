@@ -52,12 +52,22 @@ namespace TicketPortal.Api.Services
             // all racing to grab at once the way a seat is. The worst case (two clicks from the
             // very same customer at almost the same instant) is rare and low-stakes compared to
             // double-selling a physical seat.
+            // FirstOrDefaultAsync + explicit null check instead of SingleAsync(): SingleAsync
+            // throws "Sequence contains no elements" (via InvalidOperationException) if the
+            // CustomerProfileId doesn't exist, which the global handler still returns as a 400,
+            // but with a message that doesn't say what actually went wrong. This gives a clear,
+            // actionable message instead.
             var current = await _db.CustomerProfiles
                 .Where(c => c.Id == customerProfileId)
-                .Select(c => c.WalletBalance)
-                .SingleAsync();
+                .Select(c => (decimal?)c.WalletBalance)
+                .FirstOrDefaultAsync();
 
-            var newBalance = current + signedAmount;
+            if (current is null)
+            {
+                throw new InvalidOperationException($"CustomerProfile {customerProfileId} does not exist.");
+            }
+
+            var newBalance = current.Value + signedAmount;
             if (newBalance < 0)
             {
                 throw new InvalidOperationException("Insufficient wallet balance.");

@@ -440,7 +440,9 @@ namespace TicketPortal.Api.Controllers
             var op = await db.BusOperators.FindAsync(id);
             if (op == null) return NotFound(new { message = "BusOperator not found." });
             if (!await CanManageOperatorAsync(op.Id)) return Forbid();
-            if (file == null || file.Length == 0) return BadRequest(new { message = "No file uploaded." });
+
+            var validationError = TicketPortal.Api.Extensions.FileUploadValidation.Validate(file);
+            if (validationError != null) return validationError;
 
             // wwwroot check
             if (string.IsNullOrEmpty(env.WebRootPath)) return StatusCode(500, new { message = "WebRootPath is not configured." });

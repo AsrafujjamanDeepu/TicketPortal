@@ -200,7 +200,14 @@ var app = builder.Build();
 // explicitly catch (like the DbUpdateException from SeatHoldService hitting a bad tripId)
 // propagated all the way up as a raw, "User-Unhandled" crash instead of a clean response.
 // Known/expected exception types get a specific status code; anything truly unexpected still
-// gets a safe generic 500 — full exception detail only in Development, never in production.
+// gets a safe generic 500.
+//
+// The full exception (stack trace, file paths, line numbers) is ALWAYS logged server-side via
+// ILogger and NEVER put in the HTTP response body — not even in Development. It used to be
+// included when app.Environment.IsDevelopment() was true, which meant anyone watching the
+// network tab, Swagger, or a frontend that just prints the error text (which is the default
+// launchSettings.json environment) would see raw C# internals. Logging still gives you every
+// detail you need while debugging — just check the console/log output instead of the response.
 app.UseExceptionHandler(errorApp =>
 {
     errorApp.Run(async context =>
@@ -218,14 +225,17 @@ app.UseExceptionHandler(errorApp =>
                 "An unexpected error occurred. Please try again.")
         };
 
+        if (exception is not null)
+        {
+            app.Logger.LogError(exception,
+                "Unhandled exception while processing {Method} {Path}",
+                context.Request.Method, context.Request.Path);
+        }
+
         context.Response.StatusCode = statusCode;
         context.Response.ContentType = "application/json";
 
-        object body = app.Environment.IsDevelopment() && exception is not null
-            ? new { message, detail = exception.ToString() }
-            : new { message };
-
-        await context.Response.WriteAsJsonAsync(body);
+        await context.Response.WriteAsJsonAsync(new { message });
     });
 });
 
@@ -245,14 +255,31 @@ using (var scope = app.Services.CreateScope())
     var userManager =
         scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-    await db.Database.MigrateAsync();
+    var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
-    await DbSeeder.SeedReferenceDataAsync(db);
+    // Unguarded before: if SQL Server/LocalDB wasn't reachable when the app started, this
+    // failed with a raw, unhandled crash dump in the console and the app never came up — no
+    // clear indication of WHY. The app still can't do anything useful without its database, so
+    // this still fails fast (rethrows), but now with one obvious, human-readable line telling
+    // you exactly what to check instead of a wall of stack trace.
+    try
+    {
+        await db.Database.MigrateAsync();
 
-    // Piece 1: real roles + a bootstrap Admin account. Must run in this order — the Admin
-    // user's role assignment below depends on the "Admin" role already existing.
-    await DbSeeder.SeedRolesAsync(roleManager);
-    await DbSeeder.SeedAdminUserAsync(userManager);
+        await DbSeeder.SeedReferenceDataAsync(db);
+
+        // Piece 1: real roles + a bootstrap Admin account. Must run in this order — the Admin
+        // user's role assignment below depends on the "Admin" role already existing.
+        await DbSeeder.SeedRolesAsync(roleManager);
+        await DbSeeder.SeedAdminUserAsync(userManager);
+    }
+    catch (Exception ex)
+    {
+        startupLogger.LogCritical(ex,
+            "Startup failed while migrating/seeding the database. " +
+            "Is SQL Server / LocalDB running and is the connection string in appsettings.json correct?");
+        throw;
+    }
 }
 
 
