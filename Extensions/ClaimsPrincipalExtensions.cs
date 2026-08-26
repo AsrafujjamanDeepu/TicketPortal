@@ -7,7 +7,10 @@ namespace TicketPortal.Api.Extensions
     // The operator-scoping pattern from the Completion Plan (Section 2), lifted into one shared
     // helper so Pieces 5 and 6 don't each reimplement it slightly differently. Every controller
     // that needs to tell "sees everything" apart from "only this one operator's own rows" calls
-    // this after already gating on User.IsInRole("Admin"/"Staff") — see usage note below.
+    // this after already gating on User.IsInRole("Admin"/"Staff"/"Operator") — see usage note
+    // below. (Corrected during Piece 5: CreateStaffAccountDto in AdminDtos.cs is explicit that
+    // "Operator" — not "Staff" — is the actual login role for an operator's own staff, so a gate
+    // that only checked Admin/Staff would lock every legitimate operator account out entirely.)
     public static class ClaimsPrincipalExtensions
     {
         // Returns:
@@ -21,7 +24,7 @@ namespace TicketPortal.Api.Extensions
         // It's safe that "no profile" and "platform staff" collapse to the same null result —
         // this method only decides HOW MUCH access to grant, never WHETHER to grant any. Every
         // caller is expected to have already rejected plain Customer accounts with an
-        // IsInRole("Admin"/"Staff") check before ever calling this.
+        // IsInRole("Admin"/"Staff"/"Operator") check before ever calling this.
         public static async Task<Guid?> GetBusOperatorIdAsync(this ClaimsPrincipal user, AppDbContext db)
         {
             var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
