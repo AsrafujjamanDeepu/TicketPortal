@@ -78,23 +78,28 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // --- Piece 3: Settlement, Invoicing & Payouts ---
+    // Every write in this domain now goes through a service (SettlementGenerationService,
+    // PayoutProcessingService, InvoicePaymentService) instead of a generic PUT — see those
+    // classes for why. Status, computed totals, and generated numbers (SettlementNo/StatementNo/
+    // InvoiceNo/PayoutNo) are never client-settable; they're system-assigned or derived from real
+    // events (receipts received, ledger rows swept up), matching the "DTOs never expose a
+    // client-settable Status/computed total" convention used throughout this codebase.
+
     public class OperatorInvoiceCreateDto
     {
         public Guid BusOperatorId { get; set; }
         public Guid? OperatorStatementId { get; set; }
-        public string InvoiceNo { get; set; } = string.Empty;
         public DateOnly InvoiceDate { get; set; }
         public DateOnly? DueDate { get; set; }
         public SettlementDirection Direction { get; set; }
         public decimal Amount { get; set; }
         public string Currency { get; set; } = "BDT";
-        public InvoiceStatus Status { get; set; } = InvoiceStatus.Draft;
     }
 
-    public class OperatorInvoiceUpdateDto : OperatorInvoiceCreateDto
+    public class OperatorInvoiceActionDto
     {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+        public string Reason { get; set; } = string.Empty;
     }
 
     public class OperatorInvoiceResponseDto
@@ -117,17 +122,10 @@ namespace TicketPortal.Api.DTO
     public class OperatorPaymentReceiptCreateDto
     {
         public Guid OperatorInvoiceId { get; set; }
-        public DateTime ReceivedAtUtc { get; set; } = DateTime.UtcNow;
         public decimal Amount { get; set; }
         public string Currency { get; set; } = "BDT";
         public string? ReferenceNo { get; set; }
         public string? Notes { get; set; }
-    }
-
-    public class OperatorPaymentReceiptUpdateDto : OperatorPaymentReceiptCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
     public class OperatorPaymentReceiptResponseDto
@@ -148,19 +146,19 @@ namespace TicketPortal.Api.DTO
     {
         public Guid BusOperatorId { get; set; }
         public Guid? OperatorSettlementId { get; set; }
-        public string PayoutNo { get; set; } = string.Empty;
         public decimal Amount { get; set; }
         public string Currency { get; set; } = "BDT";
-        public PayoutStatus Status { get; set; } = PayoutStatus.Pending;
-        public DateTime? PaidAtUtc { get; set; }
-        public string? BankTransactionReference { get; set; }
         public string? Notes { get; set; }
     }
 
-    public class OperatorPayoutUpdateDto : OperatorPayoutCreateDto
+    public class OperatorPayoutCompleteDto
     {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+        public string BankTransactionReference { get; set; } = string.Empty;
+    }
+
+    public class OperatorPayoutActionDto
+    {
+        public string Reason { get; set; } = string.Empty;
     }
 
     public class OperatorPayoutResponseDto
@@ -180,30 +178,19 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class OperatorSettlementCreateDto
+    // Drives SettlementGenerationService.GenerateSettlementAsync — the "run settlement for this
+    // operator and date range" action that replaces raw OperatorSettlement CRUD entirely.
+    public class SettlementGenerateDto
     {
         public Guid BusOperatorId { get; set; }
-        public Guid? OperatorStatementId { get; set; }
-        public Guid? OperatorInvoiceId { get; set; }
-        public string SettlementNo { get; set; } = string.Empty;
         public DateOnly FromDate { get; set; }
         public DateOnly ToDate { get; set; }
-        public SettlementDirection Direction { get; set; } = SettlementDirection.PlatformPaysOperator;
-        public SettlementStatus Status { get; set; } = SettlementStatus.Draft;
-        public decimal OnlineGrossAmount { get; set; }
-        public decimal OfflineGrossAmount { get; set; }
-        public decimal PlatformCharge { get; set; }
-        public decimal GatewayCharge { get; set; }
-        public decimal RefundAmount { get; set; }
-        public decimal NetAmount { get; set; }
-        public DateTime? PaidAtUtc { get; set; }
         public string? Remarks { get; set; }
     }
 
-    public class OperatorSettlementUpdateDto : OperatorSettlementCreateDto
+    public class SettlementApproveDto
     {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+        public string? Remarks { get; set; }
     }
 
     public class OperatorSettlementResponseDto
@@ -230,27 +217,16 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class OperatorSettlementItemCreateDto
+    // GetById returns this richer shape — the line-by-line breakdown behind the settlement's
+    // headline totals, for a single request instead of a second round trip to
+    // OperatorSettlementItemsController.
+    public class OperatorSettlementDetailResponseDto : OperatorSettlementResponseDto
     {
-        public Guid OperatorSettlementId { get; set; }
-        public Guid? BookingId { get; set; }
-        public Guid? TicketId { get; set; }
-        public Guid? PlatformLedgerId { get; set; }
-        public StatementItemType ItemType { get; set; }
-        public SaleChannel SaleChannel { get; set; }
-        public decimal TicketFare { get; set; }
-        public decimal PlatformCharge { get; set; }
-        public decimal GatewayCharge { get; set; }
-        public decimal RefundAmount { get; set; }
-        public decimal NetAmount { get; set; }
+        public List<OperatorSettlementItemResponseDto> Items { get; set; } = new();
     }
 
-    public class OperatorSettlementItemUpdateDto : OperatorSettlementItemCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: every row is written by SettlementGenerationService as part of
+    // generating its parent settlement. OperatorSettlementItemsController is read-only.
     public class OperatorSettlementItemResponseDto
     {
         public Guid Id { get; set; }
@@ -270,25 +246,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class OperatorStatementCreateDto
-    {
-        public Guid BusOperatorId { get; set; }
-        public string StatementNo { get; set; } = string.Empty;
-        public DateOnly FromDate { get; set; }
-        public DateOnly ToDate { get; set; }
-        public decimal PlatformPayableToOperator { get; set; }
-        public decimal OperatorPayableToPlatform { get; set; }
-        public decimal NetAmount { get; set; }
-        public SettlementDirection NetDirection { get; set; } = SettlementDirection.PlatformPaysOperator;
-        public SettlementStatus Status { get; set; } = SettlementStatus.Draft;
-    }
-
-    public class OperatorStatementUpdateDto : OperatorStatementCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: an OperatorStatement is generated alongside its settlement by
+    // SettlementGenerationService, never created by hand. OperatorStatementsController is
+    // read-only — see the design note at the top of SettlementGenerationService.cs.
     public class OperatorStatementResponseDto
     {
         public Guid Id { get; set; }
@@ -306,28 +266,13 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class OperatorStatementItemCreateDto
+    public class OperatorStatementDetailResponseDto : OperatorStatementResponseDto
     {
-        public Guid OperatorStatementId { get; set; }
-        public Guid? BookingId { get; set; }
-        public Guid? TicketId { get; set; }
-        public Guid? PaymentId { get; set; }
-        public Guid? RefundId { get; set; }
-        public Guid? PlatformLedgerId { get; set; }
-        public StatementItemType ItemType { get; set; }
-        public SaleChannel SaleChannel { get; set; }
-        public decimal DebitAmount { get; set; }
-        public decimal CreditAmount { get; set; }
-        public string Currency { get; set; } = "BDT";
-        public string? Description { get; set; }
+        public List<OperatorStatementItemResponseDto> Items { get; set; } = new();
     }
 
-    public class OperatorStatementItemUpdateDto : OperatorStatementItemCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: written only by SettlementGenerationService, one row per ledger
+    // entry swept into the parent statement. OperatorStatementItemsController is read-only.
     public class OperatorStatementItemResponseDto
     {
         public Guid Id { get; set; }

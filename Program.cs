@@ -134,6 +134,11 @@ builder.Services.AddScoped<RefundProcessingService>();
 // Refund row on approval and handing it off to RefundProcessingService from there — see
 // Services/CancellationProcessingService.cs.
 builder.Services.AddScoped<CancellationProcessingService>();
+// Settlement/payout/invoice batch — see Services/SettlementGenerationService.cs,
+// Services/PayoutProcessingService.cs, Services/InvoicePaymentService.cs.
+builder.Services.AddScoped<SettlementGenerationService>();
+builder.Services.AddScoped<PayoutProcessingService>();
+builder.Services.AddScoped<InvoicePaymentService>();
 
 builder.Services.AddHostedService<SeatHoldExpirySweepService>();
 
@@ -231,9 +236,20 @@ using (var scope = app.Services.CreateScope())
     var db =
         scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+    var roleManager =
+        scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+
+    var userManager =
+        scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
     await db.Database.MigrateAsync();
 
     await DbSeeder.SeedReferenceDataAsync(db);
+
+    // Piece 1: real roles + a bootstrap Admin account. Must run in this order — the Admin
+    // user's role assignment below depends on the "Admin" role already existing.
+    await DbSeeder.SeedRolesAsync(roleManager);
+    await DbSeeder.SeedAdminUserAsync(userManager);
 }
 
 
@@ -271,7 +287,7 @@ Directory.CreateDirectory(
 // ============================================================
 
 // Important:
-// WebRootPath এবং WebRootFileProvider দুটোই configure করছি।
+// WebRootPath and WebRootFileProvider both are configured
 
 app.Environment.WebRootFileProvider =
     new PhysicalFileProvider(
@@ -283,7 +299,7 @@ app.Environment.WebRootFileProvider =
 // 10. Static File Content Types
 // ============================================================
 
-// WebP, JPG, JPEG, PNG etc. support করার জন্য
+// WebP, JPG, JPEG, PNG etc. to support it.
 
 var contentTypeProvider =
     new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
