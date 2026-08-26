@@ -4,6 +4,7 @@ using TicketPortal.Api.Models.Bookings;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -11,6 +12,12 @@ namespace TicketPortal.Api.Controllers
     // BusOperatorId is nullable and NOT resolved from anything else — unlike Booking's
     // BusOperatorId (looked up from Trip), a policy can genuinely stand alone as a
     // platform-wide default with no operator at all.
+    //
+    // Authorization: previously Create/Update/Delete had NO role/ownership check whatsoever —
+    // any logged-in customer could create or edit a cancellation policy for any operator, or
+    // even a platform-wide (BusOperatorId == null) one. Writes are now operator-scoped: an
+    // operator's own staff may only manage their own operator's policies, never a null
+    // (platform-wide) one; platform Admin/Staff may manage any policy, including platform-wide.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -35,6 +42,26 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(CancellationPolicyCreateDto dto)
         {
+            // ----------------------------------------
+            // 1. Authorization — operator scoping
+            // ----------------------------------------
+            if (!await CanManagePolicyOperatorAsync(dto.BusOperatorId))
+            {
+                return Forbid();
+            }
+
+            // ----------------------------------------
+            // 2. Validate BusOperator if provided (Update already did this; Create hadn't)
+            // ----------------------------------------
+            if (dto.BusOperatorId.HasValue)
+            {
+                var operatorExists = await db.BusOperators.AnyAsync(o => o.Id == dto.BusOperatorId.Value);
+                if (!operatorExists)
+                {
+                    return BadRequest(new { message = "The specified BusOperatorId does not exist." });
+                }
+            }
+
             var policy = new CancellationPolicy
             {
                 BusOperatorId = dto.BusOperatorId,
@@ -75,6 +102,15 @@ namespace TicketPortal.Api.Controllers
                 {
                     message = "CancellationPolicy not found."
                 });
+            }
+
+            // ----------------------------------------
+            // 1a. Authorization — operator scoping, checked against both the policy's current
+            // BusOperatorId and dto.BusOperatorId (in case of an attempted reassignment)
+            // ----------------------------------------
+            if (!await CanManagePolicyOperatorAsync(policy.BusOperatorId) || !await CanManagePolicyOperatorAsync(dto.BusOperatorId))
+            {
+                return Forbid();
             }
 
             // ----------------------------------------
@@ -226,6 +262,8 @@ namespace TicketPortal.Api.Controllers
             var policy = await db.CancellationPolicies.Include(p => p.Rules).FirstOrDefaultAsync(p => p.Id == id);
             if (policy == null) return NotFound();
 
+            if (!await CanManagePolicyOperatorAsync(policy.BusOperatorId)) return Forbid();
+
             // CancellationPolicyRule is a pure detail of this policy — Restrict never cascades it.
             db.CancellationPolicyRules.RemoveRange(policy.Rules);
             db.CancellationPolicies.Remove(policy);
@@ -253,6 +291,7 @@ namespace TicketPortal.Api.Controllers
         {
             var policy = await db.CancellationPolicies.FindAsync(id);
             if (policy == null) return NotFound();
+            if (!await CanManagePolicyOperatorAsync(policy.BusOperatorId)) return Forbid();
             if (file == null || file.Length == 0) return BadRequest("No file uploaded");
 
             var fileName = $"policy_{id}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
@@ -311,5 +350,40 @@ namespace TicketPortal.Api.Controllers
                 })
                 .ToList()
             };
+
+        // =========================================================
+        // Auth helpers — duplicated per-controller (see the same note in TripsController)
+        // until Piece 1 introduces a shared ClaimsPrincipalExtensions.GetBusOperatorId helper.
+        // =========================================================
+
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
+
+        private async Task<Guid?> GetCallerBusOperatorIdAsync()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null) return null;
+
+            return await db.StaffProfiles
+                .Where(sp => sp.UserId == userId.Value)
+                .Select(sp => sp.BusOperatorId)
+                .FirstOrDefaultAsync();
+        }
+
+        // Admin: manages any policy, including platform-wide (null) ones. Platform Staff
+        // (StaffProfile.BusOperatorId == null): same. Operator-scoped Staff: only their own
+        // operator's policies — never a null/platform-wide policy. Anyone else: never.
+        private async Task<bool> CanManagePolicyOperatorAsync(Guid? busOperatorId)
+        {
+            if (User.IsInRole("Admin")) return true;
+            if (!User.IsInRole("Staff")) return false;
+
+            var callerOperatorId = await GetCallerBusOperatorIdAsync();
+            if (callerOperatorId == null) return true;
+            return busOperatorId == callerOperatorId;
+        }
     }
 }

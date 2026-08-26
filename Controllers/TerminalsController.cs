@@ -11,6 +11,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
+    // Physical bus terminals ("Gabtoli", "Kalyanpur"...) — the origin/destination picker
+    // behind TripsController.Search. Read open to any logged-in user, writes Admin-only:
+    // shared platform data, not any one operator's to rename or deactivate.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +36,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(TerminalCreateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = new Terminal
             {
                 Name = dto.Name,
@@ -56,6 +61,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, TerminalUpdateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.Terminals.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "Terminal not found." });
 
@@ -104,6 +111,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.Terminals.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

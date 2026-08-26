@@ -4,6 +4,7 @@ using TicketPortal.Api.Models.CompanyNetwork;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -11,6 +12,15 @@ namespace TicketPortal.Api.Controllers
     // Of the five master-detail controllers in this project, this is the only one whose Create
     // doesn't depend on any of the OTHER four having data already — every OperatorRoute here
     // just needs an existing BusRouteId (the unified route), which is normally seeded once.
+    //
+    // Authorization: previously NONE of Create/Update/Delete had any role check at all — any
+    // logged-in customer could create a fake operator, edit any existing operator's profile
+    // (including InventoryMode, which changes how Trips under it behave), or delete one.
+    // Onboarding a brand-new operator (Create) and removing one (Delete) are platform-level
+    // decisions, same as CommissionRules/OperatorContracts/OperatorSettings elsewhere in this
+    // project — so those two are Admin/platform-Staff only. Update/UploadImage (logo) use the
+    // regular operator-scoping pattern instead, since it's reasonable for an operator's own
+    // staff to keep their own company profile/logo current.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -35,6 +45,13 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusOperatorCreateDto dto)
         {
+            // Onboarding a new operator is a platform decision — an operator's own staff can't
+            // exist as "staff of X" before X is created, so this is Admin/platform-Staff only.
+            if (!await IsPlatformStaffOrAdminAsync())
+            {
+                return Forbid();
+            }
+
             var op = new BusOperator
             {
                 Name = dto.Name,
@@ -81,6 +98,15 @@ namespace TicketPortal.Api.Controllers
                 {
                     message = "BusOperator not found."
                 });
+            }
+
+            // ==========================================
+            // 1a. Authorization — operator scoping
+            // ==========================================
+
+            if (!await CanManageOperatorAsync(op.Id))
+            {
+                return Forbid();
             }
 
 
@@ -334,6 +360,13 @@ namespace TicketPortal.Api.Controllers
             var op = await db.BusOperators.Include(o => o.OperatorRoutes).FirstOrDefaultAsync(o => o.Id == id);
             if (op == null) return NotFound();
 
+            // Removing an operator entirely (even the soft-delete path, which also deactivates
+            // every one of its Buses) is a platform-level decision, same rationale as Create.
+            if (!await IsPlatformStaffOrAdminAsync())
+            {
+                return Forbid();
+            }
+
             // Check the tables that actually block a hard delete under Restrict, and that a real
             // exam/demo dataset will have rows in. OperatorRoutes are a pure "detail" of this
             // operator (same as Update() already handles) — they never block anything, so they're
@@ -406,6 +439,7 @@ namespace TicketPortal.Api.Controllers
         {
             var op = await db.BusOperators.FindAsync(id);
             if (op == null) return NotFound(new { message = "BusOperator not found." });
+            if (!await CanManageOperatorAsync(op.Id)) return Forbid();
             if (file == null || file.Length == 0) return BadRequest(new { message = "No file uploaded." });
 
             // wwwroot check
@@ -469,5 +503,49 @@ namespace TicketPortal.Api.Controllers
             })
             .ToList()
         };
+
+        // =========================================================
+        // Auth helpers — duplicated per-controller (see the same note in TripsController)
+        // until Piece 1 introduces a shared ClaimsPrincipalExtensions.GetBusOperatorId helper.
+        // =========================================================
+
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
+
+        private async Task<Guid?> GetCallerBusOperatorIdAsync()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null) return null;
+
+            return await db.StaffProfiles
+                .Where(sp => sp.UserId == userId.Value)
+                .Select(sp => sp.BusOperatorId)
+                .FirstOrDefaultAsync();
+        }
+
+        // Admin: always. Platform Staff (StaffProfile.BusOperatorId == null): always.
+        // Operator-scoped Staff: only for their own operator's Id. Anyone else: never.
+        private async Task<bool> CanManageOperatorAsync(Guid busOperatorId)
+        {
+            if (User.IsInRole("Admin")) return true;
+            if (!User.IsInRole("Staff")) return false;
+
+            var callerOperatorId = await GetCallerBusOperatorIdAsync();
+            return callerOperatorId == null || callerOperatorId == busOperatorId;
+        }
+
+        // For the two actions (Create, Delete) that are platform-only regardless of which
+        // operator is involved — an operator's own scoped staff never qualifies here.
+        private async Task<bool> IsPlatformStaffOrAdminAsync()
+        {
+            if (User.IsInRole("Admin")) return true;
+            if (!User.IsInRole("Staff")) return false;
+
+            var callerOperatorId = await GetCallerBusOperatorIdAsync();
+            return callerOperatorId == null;
+        }
     }
 }

@@ -11,6 +11,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
+    // Intermediate stops along a unified BusRoute. Same platform-wide-reference-data
+    // reasoning as BusRoutesController: read open, writes Admin-only.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +35,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(RouteStopCreateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = new RouteStop
             {
                 BusRouteId = dto.BusRouteId,
@@ -54,6 +58,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, RouteStopUpdateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.RouteStops.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "RouteStop not found." });
 
@@ -100,6 +106,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.RouteStops.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

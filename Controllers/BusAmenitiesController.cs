@@ -11,6 +11,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
+    // Reference data (what a bus can advertise, e.g. "WiFi", "AC") — read is open to any
+    // logged-in user (it's shown on search results), writes are Admin-only: this list is
+    // shared platform-wide, so letting any authenticated user rename/delete an amenity would
+    // affect every operator's listings at once.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +37,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusAmenityCreateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = new BusAmenity
             {
                 Name = dto.Name,
@@ -49,6 +55,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, BusAmenityUpdateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusAmenities.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "BusAmenity not found." });
 
@@ -90,6 +98,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusAmenities.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

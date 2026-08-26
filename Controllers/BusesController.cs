@@ -4,6 +4,7 @@ using TicketPortal.Api.Models.BusFleet;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -11,6 +12,12 @@ namespace TicketPortal.Api.Controllers
     // This controller is the "reference" one — every other controller in this project follows
     // the exact same skeleton (GetAll -> GetById -> Create -> Update -> Delete -> UploadImage)
     // and several of them point their comments back here instead of repeating explanations.
+    //
+    // Read stays open to any logged-in user (buses show up in search results/booking screens
+    // regardless of who's looking). Writes are operator-scoped: platform Admin/Staff can touch
+    // any Bus, an operator's own staff only their own operator's buses, and everyone else is
+    // refused. Previously this controller had NO role/ownership check at all — any logged-in
+    // customer could create or edit a Bus under any operator's BusOperatorId.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -47,6 +54,23 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusCreateDto dto)
         {
+            // ----------------------------------------
+            // 1. Authorization — operator scoping
+            // ----------------------------------------
+            if (!await CanManageOperatorAsync(dto.BusOperatorId))
+            {
+                return Forbid();
+            }
+
+            // ----------------------------------------
+            // 2. Validate BusOperatorId exists
+            // ----------------------------------------
+            var operatorExists = await db.BusOperators.AnyAsync(o => o.Id == dto.BusOperatorId);
+            if (!operatorExists)
+            {
+                return BadRequest(new { message = "BusOperatorId does not exist.", busOperatorId = dto.BusOperatorId });
+            }
+
             var bus = new Bus
             {
                 BusOperatorId = dto.BusOperatorId,
@@ -90,6 +114,21 @@ namespace TicketPortal.Api.Controllers
             if (bus == null)
             {
                 return NotFound(new { message = "Bus not found." });
+            }
+
+            // ----------------------------------------
+            // 1a. Authorization — operator scoping, checked against both the Bus's current
+            // operator and dto.BusOperatorId (in case of an attempted reassignment)
+            // ----------------------------------------
+            if (!await CanManageOperatorAsync(bus.BusOperatorId) || !await CanManageOperatorAsync(dto.BusOperatorId))
+            {
+                return Forbid();
+            }
+
+            var operatorExists = await db.BusOperators.AnyAsync(o => o.Id == dto.BusOperatorId);
+            if (!operatorExists)
+            {
+                return BadRequest(new { message = "BusOperatorId does not exist.", busOperatorId = dto.BusOperatorId });
             }
 
             // ----------------------------------------
@@ -217,6 +256,8 @@ namespace TicketPortal.Api.Controllers
                 .FirstOrDefaultAsync(b => b.Id == id);
             if (bus == null) return NotFound();
 
+            if (!await CanManageOperatorAsync(bus.BusOperatorId)) return Forbid();
+
             var hasTrips = await db.Trips.AnyAsync(t => t.BusId == id);
             var hasSchedules = await db.Schedules.AnyAsync(s => s.BusId == id);
 
@@ -279,6 +320,7 @@ namespace TicketPortal.Api.Controllers
         {
             var bus = await db.Buses.Include(b => b.Images).FirstOrDefaultAsync(b => b.Id == id);
             if (bus == null) return NotFound();
+            if (!await CanManageOperatorAsync(bus.BusOperatorId)) return Forbid();
             if (file == null || file.Length == 0) return BadRequest("No file uploaded");
 
             var fileName = $"bus_{id}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
@@ -341,6 +383,39 @@ namespace TicketPortal.Api.Controllers
             // IMPORTANT: return current RowVersion
             RowVersion = bus.RowVersion
         };
+
+        // =========================================================
+        // Auth helpers — duplicated per-controller (see the same note in TripsController)
+        // until Piece 1 introduces a shared ClaimsPrincipalExtensions.GetBusOperatorId helper.
+        // =========================================================
+
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
+
+        private async Task<Guid?> GetCallerBusOperatorIdAsync()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null) return null;
+
+            return await db.StaffProfiles
+                .Where(sp => sp.UserId == userId.Value)
+                .Select(sp => sp.BusOperatorId)
+                .FirstOrDefaultAsync();
+        }
+
+        // Admin: always. Platform Staff (StaffProfile.BusOperatorId == null): always.
+        // Operator-scoped Staff: only for their own operator's Id. Anyone else: never.
+        private async Task<bool> CanManageOperatorAsync(Guid busOperatorId)
+        {
+            if (User.IsInRole("Admin")) return true;
+            if (!User.IsInRole("Staff")) return false;
+
+            var callerOperatorId = await GetCallerBusOperatorIdAsync();
+            return callerOperatorId == null || callerOperatorId == busOperatorId;
+        }
     };
     
 }

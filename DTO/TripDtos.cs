@@ -137,4 +137,53 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 
     }
+
+    // The result shape for GET /api/trips/search — "client will search route like 'Dhaka to
+    // Chittagong' and will see available buses and their seats" (business plan section 4/5).
+    // Deliberately flatter/friendlier than TripResponseDto: a search results list needs
+    // human-readable operator/bus/terminal names right away, not just their Guids, and needs
+    // live seat availability as a simple count rather than the full per-seat TripSeats array
+    // (the seat map itself is fetched separately, via GET /api/trips/{id}, once the customer
+    // picks one specific trip to book).
+    public class TripSearchResultDto
+    {
+        public Guid TripId { get; set; }
+        public string TripCode { get; set; } = string.Empty;
+
+        public Guid BusOperatorId { get; set; }
+        public string BusOperatorName { get; set; } = string.Empty;
+        public string? BusOperatorLogoUrl { get; set; }
+
+        public Guid BusId { get; set; }
+        public string? BusBrand { get; set; }
+        public string? BusModel { get; set; }
+        public BusType BusType { get; set; }
+        public bool HasWifi { get; set; }
+        public bool HasToilet { get; set; }
+
+        public Guid DepartureTerminalId { get; set; }
+        public string DepartureTerminalName { get; set; } = string.Empty;
+        public Guid ArrivalTerminalId { get; set; }
+        public string ArrivalTerminalName { get; set; } = string.Empty;
+
+        public DateTime DepartureTimeUtc { get; set; }
+        public DateTime ArrivalTimeUtc { get; set; }
+
+        public TripStatus Status { get; set; }
+        public bool IsWheelchairAccessible { get; set; }
+        public string Currency { get; set; } = string.Empty;
+
+        // Read straight from TripSeat.Status, per the completion plan's spec for this endpoint —
+        // never a cached/denormalized count, so it can never drift from what SeatHoldService and
+        // PaymentConfirmationService are actually doing to these same rows.
+        public int TotalSeatCount { get; set; }
+        public int AvailableSeatCount { get; set; }
+
+        // Cheapest seat a customer could actually buy right now on this trip; null if the trip
+        // is fully sold out. Distinct from BaseFare, which is just a reference/fallback price —
+        // this is the real floor of what TripSeat.Fare currently charges for an Available seat.
+        public decimal? LowestAvailableFare { get; set; }
+
+        public string? CoverImageUrl { get; set; }
+    }
 }

@@ -11,6 +11,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
+    // The single unified "Dhaka to Chittagong" route every operator's OperatorRoute maps
+    // onto (see AppDbContext's unique index on OriginTerminalId+DestinationTerminalId — only
+    // one canonical route can exist per terminal pair). Read open to any logged-in user
+    // (TripsController.Search and the operator-facing screens both need it), writes
+    // Admin-only: this is shared platform routing data, not any one operator's to edit.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +38,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusRouteCreateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = new BusRoute
             {
                 OriginTerminalId = dto.OriginTerminalId,
@@ -55,6 +62,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, BusRouteUpdateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusRoutes.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "BusRoute not found." });
 
@@ -102,6 +111,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusRoutes.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

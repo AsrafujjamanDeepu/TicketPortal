@@ -11,6 +11,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
+    // Reference data ("AC", "Non-AC", "Sleeper"...). Read open to any logged-in user,
+    // writes Admin-only — same rationale as BusAmenitiesController.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +35,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusCategoryCreateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = new BusCategory
             {
                 Name = dto.Name,
@@ -49,6 +53,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, BusCategoryUpdateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusCategories.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "BusCategory not found." });
 
@@ -90,6 +96,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusCategories.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

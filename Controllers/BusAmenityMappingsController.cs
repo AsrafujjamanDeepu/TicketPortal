@@ -11,6 +11,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
+    // Which BusAmenity is on which Bus. Read is open to any logged-in user (shown on bus
+    // detail/search pages), writes are Admin-only for the same reason as BusAmenitiesController.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +35,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusAmenityMappingCreateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = new BusAmenityMapping
             {
                 BusId = dto.BusId,
@@ -48,6 +52,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, BusAmenityMappingUpdateDto dto)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusAmenityMappings.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "BusAmenityMapping not found." });
 
@@ -74,6 +80,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            if (!User.IsInRole("Admin")) return Forbid();
+
             var item = await db.BusAmenityMappings.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

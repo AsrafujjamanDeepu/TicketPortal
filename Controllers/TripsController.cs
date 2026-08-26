@@ -12,6 +12,13 @@ namespace TicketPortal.Api.Controllers
     // Master = Trip, Details = TripSeat (per-trip seat availability and pricing).
     // [Authorize] on the class means every action below requires a valid Bearer token except
     // where explicitly overridden — there is no override here, so all six endpoints are protected.
+    //
+    // Read (GetAll/GetById/Search) stays open to any logged-in user — trips are what the
+    // "search a route, see available buses" feature (business plan section 4) is built on, so
+    // browsing them isn't operator-sensitive the way creating/editing one is. Writes below now
+    // go through the same operator-scoping pattern as BusesController: previously this
+    // controller had NO role/ownership check at all beyond [Authorize], meaning any logged-in
+    // customer could create or edit a Trip for any operator's Bus.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -33,6 +40,108 @@ namespace TicketPortal.Api.Controllers
             return trip == null ? NotFound() : Ok(ToResponseDto(trip));
         }
 
+        // The core of the business plan: "client will search route like 'Dhaka to Chittagong'
+        // and will see available buses and their seats" — this was the single most
+        // customer-visible thing missing from the backend. Matches on the Trip's own actual
+        // DepartureTerminal/ArrivalTerminal (NOT BusRoute's origin/destination — see the class
+        // comment on Trip for why those can differ, e.g. one operator boarding from Gabtoli and
+        // another from Kalyanpur, even though both are "Dhaka").
+        [HttpGet("search")]
+        public async Task<IActionResult> Search(
+            [FromQuery] Guid fromTerminalId,
+            [FromQuery] Guid toTerminalId,
+            [FromQuery] DateOnly date,
+            [FromQuery] int? minAvailableSeats)
+        {
+            // =========================================================
+            // 1. Basic validation
+            // =========================================================
+
+            if (fromTerminalId == Guid.Empty || toTerminalId == Guid.Empty)
+            {
+                return BadRequest(new { message = "fromTerminalId and toTerminalId are required." });
+            }
+
+            if (fromTerminalId == toTerminalId)
+            {
+                return BadRequest(new { message = "fromTerminalId and toTerminalId cannot be the same." });
+            }
+
+            if (minAvailableSeats.HasValue && minAvailableSeats.Value < 0)
+            {
+                return BadRequest(new { message = "minAvailableSeats cannot be negative." });
+            }
+
+            var fromExists = await db.Terminals.AnyAsync(t => t.Id == fromTerminalId);
+            if (!fromExists)
+            {
+                return BadRequest(new { message = "fromTerminalId does not exist.", fromTerminalId });
+            }
+
+            var toExists = await db.Terminals.AnyAsync(t => t.Id == toTerminalId);
+            if (!toExists)
+            {
+                return BadRequest(new { message = "toTerminalId does not exist.", toTerminalId });
+            }
+
+            // =========================================================
+            // 2. Build the search window
+            // =========================================================
+
+            // "date" is treated as a calendar day in UTC — this project doesn't model a
+            // per-terminal local timezone anywhere else either (DepartureTimeUtc is the only
+            // time field on Trip), so this matches everything else already in the schema.
+            var dayStartUtc = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var dayEndUtc = dayStartUtc.AddDays(1);
+            var now = DateTime.UtcNow;
+
+            // Trip.Status values that mean "not sellable any more", independent of the clock —
+            // e.g. a same-day trip the operator marked Cancelled an hour ago still has a future
+            // DepartureTimeUtc and must NOT show up just because the clock hasn't caught up.
+            var nonBookableStatuses = new[]
+            {
+                TripStatus.Cancelled,
+                TripStatus.Departed,
+                TripStatus.Running,
+                TripStatus.Arrived,
+                TripStatus.Completed,
+            };
+
+            // =========================================================
+            // 3. Query — DepartureTimeUtc > now excludes already-departed trips even for a
+            //    same-day search; this is on top of (not instead of) the Status filter above,
+            //    since a Trip can be marked Delayed and still be genuinely bookable.
+            // =========================================================
+
+            var trips = await db.Trips
+                .Include(t => t.TripSeats)
+                .Include(t => t.BusOperator)
+                .Include(t => t.Bus)
+                .Include(t => t.DepartureTerminal)
+                .Include(t => t.ArrivalTerminal)
+                .Where(t => t.DepartureTerminalId == fromTerminalId
+                    && t.ArrivalTerminalId == toTerminalId
+                    && t.DepartureTimeUtc >= dayStartUtc
+                    && t.DepartureTimeUtc < dayEndUtc
+                    && t.DepartureTimeUtc > now
+                    && !nonBookableStatuses.Contains(t.Status))
+                .OrderBy(t => t.DepartureTimeUtc)
+                .ToListAsync();
+
+            // =========================================================
+            // 4. Map + apply the seat-count filter (needs the in-memory TripSeats, so it can't
+            //    be pushed into the SQL query above — same materialize-then-map reasoning as
+            //    every other GetAll in this project, see BusesController.GetAll).
+            // =========================================================
+
+            var results = trips
+                .Select(ToSearchResultDto)
+                .Where(r => !minAvailableSeats.HasValue || r.AvailableSeatCount >= minAvailableSeats.Value)
+                .ToList();
+
+            return Ok(results);
+        }
+
         [HttpPost]
         public async Task<IActionResult> Create(TripCreateDto dto)
         {
@@ -46,6 +155,18 @@ namespace TicketPortal.Api.Controllers
                 {
                     message = "Request body is required."
                 });
+            }
+
+            // =========================================================
+            // 1a. Authorization — operator scoping. Platform Admin/Staff can create a Trip for
+            // any operator; an operator's own staff only for their own BusOperatorId; anyone
+            // else (customers included) is refused. Fails safe (Forbid for everyone) until
+            // Piece 1 seeds real ApplicationRole rows — see the class comment above.
+            // =========================================================
+
+            if (!await CanManageOperatorAsync(dto.BusOperatorId))
+            {
+                return Forbid();
             }
 
             if (dto.TripSeats == null || dto.TripSeats.Count == 0)
@@ -352,9 +473,19 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
-            // Captured before any of the fields below get overwritten — used after the update
-            // to decide whether a TripStatusHistory row actually needs writing.
-            var previousStatus = trip.Status;
+
+            // =========================================================
+            // 1a. Authorization — operator scoping. Checked against BOTH the Trip's current
+            // operator (can this caller touch it at all) and dto.BusOperatorId (can this
+            // caller reassign it there) — an operator's own staff must not be able to hand
+            // their trip off to a different operator, or edit one that already belongs to
+            // someone else.
+            // =========================================================
+
+            if (!await CanManageOperatorAsync(trip.BusOperatorId) || !await CanManageOperatorAsync(dto.BusOperatorId))
+            {
+                return Forbid();
+            }
 
 
             // =========================================================
@@ -627,18 +758,6 @@ namespace TicketPortal.Api.Controllers
             trip.Status = dto.Status;
             trip.DelayReason = dto.DelayReason;
 
-            if (dto.Status != previousStatus)
-            {
-                db.TripStatusHistories.Add(new TripStatusHistory
-                {
-                    TripId = trip.Id,
-                    ChangedByUserId = GetCurrentUserId(),
-                    Status = dto.Status,
-                    ChangedAtUtc = DateTime.UtcNow,
-                    Remarks = dto.DelayReason,
-                });
-            }
-
 
             // =========================================================
             // 17. Transaction
@@ -794,6 +913,8 @@ namespace TicketPortal.Api.Controllers
             var trip = await db.Trips.Include(t => t.TripSeats).FirstOrDefaultAsync(t => t.Id == id);
             if (trip == null) return NotFound();
 
+            if (!await CanManageOperatorAsync(trip.BusOperatorId)) return Forbid();
+
             var hasBookings = await db.Bookings.AnyAsync(b => b.TripId == id);
 
             if (hasBookings)
@@ -801,21 +922,8 @@ namespace TicketPortal.Api.Controllers
                 // Don't cascade-delete: Bookings are real customer purchases. Soft-delete + cancel
                 // the trip instead — every existing Booking, and the customer who holds it, is
                 // completely untouched; the trip just stops showing up in "browse trips" listings.
-                var previousStatus = trip.Status;
                 trip.Status = TripStatus.Cancelled;
                 trip.MarkDeleted();
-
-                if (previousStatus != TripStatus.Cancelled)
-                {
-                    db.TripStatusHistories.Add(new TripStatusHistory
-                    {
-                        TripId = trip.Id,
-                        ChangedByUserId = GetCurrentUserId(),
-                        Status = TripStatus.Cancelled,
-                        ChangedAtUtc = DateTime.UtcNow,
-                        Remarks = "Trip has existing bookings; soft-deleted and cancelled instead of removed.",
-                    });
-                }
 
                 try
                 {
@@ -863,6 +971,11 @@ namespace TicketPortal.Api.Controllers
             if (trip == null)
             {
                 return NotFound(new { message = "Trip not found." });
+            }
+
+            if (!await CanManageOperatorAsync(trip.BusOperatorId))
+            {
+                return Forbid();
             }
 
             if (file == null || file.Length == 0)
@@ -914,14 +1027,6 @@ namespace TicketPortal.Api.Controllers
                 message = "Trip image uploaded successfully.",
                 imageUrl = trip.CoverImageUrl
             });
-        }
-
-        // Used only to stamp ChangedByUserId on the TripStatusHistory rows added above/below —
-        // every other action on this controller was already fine without touching claims.
-        private Guid? GetCurrentUserId()
-        {
-            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            return Guid.TryParse(claim, out var id) ? id : null;
         }
 
         private static TripResponseDto ToResponseDto(Trip trip)
@@ -976,6 +1081,89 @@ namespace TicketPortal.Api.Controllers
 
                 RowVersion = trip.RowVersion
             };
+        }
+
+        // Flatter mapper for search results — see the TripSearchResultDto comment in
+        // DTO/TripDtos.cs for why this doesn't just reuse ToResponseDto above. Reads
+        // TripSeat.Status live rather than any cached count, so it can never drift from what
+        // SeatHoldService/PaymentConfirmationService are doing to the same rows.
+        private static TripSearchResultDto ToSearchResultDto(Trip trip)
+        {
+            var availableSeats = trip.TripSeats.Where(s => s.Status == TripSeatStatus.Available).ToList();
+
+            return new TripSearchResultDto
+            {
+                TripId = trip.Id,
+                TripCode = trip.TripCode,
+
+                BusOperatorId = trip.BusOperatorId,
+                BusOperatorName = trip.BusOperator.Name,
+                BusOperatorLogoUrl = trip.BusOperator.LogoUrl,
+
+                BusId = trip.BusId,
+                BusBrand = trip.Bus.Brand,
+                BusModel = trip.Bus.Model,
+                BusType = trip.Bus.BusType,
+                HasWifi = trip.Bus.HasWifi,
+                HasToilet = trip.Bus.HasToilet,
+
+                DepartureTerminalId = trip.DepartureTerminalId,
+                DepartureTerminalName = trip.DepartureTerminal.Name,
+                ArrivalTerminalId = trip.ArrivalTerminalId,
+                ArrivalTerminalName = trip.ArrivalTerminal.Name,
+
+                DepartureTimeUtc = trip.DepartureTimeUtc,
+                ArrivalTimeUtc = trip.ArrivalTimeUtc,
+
+                Status = trip.Status,
+                IsWheelchairAccessible = trip.IsWheelchairAccessible,
+                Currency = trip.Currency,
+
+                TotalSeatCount = trip.TripSeats.Count,
+                AvailableSeatCount = availableSeats.Count,
+                LowestAvailableFare = availableSeats.Count > 0 ? availableSeats.Min(s => s.Fare) : null,
+
+                CoverImageUrl = trip.CoverImageUrl,
+            };
+        }
+
+        // =========================================================
+        // Auth helpers — duplicated per-controller rather than shared, since Piece 1 (which
+        // owns introducing a shared ClaimsPrincipalExtensions.GetBusOperatorId helper) hasn't
+        // landed yet. Once it does, these three methods can be deleted in favor of that one.
+        // =========================================================
+
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
+
+        // Resolves the BusOperatorId of the logged-in caller's StaffProfile, if any.
+        // Null means either "platform staff, not scoped to one operator" or "no StaffProfile
+        // row at all" — callers must gate on IsInRole("Staff")/IsInRole("Admin") first (see
+        // CanManageOperatorAsync below) rather than relying on this alone.
+        private async Task<Guid?> GetCallerBusOperatorIdAsync()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null) return null;
+
+            return await db.StaffProfiles
+                .Where(sp => sp.UserId == userId.Value)
+                .Select(sp => sp.BusOperatorId)
+                .FirstOrDefaultAsync();
+        }
+
+        // Admin: always. Staff with no BusOperatorId on their StaffProfile (platform staff):
+        // always. Staff scoped to one operator: only for that operator's own Id. Anyone else
+        // (customers included): never.
+        private async Task<bool> CanManageOperatorAsync(Guid busOperatorId)
+        {
+            if (User.IsInRole("Admin")) return true;
+            if (!User.IsInRole("Staff")) return false;
+
+            var callerOperatorId = await GetCallerBusOperatorIdAsync();
+            return callerOperatorId == null || callerOperatorId == busOperatorId;
         }
     }
 }

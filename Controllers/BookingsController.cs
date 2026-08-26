@@ -12,6 +12,26 @@ namespace TicketPortal.Api.Controllers
     // Master = Booking, Details = BookingPassenger.
     // BusOperatorId is deliberately NOT on the create DTO — it's resolved server-side from the
     // Trip, exactly like a real booking flow would (the caller shouldn't get to pick the operator).
+    //
+    // Second-pass audit notes (this controller had previously only had one targeted fix —
+    // CustomerProfileId being resolved server-side — not a full review):
+    //
+    //   1. GetAll/GetById had NO ownership scoping at all: any logged-in customer could read
+    //      every other customer's bookings, including contact info and passenger national ID
+    //      numbers. Fixed below with the same ownership + operator-scoping pattern used
+    //      throughout this project (see TicketsController for the ownership half,
+    //      BusesController for the operator half).
+    //   2. Create trusted client-supplied SubTotal/DiscountAmount/TaxAmount/ServiceChargeAmount/
+    //      GrandTotal/ExpiresAtUtc directly. PaymentConfirmationService.InitiatePaymentAsync
+    //      charges exactly booking.GrandTotal, so this meant a client could book real seats and
+    //      pay any amount it liked. Fixed by requiring the checkout SeatHold's token and pricing
+    //      the booking from SeatHoldItem.FareAtHold — the same frozen price the hold itself is
+    //      built on — instead of trusting anything in the request body. See BookingCreateDto.
+    //   3. Update had the exact same problem, PLUS let a client set Status directly — a customer
+    //      could PUT their own PendingPayment booking straight to Confirmed. Fixed by dropping
+    //      Status and all price fields from BookingUpdateDto entirely; this endpoint now only
+    //      touches trip-detail fields, and only while the booking hasn't been paid yet.
+    //   4. Delete and UploadPassengerIdPhoto had no ownership check either — fixed the same way.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -19,10 +39,36 @@ namespace TicketPortal.Api.Controllers
     {
         // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
         // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
+        //
+        // Admin sees every booking. Staff scoped to one operator (StaffProfile.BusOperatorId)
+        // sees only that operator's bookings; platform Staff (BusOperatorId == null) sees
+        // everything, same as Admin. Everyone else sees only bookings tied to their own
+        // CustomerProfile.
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var bookings = await db.Bookings.Include(b => b.Passengers).ToListAsync();
+            var query = db.Bookings.Include(b => b.Passengers).AsQueryable();
+
+            if (User.IsInRole("Admin"))
+            {
+                // No restriction.
+            }
+            else if (User.IsInRole("Staff"))
+            {
+                var operatorId = await GetCallerBusOperatorIdAsync();
+                if (operatorId.HasValue)
+                {
+                    query = query.Where(b => b.BusOperatorId == operatorId.Value);
+                }
+                // null => platform staff, no restriction.
+            }
+            else
+            {
+                var userId = GetCurrentUserId();
+                query = query.Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId);
+            }
+
+            var bookings = await query.ToListAsync();
             return Ok(bookings.Select(ToResponseDto));
         }
 
@@ -30,33 +76,118 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> GetById(Guid id)
         {
             var booking = await db.Bookings.Include(b => b.Passengers).FirstOrDefaultAsync(b => b.Id == id);
-            return booking == null ? NotFound() : Ok(ToResponseDto(booking));
+            if (booking == null) return NotFound();
+
+            if (!await CanAccessBookingAsync(booking)) return Forbid();
+
+            return Ok(ToResponseDto(booking));
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(BookingCreateDto dto)
         {
-            var trip = await db.Trips.FindAsync(dto.TripId);
-            if (trip == null) return BadRequest($"Trip {dto.TripId} does not exist.");
+            // =========================================================
+            // 1. Validate Trip + terminals exist
+            // =========================================================
+            var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == dto.TripId);
+            if (trip == null)
+            {
+                return BadRequest(new { message = $"Trip {dto.TripId} does not exist." });
+            }
+
+            var boardingExists = await db.Terminals.AnyAsync(t => t.Id == dto.BoardingTerminalId);
+            if (!boardingExists)
+            {
+                return BadRequest(new { message = "BoardingTerminalId does not exist.", boardingTerminalId = dto.BoardingTerminalId });
+            }
+
+            var droppingExists = await db.Terminals.AnyAsync(t => t.Id == dto.DroppingTerminalId);
+            if (!droppingExists)
+            {
+                return BadRequest(new { message = "DroppingTerminalId does not exist.", droppingTerminalId = dto.DroppingTerminalId });
+            }
+
+            // =========================================================
+            // 2. Load the SeatHold this booking is being created from. This — not anything the
+            // client could declare directly — is the single source of truth for price and
+            // seats: SubTotal is summed from each seat's FareAtHold, frozen the moment the seat
+            // was held (see SeatHoldService.HoldSeatsAsync), never taken from the request body.
+            // =========================================================
+            var hold = await db.SeatHolds
+                .Include(h => h.Items)
+                .FirstOrDefaultAsync(h => h.HoldToken == dto.HoldToken);
+
+            if (hold == null)
+            {
+                return BadRequest(new { message = "This hold token is invalid." });
+            }
+
+            if (hold.TripId != dto.TripId)
+            {
+                return BadRequest(new { message = "This hold does not belong to the specified Trip." });
+            }
+
+            if (!CanAccessHold(hold))
+            {
+                return Forbid();
+            }
+
+            if (hold.Status != SeatHoldStatus.Active || hold.HoldExpiresAtUtc <= DateTime.UtcNow)
+            {
+                return Conflict(new { message = "This seat hold has expired or is no longer active. Please reselect seats and try again." });
+            }
+
+            if (hold.Items.Count == 0)
+            {
+                return Conflict(new { message = "This seat hold has no seats attached." });
+            }
+
+            var alreadyBooked = await db.Bookings.AnyAsync(b => b.SeatHoldId == hold.Id);
+            if (alreadyBooked)
+            {
+                return Conflict(new { message = "This seat hold has already been converted into a booking." });
+            }
+
+            // =========================================================
+            // 3. One passenger per held seat — required so PaymentConfirmationService can later
+            // pair each passenger to a booked seat in a fixed order (see its own comment on
+            // that pairing — BookingPassenger and TripSeat have no direct FK to each other).
+            // =========================================================
+            if (dto.Passengers.Count != hold.Items.Count)
+            {
+                return BadRequest(new
+                {
+                    message = $"This hold covers {hold.Items.Count} seat(s), but {dto.Passengers.Count} " +
+                        "passenger(s) were submitted. Exactly one passenger is required per held seat."
+                });
+            }
+
+            var subTotal = hold.Items.Sum(i => i.FareAtHold);
 
             var booking = new Booking
             {
                 CustomerProfileId = await ResolveOrCreateCustomerProfileIdAsync(),
                 BusOperatorId = trip.BusOperatorId,
                 TripId = dto.TripId,
+                SeatHoldId = hold.Id,
                 BoardingTerminalId = dto.BoardingTerminalId,
                 DroppingTerminalId = dto.DroppingTerminalId,
                 Pnr = GeneratePnr(),
                 ContactName = dto.ContactName,
                 ContactPhone = dto.ContactPhone,
                 ContactEmail = dto.ContactEmail,
-                SubTotal = dto.SubTotal,
-                DiscountAmount = dto.DiscountAmount,
-                TaxAmount = dto.TaxAmount,
-                ServiceChargeAmount = dto.ServiceChargeAmount,
-                GrandTotal = dto.GrandTotal,
-                RequiresExternalConfirmation = dto.RequiresExternalConfirmation,
-                ExpiresAtUtc = dto.ExpiresAtUtc,
+
+                // Computed, never trusted from the client — see the class comment on BookingCreateDto.
+                SubTotal = subTotal,
+                DiscountAmount = 0m, // Coupon application is its own flow (Piece 4) — not wired in here.
+                TaxAmount = 0m,      // No TaxRule engine wired in yet (Piece 1) — flagged as follow-up, not invented here.
+                ServiceChargeAmount = 0m,
+                GrandTotal = subTotal,
+                Currency = trip.Currency,
+
+                RequiresExternalConfirmation = trip.InventoryMode != OperatorInventoryMode.PlatformManaged,
+                ExpiresAtUtc = hold.HoldExpiresAtUtc,
+
                 Passengers = dto.Passengers.Select(p => new BookingPassenger
                 {
                     FullName = p.FullName,
@@ -70,7 +201,19 @@ namespace TicketPortal.Api.Controllers
             };
 
             db.Bookings.Add(booking);
-            await db.SaveChangesAsync();
+
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                return Conflict(new
+                {
+                    message = "Could not save this Booking — check BoardingTerminalId/DroppingTerminalId are valid.",
+                    detail = ex.InnerException?.Message
+                });
+            }
 
             return CreatedAtAction(nameof(GetById), new { id = booking.Id }, ToResponseDto(booking));
         }
@@ -87,6 +230,28 @@ namespace TicketPortal.Api.Controllers
                 return NotFound(new
                 {
                     message = "Booking not found."
+                });
+            }
+
+            // ----------------------------------------
+            // Authorization — ownership/operator scoping
+            // ----------------------------------------
+            if (!await CanAccessBookingAsync(booking))
+            {
+                return Forbid();
+            }
+
+            // ----------------------------------------
+            // A booking that's already Confirmed/Completed/Cancelled/Expired is locked —
+            // status and pricing only ever change through Booking.Confirm()/Cancel() (called
+            // from PaymentConfirmationService / the future cancellation flow), and trip-detail
+            // fields like contact info shouldn't move once a ticket has actually been issued.
+            // ----------------------------------------
+            if (booking.Status != BookingStatus.Draft && booking.Status != BookingStatus.PendingPayment)
+            {
+                return Conflict(new
+                {
+                    message = $"This Booking is {booking.Status} and can no longer be edited directly."
                 });
             }
 
@@ -109,7 +274,23 @@ namespace TicketPortal.Api.Controllers
                 .OriginalValue = dto.RowVersion;
 
             // ----------------------------------------
-            // Validate passengers
+            // Validate terminals
+            // ----------------------------------------
+            var boardingExists = await db.Terminals.AnyAsync(t => t.Id == dto.BoardingTerminalId);
+            if (!boardingExists)
+            {
+                return BadRequest(new { message = "BoardingTerminalId does not exist.", boardingTerminalId = dto.BoardingTerminalId });
+            }
+
+            var droppingExists = await db.Terminals.AnyAsync(t => t.Id == dto.DroppingTerminalId);
+            if (!droppingExists)
+            {
+                return BadRequest(new { message = "DroppingTerminalId does not exist.", droppingTerminalId = dto.DroppingTerminalId });
+            }
+
+            // ----------------------------------------
+            // Validate passengers — details can change, but not how many: that count is fixed
+            // by the number of seats in the hold this booking was created from.
             // ----------------------------------------
             if (dto.Passengers == null || dto.Passengers.Count == 0)
             {
@@ -119,8 +300,18 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
+            if (dto.Passengers.Count != booking.Passengers.Count)
+            {
+                return BadRequest(new
+                {
+                    message = $"This Booking has {booking.Passengers.Count} passenger(s) tied to its held seats — " +
+                        $"cannot change that to {dto.Passengers.Count}."
+                });
+            }
+
             // ----------------------------------------
-            // Update Booking
+            // Update Booking — trip-detail fields only. Status and every price field are
+            // deliberately left untouched: BookingUpdateDto no longer carries them at all.
             // ----------------------------------------
             booking.BoardingTerminalId = dto.BoardingTerminalId;
             booking.DroppingTerminalId = dto.DroppingTerminalId;
@@ -128,16 +319,6 @@ namespace TicketPortal.Api.Controllers
             booking.ContactName = dto.ContactName;
             booking.ContactPhone = dto.ContactPhone;
             booking.ContactEmail = dto.ContactEmail;
-
-            booking.SubTotal = dto.SubTotal;
-            booking.DiscountAmount = dto.DiscountAmount;
-            booking.TaxAmount = dto.TaxAmount;
-            booking.ServiceChargeAmount = dto.ServiceChargeAmount;
-            booking.GrandTotal = dto.GrandTotal;
-            booking.RequiresExternalConfirmation = dto.RequiresExternalConfirmation;
-            booking.ExpiresAtUtc = dto.ExpiresAtUtc;
-
-            booking.Status = dto.Status;
 
             // ----------------------------------------
             // Replace passengers
@@ -206,11 +387,14 @@ namespace TicketPortal.Api.Controllers
 
             return Ok(ToResponseDto(updatedBooking));
         }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
             var booking = await db.Bookings.Include(b => b.Passengers).FirstOrDefaultAsync(b => b.Id == id);
             if (booking == null) return NotFound();
+
+            if (!await CanAccessBookingAsync(booking)) return Forbid();
 
             // BookingPassenger is a pure detail of this Booking — Restrict never cascades it.
             db.BookingPassengers.RemoveRange(booking.Passengers);
@@ -238,6 +422,11 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{bookingId}/passengers/{passengerId}/images")]
         public async Task<IActionResult> UploadPassengerIdPhoto(Guid bookingId, Guid passengerId, IFormFile file)
         {
+            var booking = await db.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId);
+            if (booking == null) return NotFound();
+
+            if (!await CanAccessBookingAsync(booking)) return Forbid();
+
             var passenger = await db.BookingPassengers
                 .FirstOrDefaultAsync(p => p.Id == passengerId && p.BookingId == bookingId);
             if (passenger == null) return NotFound();
@@ -283,6 +472,59 @@ namespace TicketPortal.Api.Controllers
             return profile.Id;
         }
 
+        // =========================================================
+        // Auth helpers — duplicated per-controller (see the same note in TripsController)
+        // until Piece 1 introduces a shared ClaimsPrincipalExtensions.GetBusOperatorId helper.
+        // =========================================================
+
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
+
+        private async Task<Guid?> GetCallerBusOperatorIdAsync()
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null) return null;
+
+            return await db.StaffProfiles
+                .Where(sp => sp.UserId == userId.Value)
+                .Select(sp => sp.BusOperatorId)
+                .FirstOrDefaultAsync();
+        }
+
+        // Admin: any booking. Staff scoped to one operator: only that operator's bookings
+        // (BusOperatorId, resolved server-side from the Trip at Create time — see above).
+        // Platform Staff (StaffProfile.BusOperatorId == null): any booking, same as Admin.
+        // Everyone else: only a booking tied to their own CustomerProfile.
+        private async Task<bool> CanAccessBookingAsync(Booking booking)
+        {
+            if (User.IsInRole("Admin")) return true;
+
+            if (User.IsInRole("Staff"))
+            {
+                var operatorId = await GetCallerBusOperatorIdAsync();
+                return operatorId == null || operatorId == booking.BusOperatorId;
+            }
+
+            var userId = GetCurrentUserId();
+            if (userId == null || booking.CustomerProfileId == null) return false;
+
+            return await db.CustomerProfiles
+                .AnyAsync(cp => cp.Id == booking.CustomerProfileId && cp.UserId == userId);
+        }
+
+        // Same ownership rule SeatHoldsController itself uses for a SeatHold — kept identical
+        // rather than reinvented, since a hold not owned by the caller must be exactly as
+        // inaccessible for booking creation as it is for reading via SeatHoldsController.
+        private bool CanAccessHold(SeatHold hold)
+        {
+            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            var userId = GetCurrentUserId();
+            return userId != null && hold.HeldByUserId == userId;
+        }
+
         private static BookingResponseDto ToResponseDto(Booking booking) => new()
         {
             Id = booking.Id,
@@ -290,6 +532,7 @@ namespace TicketPortal.Api.Controllers
             Pnr = booking.Pnr,
 
             TripId = booking.TripId,
+            SeatHoldId = booking.SeatHoldId,
 
             BoardingTerminalId = booking.BoardingTerminalId,
             DroppingTerminalId = booking.DroppingTerminalId,
@@ -303,6 +546,10 @@ namespace TicketPortal.Api.Controllers
 
             Status = booking.Status,
 
+            SubTotal = booking.SubTotal,
+            DiscountAmount = booking.DiscountAmount,
+            TaxAmount = booking.TaxAmount,
+            ServiceChargeAmount = booking.ServiceChargeAmount,
             GrandTotal = booking.GrandTotal,
             RequiresExternalConfirmation = booking.RequiresExternalConfirmation,
             ExpiresAtUtc = booking.ExpiresAtUtc,
