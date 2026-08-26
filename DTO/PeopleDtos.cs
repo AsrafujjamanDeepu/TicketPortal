@@ -2,6 +2,19 @@
 // Generated to give every remaining entity a working CRUD API for Swagger/Postman.
 // Simple flat Create/Update/Response DTOs — one-to-one with the entity's own scalar fields.
 // </auto-generated>
+//
+// Piece 6 (People/HR & ERP Integrations) note: several Create/Update shapes below were trimmed
+// from the original generated (Update inherits Create) shape. Two different reasons, same fix:
+//   - Identity/ownership anchors (CustomerProfileId, StaffProfileId, UserId) never change after
+//     creation via these endpoints — same "TripId/BookingId/CustomerProfileId deliberately never
+//     touched" pattern already used by ReviewUpdateDto/ComplaintUpdateDto (Piece 4).
+//   - BusOperatorId on Agent/StaffProfile is the actual security boundary an operator's own staff
+//     could otherwise abuse (create a profile/agent under a DIFFERENT operator, or move an
+//     existing one) — dropped from Update entirely, and the value passed to Create is verified/
+//     overridden server-side by the controller rather than trusted as-is.
+//   - CustomerProfile.WalletBalance is dropped from Create/Update outright, for anyone, Admin
+//     included — CustomerWalletService is the only code allowed to change it (see its class
+//     comment); exposing it on a plain CRUD DTO would let a client set their own wallet balance.
 
 using TicketPortal.Api.Models.Enums;
 using System.ComponentModel.DataAnnotations;
@@ -10,6 +23,7 @@ namespace TicketPortal.Api.DTO
 {
     public class AgentCreateDto
     {
+        // Verified/overridden server-side for an operator's own staff — see AgentsController.
         public Guid? BusOperatorId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string AgencyCode { get; set; } = string.Empty;
@@ -21,8 +35,19 @@ namespace TicketPortal.Api.DTO
         public bool IsActive { get; set; } = true;
     }
 
-    public class AgentUpdateDto : AgentCreateDto
+    // BusOperatorId deliberately omitted — which operator this agent belongs to isn't something
+    // a generic edit should be able to reassign (see AgentsController).
+    public class AgentUpdateDto
     {
+        public string Name { get; set; } = string.Empty;
+        public string AgencyCode { get; set; } = string.Empty;
+        public string ContactPerson { get; set; } = string.Empty;
+        public string PhoneNumber { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string Address { get; set; } = string.Empty;
+        public decimal CommissionPercentage { get; set; }
+        public bool IsActive { get; set; } = true;
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -44,9 +69,11 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // CustomerProfileId deliberately omitted — always resolved server-side from whoever is
+    // logged in (see CustomerAddressesController), same idea as Booking/Complaint/Review never
+    // trusting a client-supplied ownership id.
     public class CustomerAddressCreateDto
     {
-        public Guid CustomerProfileId { get; set; }
         public string Label { get; set; } = string.Empty;
         public string AddressLine { get; set; } = string.Empty;
         public string City { get; set; } = string.Empty;
@@ -55,8 +82,15 @@ namespace TicketPortal.Api.DTO
         public bool IsDefault { get; set; }
     }
 
-    public class CustomerAddressUpdateDto : CustomerAddressCreateDto
+    public class CustomerAddressUpdateDto
     {
+        public string Label { get; set; } = string.Empty;
+        public string AddressLine { get; set; } = string.Empty;
+        public string City { get; set; } = string.Empty;
+        public string District { get; set; } = string.Empty;
+        public string Country { get; set; } = "Bangladesh";
+        public bool IsDefault { get; set; }
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -76,6 +110,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // UserId is trusted as-is only for Admin/Staff (creating a profile on someone else's
+    // behalf); a plain customer's own UserId is forced server-side. WalletBalance is never
+    // settable here at all — see file header.
     public class CustomerProfileCreateDto
     {
         public Guid UserId { get; set; }
@@ -83,12 +120,19 @@ namespace TicketPortal.Api.DTO
         public DateOnly? DateOfBirth { get; set; }
         public Gender Gender { get; set; } = Gender.Unknown;
         public string? EmergencyContactPhone { get; set; }
-        public decimal WalletBalance { get; set; }
         public string? PreferredLanguageCode { get; set; }
     }
 
-    public class CustomerProfileUpdateDto : CustomerProfileCreateDto
+    // UserId and WalletBalance both omitted — which login this profile belongs to never
+    // changes after creation, and WalletBalance is CustomerWalletService's alone to write.
+    public class CustomerProfileUpdateDto
     {
+        public string? NationalIdNumber { get; set; }
+        public DateOnly? DateOfBirth { get; set; }
+        public Gender Gender { get; set; } = Gender.Unknown;
+        public string? EmergencyContactPhone { get; set; }
+        public string? PreferredLanguageCode { get; set; }
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -127,6 +171,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // StaffProfileId (which employee this license belongs to) is verified against the caller's
+    // own operator scope server-side — see DriverLicensesController.
     public class DriverLicenseCreateDto
     {
         public Guid StaffProfileId { get; set; }
@@ -136,8 +182,15 @@ namespace TicketPortal.Api.DTO
         public DateOnly ExpiryDate { get; set; }
     }
 
-    public class DriverLicenseUpdateDto : DriverLicenseCreateDto
+    // StaffProfileId omitted — re-pointing a license to a different employee isn't an edit,
+    // it's a new record.
+    public class DriverLicenseUpdateDto
     {
+        public string LicenseNumber { get; set; } = string.Empty;
+        public LicenseType Type { get; set; }
+        public DateOnly IssueDate { get; set; }
+        public DateOnly ExpiryDate { get; set; }
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -155,16 +208,20 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // CustomerProfileId deliberately omitted — same reasoning as CustomerAddressCreateDto above.
     public class EmergencyContactCreateDto
     {
-        public Guid CustomerProfileId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Phone { get; set; } = string.Empty;
         public string? Relation { get; set; }
     }
 
-    public class EmergencyContactUpdateDto : EmergencyContactCreateDto
+    public class EmergencyContactUpdateDto
     {
+        public string Name { get; set; } = string.Empty;
+        public string Phone { get; set; } = string.Empty;
+        public string? Relation { get; set; }
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -215,6 +272,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // StaffProfileId verified against the caller's own operator scope server-side — see
+    // StaffAttendancesController.
     public class StaffAttendanceCreateDto
     {
         public Guid StaffProfileId { get; set; }
@@ -223,8 +282,12 @@ namespace TicketPortal.Api.DTO
         public string? Remarks { get; set; }
     }
 
-    public class StaffAttendanceUpdateDto : StaffAttendanceCreateDto
+    public class StaffAttendanceUpdateDto
     {
+        public DateOnly AttendanceDate { get; set; }
+        public AttendanceStatus Status { get; set; }
+        public string? Remarks { get; set; }
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -241,6 +304,10 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // BusOperatorId verified/overridden server-side for an operator's own staff — see
+    // StaffProfilesController. This is the actual security boundary in this bucket: without the
+    // check, an operator's own staff could plant a profile under a different operator (or under
+    // no operator at all, i.e. platform-staff scope).
     public class StaffProfileCreateDto
     {
         public Guid UserId { get; set; }
@@ -254,8 +321,18 @@ namespace TicketPortal.Api.DTO
         public bool IsActive { get; set; } = true;
     }
 
-    public class StaffProfileUpdateDto : StaffProfileCreateDto
+    // UserId and BusOperatorId both omitted — which login this profile is attached to, and
+    // which operator (if any) it belongs to, are never reassignable via a generic edit.
+    public class StaffProfileUpdateDto
     {
+        public string EmployeeCode { get; set; } = string.Empty;
+        public StaffRole Role { get; set; }
+        public string? NationalIdNumber { get; set; }
+        public DateOnly? JoiningDate { get; set; }
+        public string? Address { get; set; }
+        public int TotalTripsCompleted { get; set; }
+        public bool IsActive { get; set; } = true;
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
@@ -277,6 +354,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // StaffProfileId verified against the caller's own operator scope server-side — see
+    // StaffSalariesController.
     public class StaffSalaryCreateDto
     {
         public Guid StaffProfileId { get; set; }
@@ -288,8 +367,15 @@ namespace TicketPortal.Api.DTO
         public string? PaymentReference { get; set; }
     }
 
-    public class StaffSalaryUpdateDto : StaffSalaryCreateDto
+    public class StaffSalaryUpdateDto
     {
+        public DateOnly PayPeriodStart { get; set; }
+        public DateOnly PayPeriodEnd { get; set; }
+        public decimal Amount { get; set; }
+        public bool IsPaid { get; set; }
+        public DateTime? PaidAtUtc { get; set; }
+        public string? PaymentReference { get; set; }
+
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
