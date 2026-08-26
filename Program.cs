@@ -139,6 +139,9 @@ builder.Services.AddScoped<CancellationProcessingService>();
 builder.Services.AddScoped<SettlementGenerationService>();
 builder.Services.AddScoped<PayoutProcessingService>();
 builder.Services.AddScoped<InvoicePaymentService>();
+// The only writer of CouponUsage — validates a coupon's own rules before redemption. See
+// Services/CouponRedemptionService.cs.
+builder.Services.AddScoped<CouponRedemptionService>();
 
 builder.Services.AddHostedService<SeatHoldExpirySweepService>();
 
