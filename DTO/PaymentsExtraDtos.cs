@@ -125,20 +125,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class PaymentHistoryCreateDto
-    {
-        public Guid PaymentId { get; set; }
-        public PaymentStatus Status { get; set; }
-        public DateTime ChangedAtUtc { get; set; } = DateTime.UtcNow;
-        public string? Remarks { get; set; }
-    }
-
-    public class PaymentHistoryUpdateDto : PaymentHistoryCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: this is the append-only trail of a Payment's own status changes,
+    // written exclusively by PaymentConfirmationService. PaymentHistoriesController is
+    // read-only.
     public class PaymentHistoryResponseDto
     {
         public Guid Id { get; set; }
@@ -215,26 +204,10 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class PaymentWebhookEventCreateDto
-    {
-        public Guid? PaymentId { get; set; }
-        public Guid? PaymentProviderId { get; set; }
-        public string ProviderEventId { get; set; } = string.Empty;
-        public string EventType { get; set; } = string.Empty;
-        public PaymentStatus? ReportedStatus { get; set; }
-        public DateTime ReceivedAtUtc { get; set; } = DateTime.UtcNow;
-        public bool IsProcessed { get; set; }
-        public DateTime? ProcessedAtUtc { get; set; }
-        public string? PayloadJson { get; set; }
-        public string? ErrorMessage { get; set; }
-    }
-
-    public class PaymentWebhookEventUpdateDto : PaymentWebhookEventCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: raw inbound gateway webhook data has no legitimate client-facing
+    // write path. Nothing writes here yet either, since no real payment gateway is wired in —
+    // that lands with the actual webhook receiver endpoint. PaymentWebhookEventsController is
+    // read-only, Admin/Staff-only in the meantime.
     public class PaymentWebhookEventResponseDto
     {
         public Guid Id { get; set; }

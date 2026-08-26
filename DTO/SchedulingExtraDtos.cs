@@ -78,21 +78,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class TripStatusHistoryCreateDto
-    {
-        public Guid TripId { get; set; }
-        public Guid? ChangedByUserId { get; set; }
-        public TripStatus Status { get; set; }
-        public DateTime ChangedAtUtc { get; set; } = DateTime.UtcNow;
-        public string? Remarks { get; set; }
-    }
-
-    public class TripStatusHistoryUpdateDto : TripStatusHistoryCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: this is the append-only trail of a Trip's own status changes,
+    // written only from TripsController wherever Trip.Status actually changes.
+    // TripStatusHistoriesController is read-only, Admin/Staff-only.
     public class TripStatusHistoryResponseDto
     {
         public Guid Id { get; set; }

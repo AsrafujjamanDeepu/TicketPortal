@@ -118,26 +118,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class IntegrationSyncLogCreateDto
-    {
-        public Guid OperatorIntegrationId { get; set; }
-        public string EntityName { get; set; } = string.Empty;
-        public string? EntityKey { get; set; }
-        public string Operation { get; set; } = string.Empty;
-        public IntegrationSyncStatus Status { get; set; } = IntegrationSyncStatus.Pending;
-        public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? CompletedAtUtc { get; set; }
-        public string? RequestJson { get; set; }
-        public string? ResponseJson { get; set; }
-        public string? ErrorMessage { get; set; }
-    }
-
-    public class IntegrationSyncLogUpdateDto : IntegrationSyncLogCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: this will be written by the future ERP sync worker (flagged as
+    // follow-up work, not built here), never by a client directly. IntegrationSyncLogsController
+    // is read-only, Admin/Staff-only.
     public class IntegrationSyncLogResponseDto
     {
         public Guid Id { get; set; }
@@ -156,24 +139,9 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class IntegrationWebhookLogCreateDto
-    {
-        public Guid OperatorIntegrationId { get; set; }
-        public string? ExternalEventId { get; set; }
-        public string EventType { get; set; } = string.Empty;
-        public DateTime ReceivedAtUtc { get; set; } = DateTime.UtcNow;
-        public bool IsProcessed { get; set; }
-        public DateTime? ProcessedAtUtc { get; set; }
-        public string? PayloadJson { get; set; }
-        public string? ErrorMessage { get; set; }
-    }
-
-    public class IntegrationWebhookLogUpdateDto : IntegrationWebhookLogCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: same reasoning as IntegrationSyncLog above — written by the future
+    // ERP sync worker, never by a client. IntegrationWebhookLogsController is read-only,
+    // Admin/Staff-only.
     public class IntegrationWebhookLogResponseDto
     {
         public Guid Id { get; set; }

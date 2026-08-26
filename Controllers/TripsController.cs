@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TicketPortal.Api.Models.Enums;
+using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -351,6 +352,10 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
+            // Captured before any of the fields below get overwritten — used after the update
+            // to decide whether a TripStatusHistory row actually needs writing.
+            var previousStatus = trip.Status;
+
 
             // =========================================================
             // 2. Validate RowVersion
@@ -622,6 +627,18 @@ namespace TicketPortal.Api.Controllers
             trip.Status = dto.Status;
             trip.DelayReason = dto.DelayReason;
 
+            if (dto.Status != previousStatus)
+            {
+                db.TripStatusHistories.Add(new TripStatusHistory
+                {
+                    TripId = trip.Id,
+                    ChangedByUserId = GetCurrentUserId(),
+                    Status = dto.Status,
+                    ChangedAtUtc = DateTime.UtcNow,
+                    Remarks = dto.DelayReason,
+                });
+            }
+
 
             // =========================================================
             // 17. Transaction
@@ -784,8 +801,21 @@ namespace TicketPortal.Api.Controllers
                 // Don't cascade-delete: Bookings are real customer purchases. Soft-delete + cancel
                 // the trip instead — every existing Booking, and the customer who holds it, is
                 // completely untouched; the trip just stops showing up in "browse trips" listings.
+                var previousStatus = trip.Status;
                 trip.Status = TripStatus.Cancelled;
                 trip.MarkDeleted();
+
+                if (previousStatus != TripStatus.Cancelled)
+                {
+                    db.TripStatusHistories.Add(new TripStatusHistory
+                    {
+                        TripId = trip.Id,
+                        ChangedByUserId = GetCurrentUserId(),
+                        Status = TripStatus.Cancelled,
+                        ChangedAtUtc = DateTime.UtcNow,
+                        Remarks = "Trip has existing bookings; soft-deleted and cancelled instead of removed.",
+                    });
+                }
 
                 try
                 {
@@ -884,6 +914,14 @@ namespace TicketPortal.Api.Controllers
                 message = "Trip image uploaded successfully.",
                 imageUrl = trip.CoverImageUrl
             });
+        }
+
+        // Used only to stamp ChangedByUserId on the TripStatusHistory rows added above/below —
+        // every other action on this controller was already fine without touching claims.
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
         }
 
         private static TripResponseDto ToResponseDto(Trip trip)

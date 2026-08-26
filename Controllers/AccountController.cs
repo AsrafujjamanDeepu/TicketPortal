@@ -1,7 +1,10 @@
+using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Models.Diagnostics;
 using TicketPortal.Api.Models.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -18,7 +21,8 @@ namespace TicketPortal.Api.Controllers
     [ApiController]
     public class AccountController(
         UserManager<ApplicationUser> userManager,
-        IConfiguration configuration) : ControllerBase
+        IConfiguration configuration,
+        AppDbContext db) : ControllerBase
     {
         [HttpPost("register")]
         public async Task<IActionResult> Register(RegisterDto dto)
@@ -36,12 +40,6 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(result.Errors.Select(e => e.Description));
             }
 
-            // This is the ONLY self-service registration path, so it's the one place that gets
-            // to assign "Customer" for free — every other role (Staff/Operator/Admin) only ever
-            // comes from AdminController, gated behind an existing Admin. See DbSeeder.SeedRolesAsync
-            // for the full role-semantics writeup.
-            await userManager.AddToRoleAsync(user, "Customer");
-
             return StatusCode(201, $"User '{user.UserName}' created.");
         }
 
@@ -49,17 +47,40 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> Login(LoginDto dto)
         {
             var user = await userManager.FindByNameAsync(dto.UserName);
-            if (user == null || !await userManager.CheckPasswordAsync(user, dto.Password))
+            var passwordOk = user != null && await userManager.CheckPasswordAsync(user, dto.Password);
+
+            // Only a real user (found by username) has anything to attribute a LoginHistory row
+            // to — LoginHistory.UserId is a required FK, so a completely unknown username has
+            // no row to write, same as it always did. A found user with the wrong password
+            // still gets a Success = false row, which is the actual security-relevant case
+            // this trail exists for.
+            if (user != null)
+            {
+                db.LoginHistories.Add(new LoginHistory
+                {
+                    UserId = user.Id,
+                    LoginAtUtc = DateTime.UtcNow,
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    UserAgent = Request.Headers.UserAgent.ToString(),
+                    Success = passwordOk,
+                });
+                await db.SaveChangesAsync();
+            }
+
+            if (!passwordOk)
             {
                 return Unauthorized("Invalid username or password");
             }
 
-            var roles = await userManager.GetRolesAsync(user);
+            // passwordOk can only be true when user != null (see its definition above), so this
+            // is safe — kept as a separate variable rather than sprinkling `!` everywhere below.
+            var authenticatedUser = user!;
+            var roles = await userManager.GetRolesAsync(authenticatedUser);
 
             var claims = new List<Claim>
             {
-                new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new(ClaimTypes.Name, user.UserName!)
+                new(ClaimTypes.NameIdentifier, authenticatedUser.Id.ToString()),
+                new(ClaimTypes.Name, authenticatedUser.UserName!)
             };
             claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
@@ -79,8 +100,8 @@ namespace TicketPortal.Api.Controllers
             {
                 Token = new JwtSecurityTokenHandler().WriteToken(token),
                 ExpiresAtUtc = expiresAtUtc,
-                UserId = user.Id,
-                UserName = user.UserName!,
+                UserId = authenticatedUser.Id,
+                UserName = authenticatedUser.UserName!,
                 // GetRolesAsync returns IList<string>, which does NOT implicitly convert to
                 // IReadOnlyCollection<string> — .ToList() here is required to compile, not optional.
                 Roles = roles.ToList()

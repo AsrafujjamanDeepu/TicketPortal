@@ -8,27 +8,35 @@ using System.ComponentModel.DataAnnotations;
 
 namespace TicketPortal.Api.DTO
 {
+    // A customer (or staff, on their behalf) asks to cancel a booking or one ticket in it.
+    // RequestedByUserId comes from the caller's own auth claim in the controller, never from
+    // this body — and there's no Status/RequestedRefundAmount field here at all, because
+    // CancellationProcessingService computes the refund amount from the trip's real
+    // CancellationPolicy. The old generic CRUD let a client submit both of those directly,
+    // i.e. approve their own refund amount in the same request that created it.
     public class CancellationRequestCreateDto
     {
         public Guid BookingId { get; set; }
-        public Guid? TicketId { get; set; }
-        public Guid? RequestedByUserId { get; set; }
-        public Guid? ApprovedByUserId { get; set; }
-        public CancellationRequestStatus Status { get; set; } = CancellationRequestStatus.Requested;
+        public Guid? TicketId { get; set; } // Null = cancel the whole booking, not just one ticket.
         public string Reason { get; set; } = string.Empty;
-        public string? RejectedReason { get; set; }
-        public decimal RequestedRefundAmount { get; set; }
-        public decimal? ApprovedRefundAmount { get; set; }
-        public DateTime RequestedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? ApprovedAtUtc { get; set; }
-        public DateTime? CompletedAtUtc { get; set; }
     }
 
-    public class CancellationRequestUpdateDto : CancellationRequestCreateDto
+    // Staff review step. ApprovedRefundAmount is optional — omit it to accept the policy's own
+    // calculated RequestedRefundAmount as-is, or set it to override (e.g. a goodwill exception).
+    public class CancellationApproveDto
     {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+        public decimal? ApprovedRefundAmount { get; set; }
+        public string? Remarks { get; set; }
     }
+
+    public class CancellationRejectDto
+    {
+        public string RejectedReason { get; set; } = string.Empty;
+    }
+
+    // No CancellationRequestUpdateDto / raw PUT on purpose: a cancellation only ever moves
+    // through CancellationProcessingService (Request -> Approve/Reject -> Complete) — see
+    // CancellationRequestsController.
 
     public class CancellationRequestResponseDto
     {

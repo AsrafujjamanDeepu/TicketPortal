@@ -8,21 +8,8 @@ using System.ComponentModel.DataAnnotations;
 
 namespace TicketPortal.Api.DTO
 {
-    public class ActivityLogCreateDto
-    {
-        public Guid? UserId { get; set; }
-        public string Action { get; set; } = string.Empty;
-        public string? EntityName { get; set; }
-        public string? EntityId { get; set; }
-        public string? IpAddress { get; set; }
-    }
-
-    public class ActivityLogUpdateDto : ActivityLogCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: a trail table is never client-writable. ActivityLogsController is
+    // read-only, Admin/Staff-only.
     public class ActivityLogResponseDto
     {
         public Guid Id { get; set; }
@@ -36,23 +23,8 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class AuditLogCreateDto
-    {
-        public Guid? UserId { get; set; }
-        public string EntityName { get; set; } = string.Empty;
-        public string EntityId { get; set; } = string.Empty;
-        public string Action { get; set; } = string.Empty;
-        public string? OldValuesJson { get; set; }
-        public string? NewValuesJson { get; set; }
-        public string? IpAddress { get; set; }
-        public string? UserAgent { get; set; }
-        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-    }
-
-    public class AuditLogUpdateDto : AuditLogCreateDto
-    {
-    }
-
+    // No Create/Update DTO: a trail table is never client-writable. AuditLogsController is
+    // read-only, Admin/Staff-only.
     public class AuditLogResponseDto
     {
         public Guid Id { get; set; }
@@ -67,19 +39,9 @@ namespace TicketPortal.Api.DTO
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     }
 
-    public class LoginHistoryCreateDto
-    {
-        public Guid UserId { get; set; }
-        public DateTime LoginAtUtc { get; set; } = DateTime.UtcNow;
-        public string? IpAddress { get; set; }
-        public string? UserAgent { get; set; }
-        public bool Success { get; set; }
-    }
-
-    public class LoginHistoryUpdateDto : LoginHistoryCreateDto
-    {
-    }
-
+    // No Create/Update DTO: a trail table is never client-writable. Written only by
+    // AccountController.Login on every attempt (success or failure). LoginHistoriesController
+    // is read-only.
     public class LoginHistoryResponseDto
     {
         public Guid Id { get; set; }
@@ -90,27 +52,9 @@ namespace TicketPortal.Api.DTO
         public bool Success { get; set; }
     }
 
-    public class NotificationLogCreateDto
-    {
-        public Guid? BookingId { get; set; }
-        public Guid? TicketId { get; set; }
-        public Guid? UserId { get; set; }
-        public NotificationChannel Channel { get; set; }
-        public string Recipient { get; set; } = string.Empty;
-        public string? Subject { get; set; }
-        public string Message { get; set; } = string.Empty;
-        public NotificationStatus Status { get; set; } = NotificationStatus.Queued;
-        public string? ProviderMessageId { get; set; }
-        public string? ErrorMessage { get; set; }
-        public DateTime? SentAtUtc { get; set; }
-    }
-
-    public class NotificationLogUpdateDto : NotificationLogCreateDto
-    {
-        // Required — optimistic-concurrency token, echo back what GET returned.
-        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
-    }
-
+    // No Create/Update DTO: a trail table is never client-writable. Nothing sends real
+    // notifications yet (no email/SMS provider is wired in), so nothing writes here yet either
+    // — NotificationLogsController is read-only in the meantime.
     public class NotificationLogResponseDto
     {
         public Guid Id { get; set; }
