@@ -1,4 +1,6 @@
 using TicketPortal.Api.Models.CompanyNetwork;
+using TicketPortal.Api.Models.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Data
@@ -6,6 +8,11 @@ namespace TicketPortal.Api.Data
     // Seeds platform-wide reference data (Terminals, BusRoutes) that no module's controller
     // is responsible for creating, but that Trip and Booking require via non-nullable FK.
     // Safe to call on every startup — it only inserts when the tables are empty.
+    //
+    // Also seeds the real login-permission roles and a bootstrap Admin account (Completion
+    // Plan Piece 1 — "seed real ApplicationRole rows... right now the only way to grant a role
+    // is a raw SQL insert, which isn't a real solution"). See AdminController for how every
+    // other Staff/Operator/Admin account gets created after this one exists.
     public static class DbSeeder
     {
         // Fixed GUIDs (not Guid.NewGuid()) so the same IDs come back every time you drop
@@ -45,6 +52,66 @@ namespace TicketPortal.Api.Data
                     new BusRoute { Id = DhakaToCoxsBazarRouteId, OriginTerminalId = DhakaGabtoliId, DestinationTerminalId = CoxsBazarId, RouteCode = "DHK-CXB", Name = "Dhaka - Cox's Bazar", DistanceKm = 414, EstimatedDurationMinutes = 540 }
                 );
                 await db.SaveChangesAsync();
+            }
+        }
+
+        // The four login-permission tiers used by every [Authorize]/IsInRole check across the
+        // whole backend (see the Completion Plan's "Shared conventions" section). Idempotent —
+        // safe to run on every startup.
+        //
+        // Role semantics decided here (nothing else pins this down):
+        //   Customer — assigned automatically by AccountController.Register (public self-signup).
+        //   Staff    — every account with a StaffProfile, BOTH our own platform staff
+        //              (StaffProfile.BusOperatorId == null) AND an operator's own staff
+        //              (BusOperatorId == that operator). Every `IsInRole("Staff")` check
+        //              elsewhere in the codebase is written against this one role; BusOperatorId
+        //              is what narrows an operator's staff down to their own rows on top of that
+        //              (see Extensions/ClaimsPrincipalExtensions.GetBusOperatorIdAsync).
+        //   Operator — seeded because the plan calls for it explicitly, and assignable through
+        //              AdminController, but nothing in the codebase currently gates on it: every
+        //              scoping check that tells "our staff" from "an operator's staff" apart
+        //              uses BusOperatorId, not the role name. Reserved for a future
+        //              operator-company-portal login that isn't tied to an individual
+        //              StaffProfile — flag for removal if that need never materializes.
+        //   Admin    — full access everywhere; only ever granted through AdminController.
+        public static async Task SeedRolesAsync(RoleManager<ApplicationRole> roleManager)
+        {
+            string[] roles = ["Admin", "Staff", "Operator", "Customer"];
+
+            foreach (var role in roles)
+            {
+                if (!await roleManager.RoleExistsAsync(role))
+                {
+                    await roleManager.CreateAsync(new ApplicationRole { Name = role });
+                }
+            }
+        }
+
+        // Fixed Guid, same reasoning as the Terminal/BusRoute ids above — a fresh clone of this
+        // repo needs ONE working Admin account to call AdminController with, or nobody can ever
+        // grant anyone else a role without a raw SQL insert (the exact problem Piece 1 exists to
+        // remove). Dev-only credentials — rotate or remove before any real deployment.
+        public static readonly Guid BootstrapAdminId = Guid.Parse("33333333-3333-3333-3333-333333333301");
+        public const string BootstrapAdminUserName = "admin";
+        public const string BootstrapAdminPassword = "Admin@12345";
+
+        public static async Task SeedAdminUserAsync(UserManager<ApplicationUser> userManager)
+        {
+            if (await userManager.FindByNameAsync(BootstrapAdminUserName) != null) return;
+
+            var admin = new ApplicationUser
+            {
+                Id = BootstrapAdminId,
+                UserName = BootstrapAdminUserName,
+                Email = "admin@ticketportal.local",
+                FullName = "Platform Admin",
+                EmailConfirmed = true,
+            };
+
+            var result = await userManager.CreateAsync(admin, BootstrapAdminPassword);
+            if (result.Succeeded)
+            {
+                await userManager.AddToRoleAsync(admin, "Admin");
             }
         }
     }

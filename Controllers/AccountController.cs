@@ -36,6 +36,12 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(result.Errors.Select(e => e.Description));
             }
 
+            // This is the ONLY self-service registration path, so it's the one place that gets
+            // to assign "Customer" for free — every other role (Staff/Operator/Admin) only ever
+            // comes from AdminController, gated behind an existing Admin. See DbSeeder.SeedRolesAsync
+            // for the full role-semantics writeup.
+            await userManager.AddToRoleAsync(user, "Customer");
+
             return StatusCode(201, $"User '{user.UserName}' created.");
         }
 

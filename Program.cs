@@ -227,9 +227,20 @@ using (var scope = app.Services.CreateScope())
     var db =
         scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+    var roleManager =
+        scope.ServiceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
+
+    var userManager =
+        scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+
     await db.Database.MigrateAsync();
 
     await DbSeeder.SeedReferenceDataAsync(db);
+
+    // Piece 1: real roles + a bootstrap Admin account. Must run in this order — the Admin
+    // user's role assignment below depends on the "Admin" role already existing.
+    await DbSeeder.SeedRolesAsync(roleManager);
+    await DbSeeder.SeedAdminUserAsync(userManager);
 }
 
 
