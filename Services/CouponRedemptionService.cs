@@ -30,6 +30,16 @@ namespace TicketPortal.Api.Services
             var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId)
                 ?? throw new InvalidOperationException($"Booking {bookingId} does not exist.");
 
+            // Same status gate as PaymentConfirmationService.InitiatePaymentAsync — once a
+            // booking has moved past Draft/PendingPayment (payment initiated, confirmed,
+            // cancelled, etc.) its pricing is locked, so a coupon can no longer change an
+            // amount that's already been charged or is mid-charge.
+            if (booking.Status != BookingStatus.PendingPayment && booking.Status != BookingStatus.Draft)
+            {
+                throw new InvalidOperationException(
+                    $"Booking {bookingId} is {booking.Status} and can no longer have a coupon applied.");
+            }
+
             if (!coupon.IsActive)
             {
                 throw new InvalidOperationException($"Coupon '{coupon.Code}' is not active.");
@@ -105,11 +115,15 @@ namespace TicketPortal.Api.Services
             coupon.UsedCount += 1;
             coupon.UpdatedAtUtc = DateTime.UtcNow;
 
-            // Links the booking back to the coupon that was used on it. Recomputing the
-            // booking's own SubTotal/DiscountAmount/GrandTotal from this is a separate,
-            // pre-existing gap (see BookingCreateDto's own comment on those fields being
-            // trusted from the client) — not something this fix takes on.
+            // Links the booking back to the coupon that was used on it, and actually applies
+            // the discount — this is the fix: previously CouponUsage.DiscountApplied was
+            // computed and stored but never touched the booking itself, so GrandTotal (and
+            // therefore what PaymentConfirmationService.InitiatePaymentAsync charges) never
+            // moved. RecomputeTotals() is the same formula BookingsController.Create uses for
+            // TaxAmount, kept in one place so the two pricing paths can't drift apart.
             booking.CouponId = couponId;
+            booking.DiscountAmount = discount;
+            booking.RecomputeTotals();
 
             await _db.SaveChangesAsync();
 

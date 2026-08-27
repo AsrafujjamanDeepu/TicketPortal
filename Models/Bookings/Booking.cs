@@ -127,5 +127,14 @@ namespace TicketPortal.Api.Models.Bookings
             CancelledAtUtc = DateTime.UtcNow;
             CancellationReason = reason;
         }
+
+        // The ONE formula for GrandTotal in the codebase (Piece 2 + Piece 3 fix). Both
+        // BookingsController.Create (after resolving TaxAmount) and
+        // CouponRedemptionService.RedeemAsync (after setting DiscountAmount) call this instead
+        // of each re-deriving the sum by hand, so the two pricing paths can never drift apart.
+        public void RecomputeTotals()
+        {
+            GrandTotal = SubTotal - DiscountAmount + TaxAmount + ServiceChargeAmount;
+        }
     }
 }

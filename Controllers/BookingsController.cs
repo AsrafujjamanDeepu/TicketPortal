@@ -163,6 +163,7 @@ namespace TicketPortal.Api.Controllers
             }
 
             var subTotal = hold.Items.Sum(i => i.FareAtHold);
+            var taxAmount = await ResolveTaxAsync(subTotal);
 
             var booking = new Booking
             {
@@ -179,10 +180,9 @@ namespace TicketPortal.Api.Controllers
 
                 // Computed, never trusted from the client — see the class comment on BookingCreateDto.
                 SubTotal = subTotal,
-                DiscountAmount = 0m, // Coupon application is its own flow (Piece 4) — not wired in here.
-                TaxAmount = 0m,      // No TaxRule engine wired in yet (Piece 1) — flagged as follow-up, not invented here.
+                DiscountAmount = 0m, // Coupon application is its own flow (Piece 2/CouponRedemptionService) — not wired in here.
+                TaxAmount = taxAmount,
                 ServiceChargeAmount = 0m,
-                GrandTotal = subTotal,
                 Currency = trip.Currency,
 
                 RequiresExternalConfirmation = trip.InventoryMode != OperatorInventoryMode.PlatformManaged,
@@ -199,6 +199,11 @@ namespace TicketPortal.Api.Controllers
                     NationalIdNumber = p.NationalIdNumber
                 }).ToList()
             };
+
+            // Same shared formula CouponRedemptionService.RedeemAsync uses after it sets
+            // DiscountAmount — one place derives GrandTotal so the two pricing paths (creation
+            // vs. later coupon redemption) can never drift apart.
+            booking.RecomputeTotals();
 
             db.Bookings.Add(booking);
 
@@ -472,6 +477,33 @@ namespace TicketPortal.Api.Controllers
             db.CustomerProfiles.Add(profile);
             await db.SaveChangesAsync();
             return profile.Id;
+        }
+
+        // Modeled on PaymentConfirmationService.ResolveCommissionAsync's shape (find the
+        // applicable configuration, compute an amount off a base figure) — but adapted to what
+        // TaxRule actually stores. Unlike CommissionRule, TaxRule carries no BusOperatorId /
+        // BusRouteId / EffectiveFrom-EffectiveTo window (see Models/Payments/TaxRule.cs) — it's
+        // a flat, platform-wide reference table with just Name/Percentage/IsActive. So there's
+        // no "route-specific beats general" to resolve yet: every currently-active TaxRule is
+        // taken to apply to every booking, and their percentages stack (e.g. a VAT rule and a
+        // separate travel-tax rule can both be active at once). If tax ever needs to vary by
+        // operator or route, TaxRule needs those columns first — this only resolves what the
+        // schema supports today. No matching rule (table empty / nothing active) intentionally
+        // returns 0m, the same effective behavior as before this was wired in.
+        private async Task<decimal> ResolveTaxAsync(decimal subTotal)
+        {
+            var activePercentages = await db.TaxRules
+                .Where(t => t.IsActive)
+                .Select(t => t.Percentage)
+                .ToListAsync();
+
+            if (activePercentages.Count == 0)
+            {
+                return 0m;
+            }
+
+            var combinedPercentage = activePercentages.Sum();
+            return Math.Round(subTotal * (combinedPercentage / 100m), 2);
         }
 
         // =========================================================
