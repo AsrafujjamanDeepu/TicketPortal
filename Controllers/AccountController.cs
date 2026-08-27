@@ -40,6 +40,20 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(result.Errors.Select(e => e.Description));
             }
 
+            // Matches the role semantics DbSeeder.SeedRolesAsync already documents: every
+            // public self-signup account is a Customer. A role-assignment failure here (e.g.
+            // the seeded "Customer" role is somehow missing) shouldn't undo an
+            // otherwise-successful account creation, but it's surfaced in the response instead
+            // of failing silently, since it means the account was created without the role its
+            // own creation path is supposed to guarantee.
+            var roleResult = await userManager.AddToRoleAsync(user, "Customer");
+            if (!roleResult.Succeeded)
+            {
+                return StatusCode(201,
+                    $"User '{user.UserName}' created, but role assignment failed: " +
+                    string.Join("; ", roleResult.Errors.Select(e => e.Description)));
+            }
+
             return StatusCode(201, $"User '{user.UserName}' created.");
         }
 
