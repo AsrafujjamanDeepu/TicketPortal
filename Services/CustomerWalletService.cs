@@ -9,6 +9,9 @@ namespace TicketPortal.Api.Services
     // top-up or spend goes through here, and every single change writes BOTH the new balance
     // AND a CustomerWalletTransaction row explaining it, in the same save — so the balance
     // number can always be double-checked by re-adding up that customer's transaction history.
+    // Balance changes are atomic (see ApplyAsync) — no read-balance-then-write-balance window,
+    // so two concurrent debits for the same customer can't both succeed against money that's
+    // only there once.
     public class CustomerWalletService
     {
         private readonly AppDbContext _db;
@@ -46,37 +49,51 @@ namespace TicketPortal.Api.Services
         {
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
-            // We check the balance first, then save it. That's a slightly less strict pattern
-            // than SeatHoldService uses for seats — and that's fine here, because a wallet
-            // debit only ever affects ONE customer's own row, not something many strangers are
-            // all racing to grab at once the way a seat is. The worst case (two clicks from the
-            // very same customer at almost the same instant) is rare and low-stakes compared to
-            // double-selling a physical seat.
-            // FirstOrDefaultAsync + explicit null check instead of SingleAsync(): SingleAsync
-            // throws "Sequence contains no elements" (via InvalidOperationException) if the
-            // CustomerProfileId doesn't exist, which the global handler still returns as a 400,
-            // but with a message that doesn't say what actually went wrong. This gives a clear,
-            // actionable message instead.
-            var current = await _db.CustomerProfiles
-                .Where(c => c.Id == customerProfileId)
-                .Select(c => (decimal?)c.WalletBalance)
-                .FirstOrDefaultAsync();
+            // Atomic check-and-update, matching PayoutProcessingService.CreateAsync's "reserve"
+            // pattern: the balance check lives in the WHERE clause of the update itself, so two
+            // concurrent debits for the same customer can't both read the same starting balance
+            // and both succeed against money that's only there once. We no longer read-then-write
+            // in C# — read, compute, save was exactly the race the previous version had.
+            int affected;
 
-            if (current is null)
+            if (signedAmount < 0)
             {
-                throw new InvalidOperationException($"CustomerProfile {customerProfileId} does not exist.");
+                var debitAmount = -signedAmount;
+                affected = await _db.CustomerProfiles
+                    .Where(c => c.Id == customerProfileId && c.WalletBalance >= debitAmount)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(c => c.WalletBalance, c => c.WalletBalance - debitAmount));
+
+                if (affected == 0)
+                {
+                    // 0 affected rows means either the profile doesn't exist, or it exists but
+                    // didn't have enough balance — tell those two apart with one extra read so
+                    // the error message stays as actionable as before.
+                    var exists = await _db.CustomerProfiles.AnyAsync(c => c.Id == customerProfileId);
+                    throw new InvalidOperationException(exists
+                        ? "Insufficient wallet balance."
+                        : $"CustomerProfile {customerProfileId} does not exist.");
+                }
+            }
+            else
+            {
+                affected = await _db.CustomerProfiles
+                    .Where(c => c.Id == customerProfileId)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(c => c.WalletBalance, c => c.WalletBalance + signedAmount));
+
+                if (affected == 0)
+                {
+                    throw new InvalidOperationException($"CustomerProfile {customerProfileId} does not exist.");
+                }
             }
 
-            var newBalance = current.Value + signedAmount;
-            if (newBalance < 0)
-            {
-                throw new InvalidOperationException("Insufficient wallet balance.");
-            }
-
-            await _db.CustomerProfiles
+            // The atomic update above means we never had the new balance in hand ahead of time
+            // (that's the whole point) — so a follow-up read gets it for the audit row below.
+            var newBalance = await _db.CustomerProfiles
                 .Where(c => c.Id == customerProfileId)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(c => c.WalletBalance, newBalance));
+                .Select(c => c.WalletBalance)
+                .FirstAsync();
 
             // The paper trail: exactly why the balance just changed.
             _db.CustomerWalletTransactions.Add(new CustomerWalletTransaction
