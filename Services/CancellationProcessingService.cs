@@ -33,10 +33,12 @@ namespace TicketPortal.Api.Services
     public class CancellationProcessingService
     {
         private readonly AppDbContext _db;
+        private readonly SeatHoldService _seatHoldService;
 
-        public CancellationProcessingService(AppDbContext db)
+        public CancellationProcessingService(AppDbContext db, SeatHoldService seatHoldService)
         {
             _db = db;
+            _seatHoldService = seatHoldService;
         }
 
         // Customer-initiated (or staff, on the customer's behalf) — ties the request to the
@@ -173,21 +175,18 @@ namespace TicketPortal.Api.Services
             cr.UpdatedAtUtc = DateTime.UtcNow;
 
             // Reflect the cancellation on the ticket/booking themselves — this is what actually
-            // takes the seat out of "sold" state from the customer's point of view.
-            //
-            // Deliberately NOT touching TripSeat.Status here: SeatHoldService's own header
-            // comment states it is the ONLY place in the codebase allowed to change that field,
-            // and none of its existing methods cover "release a seat that was already converted
-            // to a paid Booking" — only hold-time transitions (Available/Held/Booked/Expired).
-            // Until a method for that exists there, a cancelled/refunded ticket's seat stays
-            // marked Booked and won't be reoffered for resale. Flagged as a follow-up for
-            // whoever extends SeatHoldService next, rather than reaching around that invariant
-            // from here.
+            // takes the seat out of "sold" state from the customer's point of view. Each
+            // cancelled ticket's TripSeatId is collected here so the seats can be handed to
+            // SeatHoldService below — it's still the ONLY class allowed to change
+            // TripSeat.Status; this service just tells it which seats are now free again.
+            var cancelledTripSeatIds = new List<Guid>();
+
             if (cr.TicketId.HasValue)
             {
                 var ticket = booking.Tickets.First(t => t.Id == cr.TicketId.Value);
                 ticket.Status = TicketStatus.Cancelled;
                 ticket.CancelledAtUtc = DateTime.UtcNow;
+                cancelledTripSeatIds.Add(ticket.TripSeatId);
 
                 var allCancelled = booking.Tickets.All(t => t.Status == TicketStatus.Cancelled);
                 if (allCancelled)
@@ -207,6 +206,7 @@ namespace TicketPortal.Api.Services
                 {
                     t.Status = TicketStatus.Cancelled;
                     t.CancelledAtUtc = DateTime.UtcNow;
+                    cancelledTripSeatIds.Add(t.TripSeatId);
                 }
 
                 booking.Status = BookingStatus.Cancelled;
@@ -234,7 +234,19 @@ namespace TicketPortal.Api.Services
 
             _db.Refunds.Add(refund);
 
+            // Everything above is a tracked-entity change (cr/ticket(s)/booking/refund), saved
+            // together below. The seat release is a separate, immediate ExecuteUpdateAsync call
+            // on this same AppDbContext (see SeatHoldService.ReleaseCancelledSeatsAsync) — an
+            // explicit transaction around both is what keeps this step honest with the rest of
+            // the class's own invariant ("every method either fully succeeds or fully rolls
+            // back"), instead of risking a cancelled ticket on record with its seat still stuck
+            // as Booked if the release step were ever to fail on its own.
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
             await _db.SaveChangesAsync();
+            await _seatHoldService.ReleaseCancelledSeatsAsync(booking.Id, cancelledTripSeatIds);
+
+            await transaction.CommitAsync();
         }
 
         public async Task RejectAsync(Guid cancellationRequestId, string rejectedReason)

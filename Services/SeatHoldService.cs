@@ -197,6 +197,34 @@ namespace TicketPortal.Api.Services
             await transaction.CommitAsync();
         }
 
+        // Called once a booked seat's ticket has actually been cancelled/refunded (see
+        // CancellationProcessingService.ApproveAsync) — the seat goes back on sale, the same
+        // outcome as an expired or released hold. Scoped to a specific bookingId as well as the
+        // seat ids themselves, so this can never be used to release a seat belonging to some
+        // other booking by mistake. Only ever moves a seat that is currently Booked; anything
+        // already Available/Held/Blocked is left untouched, and the returned count lets the
+        // caller notice if fewer seats moved than it expected.
+        //
+        // A single ExecuteUpdateAsync call is already atomic on its own, so this doesn't open
+        // its own transaction — callers that need it combined with other writes (e.g. the ticket
+        // status change that triggers this) should wrap both in one transaction on their side,
+        // the same way HoldSeatsAsync's caller-facing transaction covers everything it touches.
+        public async Task<int> ReleaseCancelledSeatsAsync(Guid bookingId, IReadOnlyCollection<Guid> tripSeatIds)
+        {
+            if (tripSeatIds.Count == 0)
+            {
+                return 0;
+            }
+
+            return await _db.TripSeats
+                .Where(ts => ts.BookingId == bookingId
+                    && tripSeatIds.Contains(ts.Id)
+                    && ts.Status == TripSeatStatus.Booked)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(ts => ts.Status, TripSeatStatus.Available)
+                    .SetProperty(ts => ts.BookingId, (Guid?)null));
+        }
+
         // This is the automatic "clean-up" job that makes the 3/5 minute timer actually mean
         // something. Meant to be called on a schedule (e.g. every 30 seconds) by a background
         // worker. It finds every hold whose time ran out without a completed payment, and puts
