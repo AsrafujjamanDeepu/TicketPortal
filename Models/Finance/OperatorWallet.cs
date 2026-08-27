@@ -21,8 +21,18 @@ namespace TicketPortal.Api.Models.Finance
         public decimal WithdrawnAmount { get; set; }          // Total already paid out historically.
         public decimal TotalPlatformCommission { get; set; }  // Our total earnings from this operator so far.
         public decimal TotalGatewayCharge { get; set; }
-        public decimal OperatorReceivableFromPlatform { get; set; } // What WE owe THEM right now.
-        public decimal PlatformReceivableFromOperator { get; set; } // What THEY owe US right now (e.g. counter commission).
+        // NOTE: despite reading like a live "right now" balance, these two are lifetime
+        // accumulators — FinanceLedgerService.ApplyWalletDeltaAsync only ever adds to them,
+        // and nothing in the codebase (not SettlementGenerationService, not
+        // InvoicePaymentService.RecordReceiptAsync) ever subtracts from them once money is
+        // actually settled or an invoice is paid. For the real, currently-owed figure use
+        // PendingSettlementBalance (nets to zero as settlements sweep it) together with
+        // AvailablePayoutBalance/WithdrawnAmount on the "we owe them" side, or an operator's
+        // unpaid OperatorInvoice rows on the "they owe us" side. Deliberately left as
+        // accumulators rather than retrofitted into live balances here — see
+        // InvoicePaymentService.RecordReceiptAsync for the reasoning.
+        public decimal OperatorReceivableFromPlatform { get; set; } // Lifetime total of what the platform has ever owed this operator from online sales — NOT a live balance.
+        public decimal PlatformReceivableFromOperator { get; set; } // Lifetime total of what this operator has ever owed the platform (e.g. counter commission) — NOT a live balance.
         public DateTime? LastStatementDateUtc { get; set; }
         public DateTime? LastSettlementDateUtc { get; set; }
         public bool IsActive { get; set; } = true;

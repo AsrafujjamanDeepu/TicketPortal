@@ -80,12 +80,16 @@ namespace TicketPortal.Api.Services
 
         // The step that actually moves money. Two separate service calls, each with its own
         // transaction (FinanceLedgerService and CustomerWalletService each manage their own,
-        // by design — see their own file comments) — so this isn't fully atomic across both:
-        // if the ledger post succeeds but the wallet credit then fails, the operator's side is
-        // already adjusted while the customer hasn't been paid yet. That gap is flagged here
-        // rather than hidden; a real production system would want an outbox/saga pattern to
-        // close it. For now, a Failed status after a partial failure is a deliberate signal to
-        // go check both sides by hand rather than silently trusting either one.
+        // by design — see their own file comments) — so this isn't fully atomic across both.
+        // Rather than one catch-all around both calls, each stage below has its own: a failure
+        // in Stage 1 (ledger post) means nothing has moved yet, so a plain Failed is accurate.
+        // A failure in Stage 2 (wallet credit) is a genuinely worse, different situation — the
+        // operator's side is already adjusted while the customer hasn't been paid — so it gets
+        // its own RefundStatus.ReconciliationNeeded instead of being folded into the same
+        // Failed bucket as "nothing happened." A real production system would still want an
+        // outbox/saga pattern to close this gap automatically; for now, ReconciliationNeeded is
+        // a queryable flag (`WHERE Status = ReconciliationNeeded`) for staff or a nightly job to
+        // find and reconcile by hand, rather than a fact buried inside a Failed row's remark text.
         //
         // Guest checkout (no CustomerProfile, so no wallet to credit) can't reach Succeeded
         // here at all — there's no payment-gateway refund integration yet, so the only real way
@@ -115,12 +119,32 @@ namespace TicketPortal.Api.Services
             });
             await _db.SaveChangesAsync();
 
+            // Stage 1 — post to the commission ledger. If this throws, nothing has moved yet:
+            // a plain Failed status is fully accurate and there is nothing to reconcile.
             try
             {
                 await _financeLedgerService.PostRefundAsync(
                     refund.BookingId, refund.Id, booking.BusOperatorId, refund.Amount, refund.Currency);
+            }
+            catch (Exception ex)
+            {
+                refund.Status = RefundStatus.Failed;
+                _db.RefundHistories.Add(new RefundHistory
+                {
+                    RefundId = refund.Id,
+                    Status = RefundStatus.Failed,
+                    Remarks = $"Refund failed before any money moved (ledger post): {ex.Message}"
+                });
+                await _db.SaveChangesAsync();
+                throw;
+            }
 
-                if (booking.CustomerProfileId.HasValue)
+            // Stage 2 — pay the customer back. The ledger side is already committed at this
+            // point, so a failure here leaves the two sides out of sync rather than leaving
+            // nothing moved — that's the case ReconciliationNeeded exists to flag.
+            if (booking.CustomerProfileId.HasValue)
+            {
+                try
                 {
                     await _customerWalletService.CreditAsync(
                         booking.CustomerProfileId.Value,
@@ -140,31 +164,32 @@ namespace TicketPortal.Api.Services
                         Remarks = "Refund completed."
                     });
                 }
-                else
+                catch (Exception ex)
                 {
-                    // Guest checkout: no wallet to credit and no gateway to push money back
-                    // through. The ledger side is posted, but the refund is NOT done yet — it
-                    // cannot silently reach Succeeded without a real manual payout on record.
-                    refund.Status = RefundStatus.PendingManualPayout;
+                    refund.Status = RefundStatus.ReconciliationNeeded;
                     _db.RefundHistories.Add(new RefundHistory
                     {
                         RefundId = refund.Id,
-                        Status = RefundStatus.PendingManualPayout,
-                        Remarks = "Ledger posted. Guest booking has no wallet — awaiting manual payout confirmation."
+                        Status = RefundStatus.ReconciliationNeeded,
+                        Remarks = $"Ledger posted but wallet credit failed: {ex.Message}. " +
+                            "Operator-side books are already adjusted; customer has not been paid. Needs manual reconciliation."
                     });
+                    await _db.SaveChangesAsync();
+                    throw;
                 }
             }
-            catch (Exception ex)
+            else
             {
-                refund.Status = RefundStatus.Failed;
+                // Guest checkout: no wallet to credit and no gateway to push money back
+                // through. The ledger side is posted, but the refund is NOT done yet — it
+                // cannot silently reach Succeeded without a real manual payout on record.
+                refund.Status = RefundStatus.PendingManualPayout;
                 _db.RefundHistories.Add(new RefundHistory
                 {
                     RefundId = refund.Id,
-                    Status = RefundStatus.Failed,
-                    Remarks = $"Refund failed: {ex.Message}"
+                    Status = RefundStatus.PendingManualPayout,
+                    Remarks = "Ledger posted. Guest booking has no wallet — awaiting manual payout confirmation."
                 });
-                await _db.SaveChangesAsync();
-                throw;
             }
 
             await _db.SaveChangesAsync();

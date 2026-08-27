@@ -171,7 +171,14 @@ namespace TicketPortal.Api.Models.Enums
         // Guest checkout only (no CustomerProfile / wallet to credit): the ledger side has been
         // posted, but there's no automated way to actually pay the guest back yet, so it parks
         // here until staff supplies a manual payout reference. See RefundProcessingService.
-        PendingManualPayout = 7
+        PendingManualPayout = 7,
+        // The ledger post succeeded but the customer-wallet credit that was supposed to follow
+        // it then threw — the operator side of the books is already adjusted, but the customer
+        // hasn't actually been paid. Distinct from Failed (where nothing moved at all) so this
+        // specific, worse partial-failure state is queryable with a plain WHERE clause instead
+        // of being buried inside a Failed row's free-text remark. See
+        // RefundProcessingService.ProcessAsync.
+        ReconciliationNeeded = 8
     }
 
     // How the customer paid, in general terms (used for reporting/UI). See PaymentGateway

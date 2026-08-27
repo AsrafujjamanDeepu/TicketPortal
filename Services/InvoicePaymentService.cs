@@ -15,15 +15,21 @@ namespace TicketPortal.Api.Services
     // Deliberately does NOT touch OperatorWallet or PlatformLedger. The debt this invoice bills
     // for was already removed from PendingSettlementBalance the moment the settlement that
     // raised it was generated (see SettlementGenerationService) — from that point on, the
-    // invoice/receipt trail is the sole record of whether it's actually been paid. Wiring a
-    // receipt back into FinanceLedgerService would mean writing to
-    // OperatorWallet.PlatformReceivableFromOperator, but that field (like its counterpart
-    // OperatorReceivableFromPlatform) is only ever *added to* by FinanceLedgerService today, never
-    // reduced — it reads as a running balance but behaves as a lifetime accumulator. Subtracting
-    // from it here would be the first code to rely on a subtraction semantics that doesn't
-    // otherwise exist for that field, on a file the completion plan says not to edit. Flagging
-    // this rather than guessing at a fix; PendingSettlementBalance (the field this piece was
-    // actually asked to maintain) is unaffected by it.
+    // invoice/receipt trail is the sole record of whether it's actually been paid.
+    //
+    // Decided, not just flagged: OperatorWallet.PlatformReceivableFromOperator (and its
+    // counterpart OperatorReceivableFromPlatform) are documented lifetime accumulators — see
+    // the field comments on OperatorWallet — only ever added to by
+    // FinanceLedgerService.ApplyWalletDeltaAsync, never reduced anywhere, including by
+    // SettlementGenerationService when the exact same debt is swept out of
+    // PendingSettlementBalance. Making RecordReceiptAsync the first and only code to subtract
+    // from that field would give it subtraction semantics nothing else in the codebase honors,
+    // on a file (FinanceLedgerService) the completion plan says not to edit — a worse
+    // inconsistency than leaving it as an accumulator. If a live "currently receivable" number
+    // is ever needed, derive it from unpaid OperatorInvoice rows (Amount minus its
+    // OperatorPaymentReceipts, for invoices not Cancelled/Paid) rather than retrofitting this
+    // field. PendingSettlementBalance (the field this service was actually asked to maintain)
+    // is correct and unaffected either way.
     public class InvoicePaymentService
     {
         private readonly AppDbContext _db;
