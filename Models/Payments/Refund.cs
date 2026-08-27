@@ -27,6 +27,13 @@ namespace TicketPortal.Api.Models.Payments
         [MaxLength(100)]
         public string? GatewayRefundReference { get; set; }
 
+        // Guest checkout (no CustomerProfile) has no wallet to credit and no gateway refund
+        // integration yet — so a guest refund is only truly "done" once staff has actually
+        // paid the guest back by hand (bank/mobile-banking transfer) and recorded the
+        // reference here. Only ever set for a guest booking; see RefundProcessingService.
+        [MaxLength(100)]
+        public string? ManualPayoutReference { get; set; }
+
         public DateTime RequestedAtUtc { get; set; } = DateTime.UtcNow;
         public DateTime? RefundedAtUtc { get; set; }
 

@@ -13,7 +13,9 @@ namespace TicketPortal.Api.Controllers
     // creates one automatically when held seats are lost after payment (see
     // Services/PaymentConfirmationService.cs), and the CancellationRequest workflow will be
     // the other source once that's wired up. From there, a refund only moves forward through
-    // Approve → Process, or stops at Reject — never a raw Status edit.
+    // Approve → Process, or stops at Reject — never a raw Status edit. A guest booking's
+    // refund (no CustomerProfile to credit) makes one extra stop at PendingManualPayout after
+    // Process, and only leaves it via ManualPayout.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -98,6 +100,27 @@ namespace TicketPortal.Api.Controllers
             }
         }
 
+        // The only way a guest refund (no CustomerProfile, so ProcessAsync above leaves it at
+        // PendingManualPayout instead of Succeeded) can finish — staff confirms the guest was
+        // actually paid back by hand and records proof, the same way OperatorPayoutsController
+        // requires a real BankTransactionReference before a payout counts as done.
+        [HttpPost("{id}/manual-payout")]
+        public async Task<IActionResult> CompleteManualPayout(Guid id, RefundManualPayoutDto dto)
+        {
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+
+            try
+            {
+                await refundProcessingService.CompleteManualPayoutAsync(id, dto.ManualPayoutReference);
+                var item = await db.Refunds.FirstOrDefaultAsync(x => x.Id == id);
+                return Ok(ToResponseDto(item!));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         // No generic POST/PUT/DELETE on purpose — see the class comment above.
 
         private Guid? GetCurrentUserId()
@@ -128,6 +151,7 @@ namespace TicketPortal.Api.Controllers
             Status = x.Status,
             Reason = x.Reason,
             GatewayRefundReference = x.GatewayRefundReference,
+            ManualPayoutReference = x.ManualPayoutReference,
             RequestedAtUtc = x.RequestedAtUtc,
             RefundedAtUtc = x.RefundedAtUtc,
             CreatedAtUtc = x.CreatedAtUtc,

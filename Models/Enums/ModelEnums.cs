@@ -167,7 +167,11 @@ namespace TicketPortal.Api.Models.Enums
         Processing = 3,   // Being sent back through the gateway.
         Succeeded = 4,
         Rejected = 5,
-        Failed = 6
+        Failed = 6,
+        // Guest checkout only (no CustomerProfile / wallet to credit): the ledger side has been
+        // posted, but there's no automated way to actually pay the guest back yet, so it parks
+        // here until staff supplies a manual payout reference. See RefundProcessingService.
+        PendingManualPayout = 7
     }
 
     // How the customer paid, in general terms (used for reporting/UI). See PaymentGateway

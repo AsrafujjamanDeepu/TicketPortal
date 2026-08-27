@@ -86,6 +86,12 @@ namespace TicketPortal.Api.Services
         // rather than hidden; a real production system would want an outbox/saga pattern to
         // close it. For now, a Failed status after a partial failure is a deliberate signal to
         // go check both sides by hand rather than silently trusting either one.
+        //
+        // Guest checkout (no CustomerProfile, so no wallet to credit) can't reach Succeeded
+        // here at all — there's no payment-gateway refund integration yet, so the only real way
+        // to pay a guest back today is a manual bank/mobile-banking transfer. Once the ledger
+        // side is posted, a guest refund parks at PendingManualPayout until staff calls
+        // CompleteManualPayoutAsync with proof the transfer actually happened.
         public async Task ProcessAsync(Guid refundId)
         {
             var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
@@ -124,20 +130,29 @@ namespace TicketPortal.Api.Services
                         refundId: refund.Id,
                         description: $"Refund for booking {booking.Pnr}",
                         currency: refund.Currency);
-                }
-                // Guest checkout (no CustomerProfile) has no wallet to credit. There's no
-                // payment-gateway refund integration yet either, so a guest refund currently
-                // posts to the operator ledger but has no automated way to actually pay the
-                // guest back — flagged, not solved, until a gateway is wired in.
 
-                refund.Status = RefundStatus.Succeeded;
-                refund.RefundedAtUtc = DateTime.UtcNow;
-                _db.RefundHistories.Add(new RefundHistory
+                    refund.Status = RefundStatus.Succeeded;
+                    refund.RefundedAtUtc = DateTime.UtcNow;
+                    _db.RefundHistories.Add(new RefundHistory
+                    {
+                        RefundId = refund.Id,
+                        Status = RefundStatus.Succeeded,
+                        Remarks = "Refund completed."
+                    });
+                }
+                else
                 {
-                    RefundId = refund.Id,
-                    Status = RefundStatus.Succeeded,
-                    Remarks = "Refund completed."
-                });
+                    // Guest checkout: no wallet to credit and no gateway to push money back
+                    // through. The ledger side is posted, but the refund is NOT done yet — it
+                    // cannot silently reach Succeeded without a real manual payout on record.
+                    refund.Status = RefundStatus.PendingManualPayout;
+                    _db.RefundHistories.Add(new RefundHistory
+                    {
+                        RefundId = refund.Id,
+                        Status = RefundStatus.PendingManualPayout,
+                        Remarks = "Ledger posted. Guest booking has no wallet — awaiting manual payout confirmation."
+                    });
+                }
             }
             catch (Exception ex)
             {
@@ -151,6 +166,54 @@ namespace TicketPortal.Api.Services
                 await _db.SaveChangesAsync();
                 throw;
             }
+
+            await _db.SaveChangesAsync();
+        }
+
+        // The only way a guest refund (no CustomerProfile) can finish moving from
+        // PendingManualPayout to Succeeded — requires proof staff actually paid the guest back
+        // by hand, the same way PayoutProcessingService.CompleteAsync requires a real
+        // BankTransactionReference before an operator payout counts as done.
+        public async Task CompleteManualPayoutAsync(Guid refundId, string manualPayoutReference)
+        {
+            if (string.IsNullOrWhiteSpace(manualPayoutReference))
+            {
+                throw new InvalidOperationException("A manual payout reference is required to complete this refund.");
+            }
+
+            var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
+                ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
+
+            if (refund.Status != RefundStatus.PendingManualPayout)
+            {
+                throw new InvalidOperationException(
+                    $"Refund {refundId} is {refund.Status}; only a PendingManualPayout refund can be completed this way.");
+            }
+
+            var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == refund.BookingId)
+                ?? throw new InvalidOperationException($"Booking for refund {refundId} no longer exists.");
+
+            // Defense in depth: this field, and this path to Succeeded, only ever apply to a
+            // guest booking — a booking with a CustomerProfile is paid back through the wallet
+            // in ProcessAsync instead and should never reach PendingManualPayout in the first
+            // place, but the guard stays cheap insurance against that invariant breaking later.
+            if (booking.CustomerProfileId.HasValue)
+            {
+                throw new InvalidOperationException(
+                    $"Booking for refund {refundId} has a CustomerProfile; manual payout does not apply.");
+            }
+
+            refund.Status = RefundStatus.Succeeded;
+            refund.ManualPayoutReference = manualPayoutReference;
+            refund.RefundedAtUtc = DateTime.UtcNow;
+            refund.UpdatedAtUtc = DateTime.UtcNow;
+
+            _db.RefundHistories.Add(new RefundHistory
+            {
+                RefundId = refund.Id,
+                Status = RefundStatus.Succeeded,
+                Remarks = $"Manual payout confirmed (reference: {manualPayoutReference})."
+            });
 
             await _db.SaveChangesAsync();
         }

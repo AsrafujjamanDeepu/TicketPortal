@@ -239,6 +239,13 @@ namespace TicketPortal.Api.DTO
         public string Reason { get; set; } = string.Empty;
     }
 
+    // Used only to complete a guest refund that's sitting at PendingManualPayout — staff
+    // supplies proof (bank/mobile-banking reference) that the guest was actually paid back.
+    public class RefundManualPayoutDto
+    {
+        public string ManualPayoutReference { get; set; } = string.Empty;
+    }
+
     public class RefundResponseDto
     {
         public Guid Id { get; set; }
@@ -250,6 +257,7 @@ namespace TicketPortal.Api.DTO
         public RefundStatus Status { get; set; } = RefundStatus.Requested;
         public string Reason { get; set; } = string.Empty;
         public string? GatewayRefundReference { get; set; }
+        public string? ManualPayoutReference { get; set; }
         public DateTime RequestedAtUtc { get; set; } = DateTime.UtcNow;
         public DateTime? RefundedAtUtc { get; set; }
         public DateTime CreatedAtUtc { get; set; }
