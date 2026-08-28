@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -15,11 +16,10 @@ namespace TicketPortal.Api.Controllers
     // "NetAmount") out of thin air, or edit a real one after the fact — this is now generated
     // exclusively by SettlementGenerationService (see that file for the full design rationale).
     //
-    // Admin/Staff only, same reasoning as PlatformLedgersController/OperatorWalletsController —
-    // this is operator/platform-internal accounting data. An operator-facing "see your own
-    // settlements" view is a reasonable follow-up once Piece 1's operator-scoping helper lands
-    // (StaffProfile.BusOperatorId), not built here to avoid guessing at infrastructure that
-    // isn't confirmed to exist yet.
+    // Admin/platform-Staff see every operator's settlements. An operator's own Staff/Operator
+    // account (StaffProfile.BusOperatorId set) only sees/acts on its own operator's settlements
+    // — the "see your own settlements" follow-up this class comment used to defer, now that
+    // Piece 1 wires up the scoping (User.GetBusOperatorIdAsync / CanManageOperatorAsync).
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -28,13 +28,21 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<OperatorSettlementResponseDto>());
             }
 
             var query = db.OperatorSettlements.AsQueryable();
-            if (busOperatorId.HasValue)
+
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                // Operator-scoped caller: always their own operator, regardless of what the
+                // busOperatorId query param asks for.
+                query = query.Where(s => s.BusOperatorId == callerOperatorId.Value);
+            }
+            else if (busOperatorId.HasValue)
             {
                 query = query.Where(s => s.BusOperatorId == busOperatorId.Value);
             }
@@ -46,12 +54,12 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.OperatorSettlements
                 .Include(s => s.Items)
                 .FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToDetailResponseDto(item));
+            if (item == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
+            return Ok(ToDetailResponseDto(item));
         }
 
         // Runs the batch process for one operator + date range — see
@@ -59,7 +67,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("generate")]
         public async Task<IActionResult> Generate(SettlementGenerateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId)) return Forbid();
 
             try
             {
@@ -80,7 +88,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/approve")]
         public async Task<IActionResult> Approve(Guid id, SettlementApproveDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var settlement = await db.OperatorSettlements.FirstOrDefaultAsync(x => x.Id == id);
+            if (settlement == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, settlement.BusOperatorId)) return Forbid();
 
             try
             {

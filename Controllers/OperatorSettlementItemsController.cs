@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +12,9 @@ namespace TicketPortal.Api.Controllers
     // its parent OperatorSettlement — see Services/SettlementGenerationService.cs. The old
     // generic CRUD let any authenticated user fabricate or edit a settlement line item
     // (TicketFare, PlatformCharge, etc.) with no connection to a real ledger entry at all.
-    // Admin/Staff only, same reasoning as OperatorSettlementsController.
+    // Admin/platform-Staff see every operator's settlement items; an operator's own Staff/
+    // Operator account (Piece 1) is scoped to its own operator's items only. This entity has no
+    // BusOperatorId of its own, so scoping always joins through OperatorSettlement.BusOperatorId.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -20,7 +23,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? operatorSettlementId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<OperatorSettlementItemResponseDto>());
             }
@@ -31,6 +34,13 @@ namespace TicketPortal.Api.Controllers
                 query = query.Where(i => i.OperatorSettlementId == operatorSettlementId.Value);
             }
 
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                query = query.Where(i => db.OperatorSettlements.Any(s =>
+                    s.Id == i.OperatorSettlementId && s.BusOperatorId == callerOperatorId));
+            }
+
             var items = await query.ToListAsync();
             return Ok(items.Select(ToResponseDto));
         }
@@ -38,10 +48,16 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.OperatorSettlementItems.FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToResponseDto(item));
+            if (item == null) return NotFound();
+
+            var operatorId = await db.OperatorSettlements
+                .Where(s => s.Id == item.OperatorSettlementId)
+                .Select(s => (Guid?)s.BusOperatorId)
+                .FirstOrDefaultAsync();
+            if (operatorId == null || !await User.CanManageOperatorAsync(db, operatorId.Value)) return Forbid();
+
+            return Ok(ToResponseDto(item));
         }
 
         // No POST/PUT/DELETE — see the class comment above.

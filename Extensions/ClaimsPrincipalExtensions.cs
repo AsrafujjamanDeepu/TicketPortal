@@ -35,5 +35,28 @@ namespace TicketPortal.Api.Extensions
                 .Select(sp => sp.BusOperatorId)
                 .FirstOrDefaultAsync();
         }
+
+        // The other half of the pattern: not just WHO the caller's operator is, but whether
+        // they're allowed to manage/see a specific operator's data at all. Consolidated here
+        // (Piece 2) so BusOperatorsController/TripsController/BusesController's near-identical
+        // private copies, and Piece 1's newly-scoped finance controllers, all go through one
+        // mechanism instead of three-plus slightly different reimplementations.
+        //
+        // Admin: always true. Staff or Operator whose StaffProfile.BusOperatorId is null
+        // (platform staff): always true — they see everything, same as Admin. Staff/Operator
+        // scoped to one BusOperator: only true for that operator's own Id. Anyone else
+        // (Customer, or no StaffProfile at all): always false.
+        //
+        // Callers still gate on IsInRole("Admin"/"Staff"/"Operator") themselves first when the
+        // decision also affects an unfiltered list response (e.g. "return empty array vs. run
+        // a scoped query") — this method only answers the "which operator(s)" half.
+        public static async Task<bool> CanManageOperatorAsync(this ClaimsPrincipal user, AppDbContext db, Guid busOperatorId)
+        {
+            if (user.IsInRole("Admin")) return true;
+            if (!user.IsInRole("Staff") && !user.IsInRole("Operator")) return false;
+
+            var callerOperatorId = await user.GetBusOperatorIdAsync(db);
+            return callerOperatorId == null || callerOperatorId == busOperatorId;
+        }
     }
 }

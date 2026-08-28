@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Payments;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -16,6 +17,12 @@ namespace TicketPortal.Api.Controllers
     // Approve → Process, or stops at Reject — never a raw Status edit. A guest booking's
     // refund (no CustomerProfile to credit) makes one extra stop at PendingManualPayout after
     // Process, and only leaves it via ManualPayout.
+    //
+    // Access is three-tiered (Piece 1): platform Admin/Staff (no StaffProfile.BusOperatorId,
+    // or Admin) see every refund; an operator's own Staff/Operator account only sees refunds
+    // against that operator's own bookings; a plain Customer only sees refunds against their
+    // own bookings. Refund itself doesn't carry BusOperatorId, so operator-scoping always
+    // joins through Booking.BusOperatorId — see CanAccessAsync/GetAll below.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -26,7 +33,17 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.Refunds.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (callerOperatorId != null)
+                {
+                    query = query.Where(r => db.Bookings.Any(b =>
+                        b.Id == r.BookingId && b.BusOperatorId == callerOperatorId));
+                }
+                // else: platform Admin/Staff — no filter, see everything.
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(r => db.Bookings.Any(b =>
@@ -50,7 +67,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/approve")]
         public async Task<IActionResult> Approve(Guid id, RefundApproveDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await CanManageAsync(id)) return Forbid();
 
             try
             {
@@ -66,7 +83,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> Reject(Guid id, RefundRejectDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await CanManageAsync(id)) return Forbid();
 
             try
             {
@@ -86,7 +103,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/process")]
         public async Task<IActionResult> Process(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await CanManageAsync(id)) return Forbid();
 
             try
             {
@@ -107,7 +124,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/manual-payout")]
         public async Task<IActionResult> CompleteManualPayout(Guid id, RefundManualPayoutDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await CanManageAsync(id)) return Forbid();
 
             try
             {
@@ -129,15 +146,47 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
+        // Refund doesn't carry BusOperatorId itself — resolves it via the parent Booking so
+        // every other check here can go through the one shared CanManageOperatorAsync.
+        private async Task<Guid?> GetOperatorIdAsync(Guid bookingId)
+        {
+            return await db.Bookings
+                .Where(b => b.Id == bookingId)
+                .Select(b => (Guid?)b.BusOperatorId)
+                .FirstOrDefaultAsync();
+        }
+
+        // Read access (GetAll/GetById): Admin/platform-Staff see everything, an operator's own
+        // Staff/Operator sees only that operator's refunds, a Customer sees only their own.
         private async Task<bool> CanAccessAsync(Refund refund)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var operatorId = await GetOperatorIdAsync(refund.BookingId);
+                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+            }
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;
 
             return await db.Bookings.AnyAsync(b =>
                 b.Id == refund.BookingId && b.CustomerProfile != null && b.CustomerProfile.UserId == userId);
+        }
+
+        // Action endpoints (Approve/Reject/Process/CompleteManualPayout) are staff-only —
+        // a Customer never reaches this regardless of whose refund it is. Resolves the refund's
+        // Booking.BusOperatorId first, then defers to the same shared CanManageOperatorAsync
+        // used everywhere else, so both problems close through one mechanism (Piece 2).
+        private async Task<bool> CanManageAsync(Guid refundId)
+        {
+            var bookingId = await db.Refunds
+                .Where(r => r.Id == refundId)
+                .Select(r => (Guid?)r.BookingId)
+                .FirstOrDefaultAsync();
+            if (bookingId == null) return false;
+
+            var operatorId = await GetOperatorIdAsync(bookingId.Value);
+            return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
         }
 
         private static RefundResponseDto ToResponseDto(Refund x) => new()

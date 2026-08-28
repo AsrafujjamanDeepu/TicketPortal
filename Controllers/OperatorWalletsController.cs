@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,8 +11,9 @@ namespace TicketPortal.Api.Controllers
     // Read-only. OperatorWallet is a cached running balance — the model's own comment says
     // "FinanceLedgerService is the only code allowed to change these numbers". The old generic
     // PUT let any authenticated user set any operator's balance fields directly, which is as
-    // close to "give yourself free money" as this codebase gets. Staff/Admin only, same
-    // reasoning as PlatformLedgersController.
+    // close to "give yourself free money" as this codebase gets. Admin/platform-Staff see every
+    // operator's wallet; an operator's own Staff/Operator account (Piece 1) is scoped to its own
+    // operator's wallet only.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -20,22 +22,30 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<OperatorWalletResponseDto>());
             }
 
-            var items = await db.OperatorWallets.ToListAsync();
+            var query = db.OperatorWallets.AsQueryable();
+
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                query = query.Where(w => w.BusOperatorId == callerOperatorId.Value);
+            }
+
+            var items = await query.ToListAsync();
             return Ok(items.Select(ToResponseDto));
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.OperatorWallets.FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToResponseDto(item));
+            if (item == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
+            return Ok(ToResponseDto(item));
         }
 
         // Most callers know the operator, not the wallet's own surrogate id — this is the
@@ -43,7 +53,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("by-operator/{busOperatorId}")]
         public async Task<IActionResult> GetByOperator(Guid busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.CanManageOperatorAsync(db, busOperatorId)) return Forbid();
 
             var item = await db.OperatorWallets.FirstOrDefaultAsync(x => x.BusOperatorId == busOperatorId);
             return item == null ? NotFound() : Ok(ToResponseDto(item));

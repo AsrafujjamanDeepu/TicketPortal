@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,7 +14,9 @@ namespace TicketPortal.Api.Controllers
     // made-up BankTransactionReference and no check against what was actually available to pay
     // out. Every write here now goes through PayoutProcessingService (Create reserves the
     // amount atomically, Complete requires a bank reference, Fail/Cancel release the
-    // reservation) — see that file for the full lifecycle. Admin/Staff only.
+    // reservation) — see that file for the full lifecycle. Admin/platform-Staff manage every
+    // operator's payouts; an operator's own Staff/Operator account is scoped to its own
+    // operator's payouts only (Piece 1).
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -22,13 +25,19 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<OperatorPayoutResponseDto>());
             }
 
             var query = db.OperatorPayouts.AsQueryable();
-            if (busOperatorId.HasValue)
+
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                query = query.Where(p => p.BusOperatorId == callerOperatorId.Value);
+            }
+            else if (busOperatorId.HasValue)
             {
                 query = query.Where(p => p.BusOperatorId == busOperatorId.Value);
             }
@@ -40,10 +49,10 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.OperatorPayouts.FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToResponseDto(item));
+            if (item == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
+            return Ok(ToResponseDto(item));
         }
 
         // Reserves the amount from AvailablePayoutBalance immediately — see
@@ -51,7 +60,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(OperatorPayoutCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId)) return Forbid();
 
             try
             {
@@ -69,7 +78,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/process")]
         public async Task<IActionResult> Process(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var access = await CheckAccessAsync(id);
+            if (access == AccessResult.NotFound) return NotFound();
+            if (access == AccessResult.Forbidden) return Forbid();
 
             try
             {
@@ -86,7 +97,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/complete")]
         public async Task<IActionResult> Complete(Guid id, OperatorPayoutCompleteDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var access = await CheckAccessAsync(id);
+            if (access == AccessResult.NotFound) return NotFound();
+            if (access == AccessResult.Forbidden) return Forbid();
 
             try
             {
@@ -103,7 +116,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/fail")]
         public async Task<IActionResult> Fail(Guid id, OperatorPayoutActionDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var access = await CheckAccessAsync(id);
+            if (access == AccessResult.NotFound) return NotFound();
+            if (access == AccessResult.Forbidden) return Forbid();
 
             try
             {
@@ -119,7 +134,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/cancel")]
         public async Task<IActionResult> Cancel(Guid id, OperatorPayoutActionDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var access = await CheckAccessAsync(id);
+            if (access == AccessResult.NotFound) return NotFound();
+            if (access == AccessResult.Forbidden) return Forbid();
 
             try
             {
@@ -130,6 +147,25 @@ namespace TicketPortal.Api.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+        }
+
+        private enum AccessResult { Ok, NotFound, Forbidden }
+
+        // Single-record gate for the four action endpoints above — loads the payout so
+        // CanManageOperatorAsync can check its real BusOperatorId. Distinguishes "no such
+        // payout" (404) from "exists, but not this caller's operator" (403).
+        private async Task<AccessResult> CheckAccessAsync(Guid payoutId)
+        {
+            var operatorId = await db.OperatorPayouts
+                .Where(p => p.Id == payoutId)
+                .Select(p => (Guid?)p.BusOperatorId)
+                .FirstOrDefaultAsync();
+
+            if (operatorId == null) return AccessResult.NotFound;
+
+            return await User.CanManageOperatorAsync(db, operatorId.Value)
+                ? AccessResult.Ok
+                : AccessResult.Forbidden;
         }
 
         // No generic PUT/DELETE on purpose — see the class comment above.

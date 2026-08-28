@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -14,7 +15,9 @@ namespace TicketPortal.Api.Controllers
     // only: the old generic CRUD let any authenticated user create or edit an invoice — including
     // setting Status straight to Paid with nothing behind it — for any operator. Status now only
     // ever moves via Issue/Cancel here, or via InvoicePaymentService.RecordReceiptAsync when a
-    // real receipt is recorded (see OperatorPaymentReceiptsController). Admin/Staff only.
+    // real receipt is recorded (see OperatorPaymentReceiptsController). Admin/platform-Staff
+    // manage every operator's invoices; an operator's own Staff/Operator account is scoped to
+    // its own operator's invoices only (Piece 1).
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -23,13 +26,19 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<OperatorInvoiceResponseDto>());
             }
 
             var query = db.OperatorInvoices.AsQueryable();
-            if (busOperatorId.HasValue)
+
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                query = query.Where(i => i.BusOperatorId == callerOperatorId.Value);
+            }
+            else if (busOperatorId.HasValue)
             {
                 query = query.Where(i => i.BusOperatorId == busOperatorId.Value);
             }
@@ -41,16 +50,16 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.OperatorInvoices.FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToResponseDto(item));
+            if (item == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
+            return Ok(ToResponseDto(item));
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(OperatorInvoiceCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId)) return Forbid();
 
             try
             {
@@ -68,7 +77,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/issue")]
         public async Task<IActionResult> Issue(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var invoice = await db.OperatorInvoices.FirstOrDefaultAsync(x => x.Id == id);
+            if (invoice == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, invoice.BusOperatorId)) return Forbid();
 
             try
             {
@@ -85,7 +96,9 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/cancel")]
         public async Task<IActionResult> Cancel(Guid id, OperatorInvoiceActionDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var invoice = await db.OperatorInvoices.FirstOrDefaultAsync(x => x.Id == id);
+            if (invoice == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, invoice.BusOperatorId)) return Forbid();
 
             try
             {

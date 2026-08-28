@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,9 +17,9 @@ namespace TicketPortal.Api.Controllers
     // This is operator/platform-internal accounting data, not anything a customer has a
     // reason to see (even their own booking's ledger rows describe the platform-operator
     // relationship, not something that belongs to the customer) — so unlike the customer-facing
-    // controllers, this one has no "see your own" fallback: only Admin/Staff can read it. Until
-    // real roles are seeded, that means everyone gets an empty result here, which is the safe
-    // default rather than an attribute-level lock that would 403 legitimate staff too.
+    // controllers, this one has no "see your own" fallback for a plain Customer. Admin/
+    // platform-Staff see every operator's ledger rows; an operator's own Staff/Operator
+    // account (Piece 1) is scoped to its own operator's rows only.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -27,13 +28,19 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<PlatformLedgerResponseDto>());
             }
 
             var query = db.PlatformLedgers.AsQueryable();
-            if (busOperatorId.HasValue)
+
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                query = query.Where(l => l.BusOperatorId == callerOperatorId.Value);
+            }
+            else if (busOperatorId.HasValue)
             {
                 query = query.Where(l => l.BusOperatorId == busOperatorId.Value);
             }
@@ -45,10 +52,22 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.PlatformLedgers.FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToResponseDto(item));
+            if (item == null) return NotFound();
+
+            // BusOperatorId is nullable here (some ledger rows are pure platform entries, not
+            // tied to any operator) — CanManageOperatorAsync needs a real operator id, so a null
+            // row falls back to "platform Admin/Staff only", same as the old unscoped gate.
+            if (item.BusOperatorId == null)
+            {
+                if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (callerOperatorId != null) return Forbid();
+                return Ok(ToResponseDto(item));
+            }
+
+            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId.Value)) return Forbid();
+            return Ok(ToResponseDto(item));
         }
 
         // No POST/PUT/DELETE — see the class comment above. All writes go through

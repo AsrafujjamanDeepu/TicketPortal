@@ -1,11 +1,11 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Scheduling;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TicketPortal.Api.Models.Enums;
-using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -164,7 +164,7 @@ namespace TicketPortal.Api.Controllers
             // Piece 1 seeds real ApplicationRole rows — see the class comment above.
             // =========================================================
 
-            if (!await CanManageOperatorAsync(dto.BusOperatorId))
+            if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId))
             {
                 return Forbid();
             }
@@ -482,7 +482,7 @@ namespace TicketPortal.Api.Controllers
             // someone else.
             // =========================================================
 
-            if (!await CanManageOperatorAsync(trip.BusOperatorId) || !await CanManageOperatorAsync(dto.BusOperatorId))
+            if (!await User.CanManageOperatorAsync(db, trip.BusOperatorId) || !await User.CanManageOperatorAsync(db, dto.BusOperatorId))
             {
                 return Forbid();
             }
@@ -913,7 +913,7 @@ namespace TicketPortal.Api.Controllers
             var trip = await db.Trips.Include(t => t.TripSeats).FirstOrDefaultAsync(t => t.Id == id);
             if (trip == null) return NotFound();
 
-            if (!await CanManageOperatorAsync(trip.BusOperatorId)) return Forbid();
+            if (!await User.CanManageOperatorAsync(db, trip.BusOperatorId)) return Forbid();
 
             var hasBookings = await db.Bookings.AnyAsync(b => b.TripId == id);
 
@@ -973,7 +973,7 @@ namespace TicketPortal.Api.Controllers
                 return NotFound(new { message = "Trip not found." });
             }
 
-            if (!await CanManageOperatorAsync(trip.BusOperatorId))
+            if (!await User.CanManageOperatorAsync(db, trip.BusOperatorId))
             {
                 return Forbid();
             }
@@ -1127,43 +1127,9 @@ namespace TicketPortal.Api.Controllers
             };
         }
 
-        // =========================================================
-        // Auth helpers — duplicated per-controller rather than shared, since Piece 1 (which
-        // owns introducing a shared ClaimsPrincipalExtensions.GetBusOperatorId helper) hasn't
-        // landed yet. Once it does, these three methods can be deleted in favor of that one.
-        // =========================================================
-
-        private Guid? GetCurrentUserId()
-        {
-            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            return Guid.TryParse(claim, out var id) ? id : null;
-        }
-
-        // Resolves the BusOperatorId of the logged-in caller's StaffProfile, if any.
-        // Null means either "platform staff, not scoped to one operator" or "no StaffProfile
-        // row at all" — callers must gate on IsInRole("Staff")/IsInRole("Admin") first (see
-        // CanManageOperatorAsync below) rather than relying on this alone.
-        private async Task<Guid?> GetCallerBusOperatorIdAsync()
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return null;
-
-            return await db.StaffProfiles
-                .Where(sp => sp.UserId == userId.Value)
-                .Select(sp => sp.BusOperatorId)
-                .FirstOrDefaultAsync();
-        }
-
-        // Admin: always. Staff with no BusOperatorId on their StaffProfile (platform staff):
-        // always. Staff scoped to one operator: only for that operator's own Id. Anyone else
-        // (customers included): never.
-        private async Task<bool> CanManageOperatorAsync(Guid busOperatorId)
-        {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff")) return false;
-
-            var callerOperatorId = await GetCallerBusOperatorIdAsync();
-            return callerOperatorId == null || callerOperatorId == busOperatorId;
-        }
+        // Operator-scoping auth helper used to be duplicated per-controller here — it's now
+        // the single User.CanManageOperatorAsync(db, ...) extension in
+        // Extensions/ClaimsPrincipalExtensions.cs (Piece 2), used above and by every other
+        // controller that needs the same check.
     }
 }

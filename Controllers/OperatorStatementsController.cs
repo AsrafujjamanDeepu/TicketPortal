@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,7 +13,9 @@ namespace TicketPortal.Api.Controllers
     // note at the top of Services/SettlementGenerationService.cs for why these two are generated
     // together rather than as two independent periodic jobs. A statement is "what you'd show the
     // operator"; there's no legitimate reason for a client to be able to type one in by hand.
-    // Admin/Staff only, same reasoning as OperatorSettlementsController.
+    // Admin/platform-Staff see every operator's statements; an operator's own Staff/Operator
+    // account is scoped to its own operator's statements only (Piece 1), same reasoning as
+    // OperatorSettlementsController.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -21,13 +24,19 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<OperatorStatementResponseDto>());
             }
 
             var query = db.OperatorStatements.AsQueryable();
-            if (busOperatorId.HasValue)
+
+            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (callerOperatorId != null)
+            {
+                query = query.Where(s => s.BusOperatorId == callerOperatorId.Value);
+            }
+            else if (busOperatorId.HasValue)
             {
                 query = query.Where(s => s.BusOperatorId == busOperatorId.Value);
             }
@@ -39,12 +48,12 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
-
             var item = await db.OperatorStatements
                 .Include(s => s.Items)
                 .FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToDetailResponseDto(item));
+            if (item == null) return NotFound();
+            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
+            return Ok(ToDetailResponseDto(item));
         }
 
         // No POST/PUT/DELETE — see the class comment above.
