@@ -33,6 +33,16 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
 {
     options.Password.RequiredLength = 6;
     options.User.RequireUniqueEmail = true;
+
+    // Piece 4: brute-force protection. Before this, AccountController.Login only ever
+    // returned a plain 401 no matter how many times a password was guessed — nothing ever
+    // slowed an attacker down. Five wrong attempts now locks the account for 15 minutes
+    // regardless of how many more guesses arrive during that window; see
+    // AccountController.Login for where this actually gets enforced
+    // (IsLockedOutAsync / AccessFailedAsync / ResetAccessFailedCountAsync).
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.AllowedForNewUsers = true;
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
@@ -144,6 +154,10 @@ builder.Services.AddScoped<InvoicePaymentService>();
 builder.Services.AddScoped<CouponRedemptionService>();
 
 builder.Services.AddHostedService<SeatHoldExpirySweepService>();
+// Piece 3: finds payments that succeeded but whose booking/tickets never got finalized, and
+// flags them for manual reconciliation instead of leaving them silently stuck — see
+// Services/PaymentReconciliationSweepService.cs.
+builder.Services.AddHostedService<PaymentReconciliationSweepService>();
 
 
 // ============================================================

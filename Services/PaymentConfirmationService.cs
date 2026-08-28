@@ -37,15 +37,18 @@ namespace TicketPortal.Api.Services
         private readonly AppDbContext _db;
         private readonly SeatHoldService _seatHoldService;
         private readonly FinanceLedgerService _financeLedgerService;
+        private readonly IConfiguration _configuration;
 
         public PaymentConfirmationService(
             AppDbContext db,
             SeatHoldService seatHoldService,
-            FinanceLedgerService financeLedgerService)
+            FinanceLedgerService financeLedgerService,
+            IConfiguration configuration)
         {
             _db = db;
             _seatHoldService = seatHoldService;
             _financeLedgerService = financeLedgerService;
+            _configuration = configuration;
         }
 
         // Step 3 of checkout: the customer picked a payment method for a booking that came
@@ -129,6 +132,29 @@ namespace TicketPortal.Api.Services
             var payment = await _db.Payments.FirstOrDefaultAsync(p => p.Id == paymentId)
                 ?? throw new InvalidOperationException($"Payment {paymentId} does not exist.");
 
+            // Retry-safety: the gateway (or our own client) re-sent a confirm call for a
+            // payment that already succeeded — most likely a lost response on the first
+            // attempt, a genuine gateway webhook retry, or a double-tap on the client. As long
+            // as the gateway's own transaction id matches what we recorded the first time,
+            // this is the SAME event arriving twice, not a new one, so we hand back the
+            // already-settled result instead of throwing the "already Succeeded" error a truly
+            // new/conflicting confirm attempt for this payment should still get.
+            if (payment.Status == PaymentStatus.Succeeded)
+            {
+                // Compare against "" rather than null on both sides so two demo-mode retries
+                // that both arrive with no real gatewayTransactionId still count as a match —
+                // paymentId already narrows this to one specific payment attempt; this check
+                // exists to catch a genuinely different completed transaction id being replayed
+                // against the same payment, not to require a non-empty id in the first place.
+                if (string.Equals(payment.GatewayTransactionId ?? "", gatewayTransactionId ?? "", StringComparison.Ordinal))
+                {
+                    return await BuildIdempotentResultAsync(payment);
+                }
+
+                throw new InvalidOperationException(
+                    $"Payment {paymentId} is already {payment.Status}; it cannot be confirmed again.");
+            }
+
             if (payment.Status != PaymentStatus.Initiated && payment.Status != PaymentStatus.Pending)
             {
                 throw new InvalidOperationException(
@@ -143,23 +169,53 @@ namespace TicketPortal.Api.Services
             // happens next is a separate question.
             await using (var tx = await _db.Database.BeginTransactionAsync())
             {
-                payment.Status = PaymentStatus.Succeeded;
-                payment.PaidAtUtc = DateTime.UtcNow;
-                payment.GatewayTransactionId = gatewayTransactionId;
-                payment.GatewayFeeAmount = gatewayFeeAmount;
-                payment.NetReceivedAmount = payment.Amount - gatewayFeeAmount;
-                payment.GatewayResponseJson = gatewayResponseJson;
-                payment.UpdatedAtUtc = DateTime.UtcNow;
-
-                _db.PaymentHistories.Add(new PaymentHistory
+                try
                 {
-                    PaymentId = payment.Id,
-                    Status = PaymentStatus.Succeeded,
-                    Remarks = "Gateway confirmed payment."
-                });
+                    payment.Status = PaymentStatus.Succeeded;
+                    payment.PaidAtUtc = DateTime.UtcNow;
+                    payment.GatewayTransactionId = gatewayTransactionId;
+                    payment.GatewayFeeAmount = gatewayFeeAmount;
+                    payment.NetReceivedAmount = payment.Amount - gatewayFeeAmount;
+                    payment.GatewayResponseJson = TagDemoConfirmationIfEnabled(gatewayResponseJson);
+                    payment.UpdatedAtUtc = DateTime.UtcNow;
 
-                await _db.SaveChangesAsync();
-                await tx.CommitAsync();
+                    _db.PaymentHistories.Add(new PaymentHistory
+                    {
+                        PaymentId = payment.Id,
+                        Status = PaymentStatus.Succeeded,
+                        Remarks = "Gateway confirmed payment."
+                    });
+
+                    await _db.SaveChangesAsync();
+                    await tx.CommitAsync();
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    // Someone else — almost certainly a second, concurrent delivery of this
+                    // exact same confirm event (two webhook retries racing, or a duplicate
+                    // client request) — already committed this same payment to Succeeded
+                    // between our read and our write. RowVersion caught it before two
+                    // conflicting writes could land, which is exactly what it's for; the
+                    // caller still needs a real answer instead of a 500 though.
+                    await tx.RollbackAsync();
+
+                    var reloaded = await _db.Payments.AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.Id == paymentId)
+                        ?? throw new InvalidOperationException($"Payment {paymentId} does not exist.");
+
+                    if (reloaded.Status != PaymentStatus.Succeeded)
+                    {
+                        // Not the "two confirms raced" case after all — something else changed
+                        // this row out from under us. Don't guess at what happened; surface the
+                        // real conflict instead of quietly reporting a made-up outcome.
+                        throw;
+                    }
+
+                    // Detach our stale tracked copy (its RowVersion no longer matches what's on
+                    // disk) so nothing later in this scope accidentally tries to save it again.
+                    _db.Entry(payment).State = EntityState.Detached;
+                    return await BuildIdempotentResultAsync(reloaded);
+                }
             }
 
             var result = new PaymentConfirmationResult { Payment = payment, Booking = booking };
@@ -273,6 +329,154 @@ namespace TicketPortal.Api.Services
             }
 
             return result;
+        }
+
+        // Reconstructs what ConfirmOnlinePaymentAsync already decided the first time around,
+        // for a payment that's already Succeeded — used by both the plain-retry path and the
+        // DbUpdateConcurrencyException race above it. Looks at what's actually on disk rather
+        // than assuming "Succeeded" always means "Confirmed", since the seats-lost branch above
+        // also leaves payment.Status at Succeeded.
+        private async Task<PaymentConfirmationResult> BuildIdempotentResultAsync(Payment payment)
+        {
+            var booking = await _db.Bookings.AsNoTracking()
+                .FirstOrDefaultAsync(b => b.Id == payment.BookingId);
+
+            var tickets = await _db.Tickets.AsNoTracking()
+                .Where(t => t.BookingId == payment.BookingId)
+                .OrderBy(t => t.SeatNumberSnapshot)
+                .ToListAsync();
+
+            if (booking?.Status == BookingStatus.Confirmed && tickets.Count > 0)
+            {
+                return new PaymentConfirmationResult
+                {
+                    Outcome = PaymentConfirmationOutcome.Confirmed,
+                    Payment = payment,
+                    Booking = booking,
+                    Tickets = tickets
+                };
+            }
+
+            // First confirm call landed on the seats-lost branch above — surface the same
+            // PaidButSeatsLost outcome again, picking up whatever auto-refund that attempt
+            // already created, instead of a false "Confirmed".
+            var existingRefund = await _db.Refunds.AsNoTracking()
+                .Where(r => r.PaymentId == payment.Id)
+                .OrderByDescending(r => r.RequestedAtUtc)
+                .FirstOrDefaultAsync();
+
+            if (existingRefund != null)
+            {
+                return new PaymentConfirmationResult
+                {
+                    Outcome = PaymentConfirmationOutcome.PaidButSeatsLost,
+                    Payment = payment,
+                    Booking = booking,
+                    AutoRefund = existingRefund
+                };
+            }
+
+            // Payment succeeded but neither a confirmed booking nor an auto-refund exists yet —
+            // the first confirm call's booking/ticket half is still genuinely in flight (a
+            // concurrent retry landing mid-way through). Nothing has actually gone wrong; there
+            // just isn't a final outcome to report back yet, so say that plainly rather than
+            // guessing at one.
+            throw new InvalidOperationException(
+                $"Payment {payment.Id} has succeeded and is still being finalized. Please retry shortly.");
+        }
+
+        // Piece 6: today, this endpoint just trusts whatever the caller says the gateway
+        // returned — there's no real payment gateway wired in yet (see the TODO on
+        // PaymentsController.Confirm and the IPaymentGatewayVerifier stub). While
+        // Payments:DemoMode stays true (the default — matches today's actual behavior), that
+        // trust doesn't change, but every confirmation's stored response now carries a visible
+        // tag so a demo confirmation can never later be mistaken for one a real gateway
+        // signature actually verified.
+        private string? TagDemoConfirmationIfEnabled(string? gatewayResponseJson)
+        {
+            if (!_configuration.GetValue("Payments:DemoMode", true))
+            {
+                return gatewayResponseJson;
+            }
+
+            const string DemoTag = "[DEMO-CONFIRMATION: client-trusted, no real gateway signature verified]";
+
+            if (string.IsNullOrEmpty(gatewayResponseJson)) return DemoTag;
+            return gatewayResponseJson.Contains(DemoTag) ? gatewayResponseJson : $"{DemoTag} {gatewayResponseJson}";
+        }
+
+        // Piece 3's stuck-payment safety net. A payment that reached Status.Succeeded but whose
+        // booking/tickets never got finalized — most likely the process crashed, or the DB
+        // blipped, between the first transaction above (payment marked Succeeded) and the
+        // second one (booking confirmed + tickets issued), with no retry ever arriving to
+        // complete it. Left alone, that's money sitting in the platform's account with nothing
+        // on the customer's side to show for it, and nobody looking at it. Called periodically
+        // by PaymentReconciliationSweepService; returns how many payments it flagged.
+        //
+        // Deliberately does NOT touch payment.Status — the payment itself genuinely succeeded;
+        // what's broken is what happened (or didn't) after that fact. So the flag lives on
+        // PaymentHistory instead, the same append-only timeline every other payment-status
+        // transition already goes through — queryable with `WHERE Status = ReconciliationNeeded`
+        // — rather than misrepresenting the payment's own true status. Mirrors
+        // RefundStatus.ReconciliationNeeded from RefundProcessingService.
+        public async Task<int> FlagStuckPaymentsAsync(TimeSpan staleAfter)
+        {
+            var cutoff = DateTime.UtcNow - staleAfter;
+
+            var candidates = await _db.Payments
+                .Where(p => p.Status == PaymentStatus.Succeeded
+                    && p.PaidAtUtc != null
+                    && p.PaidAtUtc <= cutoff
+                    // Already has a Refund on record — the seats-lost branch above already
+                    // requested one. That's a known, already-handled outcome, not a silent gap.
+                    && !_db.Refunds.Any(r => r.PaymentId == p.Id)
+                    // Already flagged on an earlier sweep — don't add a new history row every
+                    // tick for the same still-unresolved payment.
+                    && !_db.PaymentHistories.Any(h =>
+                        h.PaymentId == p.Id && h.Status == PaymentStatus.ReconciliationNeeded))
+                .ToListAsync();
+
+            if (candidates.Count == 0) return 0;
+
+            var bookingIds = candidates.Select(p => p.BookingId).ToList();
+
+            var confirmedBookingIds = (await _db.Bookings
+                .Where(b => bookingIds.Contains(b.Id) && b.Status == BookingStatus.Confirmed)
+                .Select(b => b.Id)
+                .ToListAsync())
+                .ToHashSet();
+
+            var bookingIdsWithTickets = (await _db.Tickets
+                .Where(t => bookingIds.Contains(t.BookingId))
+                .Select(t => t.BookingId)
+                .Distinct()
+                .ToListAsync())
+                .ToHashSet();
+
+            var flaggedCount = 0;
+            foreach (var payment in candidates)
+            {
+                var isFinalized = confirmedBookingIds.Contains(payment.BookingId)
+                    && bookingIdsWithTickets.Contains(payment.BookingId);
+                if (isFinalized) continue;
+
+                _db.PaymentHistories.Add(new PaymentHistory
+                {
+                    PaymentId = payment.Id,
+                    Status = PaymentStatus.ReconciliationNeeded,
+                    Remarks = $"Payment succeeded at {payment.PaidAtUtc:u} but no confirmed " +
+                              "booking/tickets were found after the reconciliation window. " +
+                              "Needs manual review."
+                });
+                flaggedCount++;
+            }
+
+            if (flaggedCount > 0)
+            {
+                await _db.SaveChangesAsync();
+            }
+
+            return flaggedCount;
         }
 
         // Customer abandoned checkout, or the gateway reported failure — free the seats right

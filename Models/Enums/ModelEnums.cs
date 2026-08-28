@@ -156,7 +156,15 @@ namespace TicketPortal.Api.Models.Enums
         Failed = 4,
         Cancelled = 5,          // Customer backed out of the payment flow.
         PartiallyRefunded = 6,
-        Refunded = 7
+        Refunded = 7,
+        // Payment.Status itself never becomes this — the payment genuinely succeeded, and
+        // that fact stays true. This value only ever appears on a PaymentHistory row, flagging
+        // that the booking/tickets that were supposed to follow a Succeeded payment never
+        // showed up (see PaymentConfirmationService.FlagStuckPaymentsAsync). Queryable with a
+        // plain WHERE clause on PaymentHistories instead of being buried in a log line. Mirrors
+        // RefundStatus.ReconciliationNeeded; stored as a plain int column, so this needs no
+        // migration.
+        ReconciliationNeeded = 8
     }
 
     // The life of one refund request against a payment.

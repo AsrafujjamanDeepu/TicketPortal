@@ -61,14 +61,21 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> Login(LoginDto dto)
         {
             var user = await userManager.FindByNameAsync(dto.UserName);
-            var passwordOk = user != null && await userManager.CheckPasswordAsync(user, dto.Password);
 
             // Only a real user (found by username) has anything to attribute a LoginHistory row
-            // to — LoginHistory.UserId is a required FK, so a completely unknown username has
-            // no row to write, same as it always did. A found user with the wrong password
-            // still gets a Success = false row, which is the actual security-relevant case
-            // this trail exists for.
-            if (user != null)
+            // to, or a lockout counter to check — LoginHistory.UserId is a required FK, and
+            // Identity's failed-attempt counter lives on the ApplicationUser row itself. A
+            // completely unknown username has neither, same as it always did.
+            if (user == null)
+            {
+                return Unauthorized("Invalid username or password");
+            }
+
+            // Piece 4: checked BEFORE the password itself. Once options.Lockout.MaxFailedAccessAttempts
+            // (Program.cs) has been hit, even the correct password must be rejected until the
+            // lockout window expires — otherwise a brute-force run just keeps guessing at full
+            // speed forever. Still logged below like any other failed attempt.
+            if (await userManager.IsLockedOutAsync(user))
             {
                 db.LoginHistories.Add(new LoginHistory
                 {
@@ -76,19 +83,51 @@ namespace TicketPortal.Api.Controllers
                     LoginAtUtc = DateTime.UtcNow,
                     IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
                     UserAgent = Request.Headers.UserAgent.ToString(),
-                    Success = passwordOk,
+                    Success = false,
                 });
                 await db.SaveChangesAsync();
+
+                return StatusCode(StatusCodes.Status423Locked,
+                    "This account is temporarily locked after too many failed login attempts. Please try again later.");
             }
+
+            var passwordOk = await userManager.CheckPasswordAsync(user, dto.Password);
+
+            // AccessFailedAsync / ResetAccessFailedCountAsync are what actually drive the
+            // lockout: the former bumps Identity's failed-attempt counter (and sets LockoutEnd
+            // once MaxFailedAccessAttempts is reached, per the options in Program.cs); the
+            // latter clears that counter back to zero on a genuine success, so someone who
+            // mistypes their password once isn't penalized for it later.
+            if (passwordOk)
+            {
+                await userManager.ResetAccessFailedCountAsync(user);
+            }
+            else
+            {
+                await userManager.AccessFailedAsync(user);
+            }
+
+            // A found user with the wrong password still gets a Success = false row, which is
+            // the actual security-relevant case this trail exists for.
+            db.LoginHistories.Add(new LoginHistory
+            {
+                UserId = user.Id,
+                LoginAtUtc = DateTime.UtcNow,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString(),
+                Success = passwordOk,
+            });
+            await db.SaveChangesAsync();
 
             if (!passwordOk)
             {
+                // Deliberately the same generic message an unknown username gets — this
+                // doesn't say whether it was the password or a just-triggered lockout, so an
+                // attacker can't use the response to tell those apart.
                 return Unauthorized("Invalid username or password");
             }
 
-            // passwordOk can only be true when user != null (see its definition above), so this
-            // is safe — kept as a separate variable rather than sprinkling `!` everywhere below.
-            var authenticatedUser = user!;
+            var authenticatedUser = user;
             var roles = await userManager.GetRolesAsync(authenticatedUser);
 
             var claims = new List<Claim>
