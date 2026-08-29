@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,6 +13,11 @@ namespace TicketPortal.Api.Controllers
     // exclusively by RefundProcessingService (see Services/RefundProcessingService.cs), the
     // same way PaymentHistory tracks a Payment. A trail that a client can also POST/PUT/DELETE
     // to isn't a trail.
+    //
+    // Same three-tier access as PaymentHistoriesController/RefundsController: platform
+    // Admin/Staff see everyone's; an operator's own Staff/Operator account is scoped to that
+    // operator's own bookings' refund history (previously unrestricted, and previously locked
+    // out entirely under the "Operator" role); a Customer sees only their own.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -22,7 +28,18 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.RefundHistories.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (callerOperatorId != null)
+                {
+                    query = query.Where(h => db.Refunds.Any(r =>
+                        r.Id == h.RefundId && db.Bookings.Any(b =>
+                            b.Id == r.BookingId && b.BusOperatorId == callerOperatorId)));
+                }
+                // else: platform Admin/Staff — no filter, see everything.
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(h => db.Refunds.Any(r =>
@@ -40,7 +57,19 @@ namespace TicketPortal.Api.Controllers
             var item = await db.RefundHistories.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var bookingId = await db.Refunds
+                    .Where(r => r.Id == item.RefundId)
+                    .Select(r => (Guid?)r.BookingId)
+                    .FirstOrDefaultAsync();
+                var operatorId = bookingId == null ? null : await db.Bookings
+                    .Where(b => b.Id == bookingId)
+                    .Select(b => (Guid?)b.BusOperatorId)
+                    .FirstOrDefaultAsync();
+                if (operatorId == null || !await User.CanManageOperatorAsync(db, operatorId.Value)) return Forbid();
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 var owns = await db.Refunds.AnyAsync(r =>

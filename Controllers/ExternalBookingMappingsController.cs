@@ -1,15 +1,21 @@
 // Piece 6 (People/HR & ERP Integrations) — 🟡 tier. This translates our Booking ids to an
 // operator's own ERP booking reference (their PNR/key), and tracks the last status we heard
 // from their side — internal sync bookkeeping, not something a customer or an operator's own
-// staff has a reason to touch. Reads are gated to Admin/Staff (same bar as the rest of the
-// backend's "internal" data); writes are Admin-only per the completion plan — hand-editing a
+// staff has a reason to touch. Reads are gated to Admin/platform-Staff (same bar as the rest of
+// the backend's "internal" data); writes are Admin-only per the completion plan — hand-editing a
 // mapping mid-sync could double-import a booking, so this is deliberately not opened up to
 // operator-scoped Staff the way the People/HR controllers above are. The actual sync worker that
 // would normally write these rows automatically is future work (flagged in the plan, not built
 // here) — until it exists, Admin is the only way these get created or corrected.
-
+//
+// This comment always said "not opened up to operator-scoped Staff", but the reads below never
+// actually enforced that — any Staff account, including one scoped to a single operator, could
+// read every operator's ERP booking-mapping data. Fixed: reads now require Admin, or a
+// Staff/Operator account whose StaffProfile.BusOperatorId is null (platform staff) — the same
+// bar OperatorIntegrationsController uses for its own platform-only data.
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +31,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!await User.IsPlatformStaffOrAdminAsync(db))
             {
                 return Ok(Array.Empty<ExternalBookingMappingResponseDto>());
             }
@@ -37,7 +43,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             var item = await db.ExternalBookingMappings.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));

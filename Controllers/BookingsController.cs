@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -53,7 +54,7 @@ namespace TicketPortal.Api.Controllers
             {
                 // No restriction.
             }
-            else if (User.IsInRole("Staff"))
+            else if (User.IsInRole("Staff") || User.IsInRole("Operator"))
             {
                 var operatorId = await GetCallerBusOperatorIdAsync();
                 if (operatorId.HasValue)
@@ -127,7 +128,7 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(new { message = "This hold does not belong to the specified Trip." });
             }
 
-            if (!CanAccessHold(hold))
+            if (!await CanAccessHoldAsync(hold))
             {
                 return Forbid();
             }
@@ -536,7 +537,7 @@ namespace TicketPortal.Api.Controllers
         {
             if (User.IsInRole("Admin")) return true;
 
-            if (User.IsInRole("Staff"))
+            if (User.IsInRole("Staff") || User.IsInRole("Operator"))
             {
                 var operatorId = await GetCallerBusOperatorIdAsync();
                 return operatorId == null || operatorId == booking.BusOperatorId;
@@ -551,10 +552,22 @@ namespace TicketPortal.Api.Controllers
 
         // Same ownership rule SeatHoldsController itself uses for a SeatHold — kept identical
         // rather than reinvented, since a hold not owned by the caller must be exactly as
-        // inaccessible for booking creation as it is for reading via SeatHoldsController.
-        private bool CanAccessHold(SeatHold hold)
+        // inaccessible for booking creation as it is for reading via SeatHoldsController. Used
+        // to grant ANY Admin/Staff account access to ANY operator's active hold — meaning
+        // Staff for operator A could complete a booking against operator B's held seats. Now
+        // resolves the hold's Trip.BusOperatorId and scopes through CanManageOperatorAsync,
+        // same as everywhere else.
+        private async Task<bool> CanAccessHoldAsync(SeatHold hold)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var operatorId = await db.Trips
+                    .Where(t => t.Id == hold.TripId)
+                    .Select(t => (Guid?)t.BusOperatorId)
+                    .FirstOrDefaultAsync();
+                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+            }
+
             var userId = GetCurrentUserId();
             return userId != null && hold.HeldByUserId == userId;
         }

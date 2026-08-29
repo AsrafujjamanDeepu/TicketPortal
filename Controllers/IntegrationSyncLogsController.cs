@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -7,10 +8,14 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
 {
-    // Read-only, Admin/Staff-only. A record of one attempt to sync data with an operator's own
-    // ERP — including RequestJson/ResponseJson from that call — is platform-internal
-    // integration detail, not anything a customer or most staff should see. The old generic
-    // CRUD let any authenticated user fabricate a fake "Succeeded" sync that never happened.
+    // Read-only, Admin/platform-Staff-only (see
+    // ClaimsPrincipalExtensions.IsPlatformStaffOrAdminAsync — an operator's own scoped
+    // Staff/Operator account never qualifies). A record of one attempt to sync data with an
+    // operator's own ERP — including RequestJson/ResponseJson from that call — is
+    // platform-internal integration detail, not anything a customer or most staff should see.
+    // The old generic CRUD let any authenticated user fabricate a fake "Succeeded" sync that
+    // never happened. The plain IsInRole("Staff") check this previously used didn't actually
+    // enforce "platform-only" — any operator-scoped Staff account passed it too.
     //
     // Nothing writes here yet: the actual sync worker that talks to an operator's ERP is future
     // work (see the ERP-integrations piece), not built here. The write path lands with that
@@ -23,7 +28,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!await User.IsPlatformStaffOrAdminAsync(db))
             {
                 return Ok(Array.Empty<IntegrationSyncLogResponseDto>());
             }
@@ -35,7 +40,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             var item = await db.IntegrationSyncLogs.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));

@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Bookings;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,11 @@ using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
+    // CanAccess previously granted ANY Staff account unrestricted access to EVERY operator's
+    // seat holds — including Release, a write action that frees another operator's active
+    // hold out from under a customer mid-checkout. SeatHold carries no BusOperatorId directly;
+    // it's resolved via Trip.BusOperatorId, same idea as RefundsController resolving through
+    // Booking. "Staff" also silently excluded the "Operator" login role.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -24,8 +30,18 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.SeatHolds.AsQueryable();
 
-            // Ordinary users only ever need to see their own holds; staff/admin can see everything.
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            // Admin/platform-Staff see every hold; an operator's own Staff/Operator account is
+            // scoped to holds on that operator's own trips; everyone else sees only their own.
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (callerOperatorId != null)
+                {
+                    query = query.Where(h => db.Trips.Any(t => t.Id == h.TripId && t.BusOperatorId == callerOperatorId));
+                }
+                // else: platform Admin/Staff — no filter, see everything.
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(h => h.HeldByUserId == userId);
@@ -40,7 +56,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.SeatHolds.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!CanAccess(item)) return Forbid();
+            if (!await CanAccessAsync(item)) return Forbid();
             return Ok(ToResponseDto(item));
         }
 
@@ -51,7 +67,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.SeatHolds.FirstOrDefaultAsync(x => x.HoldToken == holdToken);
             if (item == null) return NotFound();
-            if (!CanAccess(item)) return Forbid();
+            if (!await CanAccessAsync(item)) return Forbid();
             return Ok(ToResponseDto(item));
         }
 
@@ -98,7 +114,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.SeatHolds.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!CanAccess(item)) return Forbid();
+            if (!await CanAccessAsync(item)) return Forbid();
 
             await seatHoldService.ReleaseHoldAsync(item.HoldToken);
             return NoContent();
@@ -110,9 +126,20 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private bool CanAccess(SeatHold item)
+        // Admin/platform-Staff: any hold. Staff/Operator scoped to one operator: only holds on
+        // that operator's own trips (resolved via Trip.BusOperatorId — SeatHold carries no
+        // BusOperatorId directly). Everyone else: only a hold they themselves created.
+        private async Task<bool> CanAccessAsync(SeatHold item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var operatorId = await db.Trips
+                    .Where(t => t.Id == item.TripId)
+                    .Select(t => (Guid?)t.BusOperatorId)
+                    .FirstOrDefaultAsync();
+                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+            }
+
             var userId = GetCurrentUserId();
             return userId != null && item.HeldByUserId == userId;
         }

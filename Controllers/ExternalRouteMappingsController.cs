@@ -1,12 +1,15 @@
 // Piece 6 (People/HR & ERP Integrations) — 🟡 tier, same reasoning as
 // ExternalBookingMappingsController: internal sync bookkeeping (which of the operator's own
 // ERP routes corresponds to which of our OperatorRoutes), not customer- or operator-staff-
-// facing. Reads: Admin/Staff. Writes: Admin-only, per the completion plan — hand-editing a
+// facing. Reads: Admin/platform-Staff only (see ClaimsPrincipalExtensions.IsPlatformStaffOrAdminAsync —
+// an operator's own scoped Staff/Operator account never qualifies here, same fix as the other
+// three mapping controllers). Writes: Admin-only, per the completion plan — hand-editing a
 // mapping mid-sync risks corrupting what the sync worker (future work, not built here) expects
 // to find.
 
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,7 +25,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!await User.IsPlatformStaffOrAdminAsync(db))
             {
                 return Ok(Array.Empty<ExternalRouteMappingResponseDto>());
             }
@@ -34,7 +37,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             var item = await db.ExternalRouteMappings.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));

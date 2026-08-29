@@ -159,7 +159,7 @@ namespace TicketPortal.Api.Controllers
         // unlike GetAll/GetById above, writes are never open to just any authenticated user.
         private async Task<bool> CanModifyAsync(Review item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

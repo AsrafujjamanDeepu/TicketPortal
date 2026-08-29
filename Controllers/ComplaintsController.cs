@@ -24,7 +24,7 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.Complaints.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(c => db.CustomerProfiles.Any(cp =>
@@ -127,7 +127,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/status")]
         public async Task<IActionResult> UpdateStatus(Guid id, ComplaintStatusUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
 
             var item = await db.Complaints.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
@@ -147,7 +147,7 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
 
             var item = await db.Complaints.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
@@ -179,7 +179,7 @@ namespace TicketPortal.Api.Controllers
 
         private async Task<bool> CanAccessAsync(Complaint item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

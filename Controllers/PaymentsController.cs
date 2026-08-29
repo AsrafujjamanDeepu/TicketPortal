@@ -1,5 +1,6 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Payments;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,13 @@ using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
+    // Access is three-tiered, same pattern as RefundsController (Payment doesn't carry
+    // BusOperatorId either, so scoping always joins through Booking.BusOperatorId): platform
+    // Admin/Staff see every payment; an operator's own Staff/Operator account only sees
+    // payments against that operator's own bookings; a plain Customer only sees their own.
+    // CanAccessAsync previously granted ANY Staff account (and silently excluded the
+    // "Operator" login role) full read/write access to every operator's gateway references,
+    // fees, and amounts — fixed below via the shared ClaimsPrincipalExtensions helpers.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -19,7 +27,17 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.Payments.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (callerOperatorId != null)
+                {
+                    query = query.Where(p => db.Bookings.Any(b =>
+                        b.Id == p.BookingId && b.BusOperatorId == callerOperatorId));
+                }
+                // else: platform Admin/Staff — no filter, see everything.
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(p => db.Bookings.Any(b =>
@@ -134,7 +152,14 @@ namespace TicketPortal.Api.Controllers
 
         private async Task<bool> CanAccessAsync(Payment payment)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            {
+                var operatorId = await db.Bookings
+                    .Where(b => b.Id == payment.BookingId)
+                    .Select(b => (Guid?)b.BusOperatorId)
+                    .FirstOrDefaultAsync();
+                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+            }
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

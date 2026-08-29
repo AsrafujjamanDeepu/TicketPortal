@@ -23,7 +23,7 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.EmergencyContacts.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(e => db.CustomerProfiles.Any(cp =>
@@ -141,7 +141,7 @@ namespace TicketPortal.Api.Controllers
 
         private async Task<bool> CanAccessAsync(EmergencyContact item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

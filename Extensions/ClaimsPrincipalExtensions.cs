@@ -58,5 +58,21 @@ namespace TicketPortal.Api.Extensions
             var callerOperatorId = await user.GetBusOperatorIdAsync(db);
             return callerOperatorId == null || callerOperatorId == busOperatorId;
         }
+
+        // For data that's platform-internal regardless of which operator it's about (ERP
+        // sync/integration bookkeeping — see ExternalBookingMappingsController and friends):
+        // Admin always qualifies; a Staff/Operator account only qualifies when it's platform
+        // staff (StaffProfile.BusOperatorId == null). An operator's own scoped Staff/Operator
+        // account never qualifies here, unlike CanManageOperatorAsync above — there is no
+        // operator id to scope down to, because this data was never meant to open up to
+        // operator-scoped staff at all.
+        public static async Task<bool> IsPlatformStaffOrAdminAsync(this ClaimsPrincipal user, AppDbContext db)
+        {
+            if (user.IsInRole("Admin")) return true;
+            if (!user.IsInRole("Staff") && !user.IsInRole("Operator")) return false;
+
+            var callerOperatorId = await user.GetBusOperatorIdAsync(db);
+            return callerOperatorId == null;
+        }
     }
 }

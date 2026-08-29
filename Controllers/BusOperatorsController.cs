@@ -47,7 +47,7 @@ namespace TicketPortal.Api.Controllers
         {
             // Onboarding a new operator is a platform decision — an operator's own staff can't
             // exist as "staff of X" before X is created, so this is Admin/platform-Staff only.
-            if (!await IsPlatformStaffOrAdminAsync())
+            if (!await User.IsPlatformStaffOrAdminAsync(db))
             {
                 return Forbid();
             }
@@ -362,7 +362,7 @@ namespace TicketPortal.Api.Controllers
 
             // Removing an operator entirely (even the soft-delete path, which also deactivates
             // every one of its Buses) is a platform-level decision, same rationale as Create.
-            if (!await IsPlatformStaffOrAdminAsync())
+            if (!await User.IsPlatformStaffOrAdminAsync(db))
             {
                 return Forbid();
             }
@@ -516,15 +516,10 @@ namespace TicketPortal.Api.Controllers
         // its own: "platform-only" for Create/Delete, where even an operator's own scoped staff
         // never qualifies.
 
-        // For the two actions (Create, Delete) that are platform-only regardless of which
-        // operator is involved — an operator's own scoped staff never qualifies here.
-        private async Task<bool> IsPlatformStaffOrAdminAsync()
-        {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff")) return false;
-
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            return callerOperatorId == null;
-        }
+        // "Platform-only" (Create/Delete) now lives on the shared extension
+        // (ClaimsPrincipalExtensions.IsPlatformStaffOrAdminAsync), reused by the
+        // ExternalMappings/IntegrationLogs controllers too. This used to be its own private
+        // copy here that only checked IsInRole("Staff") — silently locking out the "Operator"
+        // login role even for legitimate platform-wide staff accounts.
     }
 }

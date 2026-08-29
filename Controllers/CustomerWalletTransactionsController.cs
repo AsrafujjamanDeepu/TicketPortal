@@ -23,7 +23,7 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.CustomerWalletTransactions.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(t => db.CustomerProfiles.Any(cp =>
@@ -40,7 +40,7 @@ namespace TicketPortal.Api.Controllers
             var item = await db.CustomerWalletTransactions.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 var userId = GetCurrentUserId();
                 var owns = await db.CustomerProfiles.AnyAsync(cp =>

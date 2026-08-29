@@ -30,7 +30,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 return Ok(Array.Empty<AgentResponseDto>());
             }
@@ -62,7 +62,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(AgentCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
 
             var busOperatorId = dto.BusOperatorId;
             if (!User.IsInRole("Admin"))
@@ -179,7 +179,7 @@ namespace TicketPortal.Api.Controllers
         private async Task<bool> CanAccessAsync(Agent item)
         {
             if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff")) return false;
+            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
 
             var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
             if (scopeOperatorId == null) return true;

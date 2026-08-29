@@ -35,7 +35,7 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.CustomerProfiles.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(cp => cp.UserId == userId);
@@ -60,7 +60,7 @@ namespace TicketPortal.Api.Controllers
             var callerId = GetCurrentUserId();
             if (callerId == null) return Unauthorized();
 
-            var isStaffOrAdmin = User.IsInRole("Admin") || User.IsInRole("Staff");
+            var isStaffOrAdmin = User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator");
             var targetUserId = isStaffOrAdmin ? dto.UserId : callerId.Value;
 
             // One profile per login — same invariant CustomerProfile's own class comment
@@ -168,7 +168,7 @@ namespace TicketPortal.Api.Controllers
 
         private bool CanAccess(CustomerProfile item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
             return item.UserId == GetCurrentUserId();
         }
 

@@ -1,10 +1,12 @@
 // Piece 6 (People/HR & ERP Integrations) — 🟡 tier, same reasoning as
 // ExternalBookingMappingsController/ExternalRouteMappingsController: internal sync bookkeeping
 // (which of the operator's own ERP seat identifiers corresponds to which of our TripSeats).
-// Reads: Admin/Staff. Writes: Admin-only, per the completion plan.
+// Reads: Admin/platform-Staff only (see ClaimsPrincipalExtensions.IsPlatformStaffOrAdminAsync).
+// Writes: Admin-only, per the completion plan.
 
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,7 +22,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            if (!await User.IsPlatformStaffOrAdminAsync(db))
             {
                 return Ok(Array.Empty<ExternalSeatMappingResponseDto>());
             }
@@ -32,7 +34,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             var item = await db.ExternalSeatMappings.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));
