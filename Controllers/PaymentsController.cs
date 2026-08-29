@@ -140,6 +140,57 @@ namespace TicketPortal.Api.Controllers
             }
         }
 
+        // Counter-sale equivalent of Initiate+Confirm combined: staff at a physical counter
+        // confirms cash (or a card) was collected in hand, right there — there's no gateway
+        // round trip for this channel, so unlike the online flow, this is the only call needed.
+        // Only valid against a Booking BookingsController.Create already created with
+        // SalesCounterId set (SaleChannel.Counter) — see
+        // PaymentConfirmationService.ConfirmCounterSaleAsync. Staff/Operator/Admin only — a
+        // Customer has no reason to ever call this.
+        [HttpPost("counter-sale/confirm")]
+        public async Task<IActionResult> ConfirmCounterSale(CounterSaleConfirmDto dto)
+        {
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            {
+                return Forbid();
+            }
+
+            var booking = await db.Bookings.FirstOrDefaultAsync(b => b.Id == dto.BookingId);
+            if (booking == null) return NotFound(new { message = "Booking not found." });
+
+            if (!await User.CanManageOperatorAsync(db, booking.BusOperatorId))
+            {
+                return Forbid();
+            }
+
+            try
+            {
+                var result = await paymentConfirmationService.ConfirmCounterSaleAsync(
+                    dto.BookingId, dto.HoldToken, dto.Method);
+
+                if (result.Outcome == PaymentConfirmationOutcome.PaidButSeatsLost)
+                {
+                    return Conflict(new
+                    {
+                        message = "Payment was collected, but the held seats are no longer available. " +
+                                  "The platform never held this money — refund the customer directly at the counter."
+                    });
+                }
+
+                return Ok(new
+                {
+                    payment = ToResponseDto(result.Payment),
+                    bookingStatus = result.Booking?.Status,
+                    ticketIds = result.Tickets.Select(t => t.Id),
+                    ledgerWarning = result.LedgerWarning
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         // No generic PUT/DELETE on purpose: a payment's Status only ever moves through
         // PaymentConfirmationService (Initiate → Confirm or Fail). Payments are never deleted —
         // that's a permanent financial record.

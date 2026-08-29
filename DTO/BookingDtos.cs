@@ -79,6 +79,14 @@ namespace TicketPortal.Api.DTO
         [MaxLength(120)]
         public string? ContactEmail { get; set; }
 
+        // Set this to record a cash-counter sale instead of an online one (concept doc §3.1/
+        // §6.2) — staff at a physical counter booking on behalf of a walk-in customer. Left
+        // null for a normal online/self-service booking. BookingsController.Create only honors
+        // this for a caller who is Staff/Operator/Admin for the counter's own operator — a
+        // Customer can never set this on their own booking, since it changes which finance
+        // channel (and which commission flow) the sale posts to.
+        public Guid? SalesCounterId { get; set; }
+
         // Details — every traveller this booking covers. Must be exactly one passenger per
         // seat in the hold — BookingsController.Create rejects a mismatch outright, since
         // PaymentConfirmationService later pairs passengers to booked seats 1-for-1.
@@ -139,6 +147,13 @@ namespace TicketPortal.Api.DTO
         public BookingStatus Status { get; set; }
         public bool RequiresExternalConfirmation { get; set; }
         public DateTime? ExpiresAtUtc { get; set; }
+
+        // Which finance channel this sale belongs to (see Booking.MoneyCollectedBy) and, for a
+        // Counter sale, which physical counter it was made at.
+        public BookingSource Source { get; set; }
+        public SaleChannel SaleChannel { get; set; }
+        public MoneyCollectedBy MoneyCollectedBy { get; set; }
+        public Guid? SalesCounterId { get; set; }
 
         // Full breakdown, not just GrandTotal — now that these are real server-computed values
         // (see BookingCreateDto) rather than client-declared ones, they're worth showing on a

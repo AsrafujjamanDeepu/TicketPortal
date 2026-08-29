@@ -166,18 +166,71 @@ namespace TicketPortal.Api.Controllers
             var subTotal = hold.Items.Sum(i => i.FareAtHold);
             var taxAmount = await ResolveTaxAsync(subTotal);
 
+            // =========================================================
+            // 4. Counter sale (concept doc §3.1/§6.2): only reachable by Staff/Operator/Admin
+            // for the counter's own operator — a Customer can never set SalesCounterId on their
+            // own booking and self-declare a cash sale that skips the online payment flow.
+            // Counter sales also only make sense for a PlatformManaged operator: an
+            // ExternalApiManaged/Hybrid operator's own ERP is the source of truth for their
+            // counter sales (see BusOperator.InventoryMode) — we have no visibility into those
+            // at all, so we must not record one.
+            // =========================================================
+            var isCounterSale = dto.SalesCounterId.HasValue;
+            Models.People.SalesCounter? salesCounter = null;
+
+            if (isCounterSale)
+            {
+                if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+                {
+                    return Forbid();
+                }
+
+                if (!await User.CanManageOperatorAsync(db, trip.BusOperatorId))
+                {
+                    return Forbid();
+                }
+
+                salesCounter = await db.SalesCounters.FirstOrDefaultAsync(sc => sc.Id == dto.SalesCounterId!.Value);
+                if (salesCounter == null || !salesCounter.IsActive)
+                {
+                    return BadRequest(new { message = "SalesCounterId does not exist or is inactive." });
+                }
+
+                if (salesCounter.BusOperatorId != trip.BusOperatorId)
+                {
+                    return BadRequest(new { message = "This SalesCounter belongs to a different operator than the Trip." });
+                }
+
+                if (trip.InventoryMode != OperatorInventoryMode.PlatformManaged)
+                {
+                    return BadRequest(new
+                    {
+                        message = "This operator's inventory is not platform-managed, so counter sales through " +
+                                  "our ERP don't apply — their own system is the source of truth for cash-counter sales."
+                    });
+                }
+            }
+
             var booking = new Booking
             {
-                CustomerProfileId = await ResolveOrCreateCustomerProfileIdAsync(),
+                // A counter sale is a walk-in, guest checkout — there's no reason to attribute
+                // it to the staff member's own login/CustomerProfile, and a walk-in customer
+                // may not even have a platform account.
+                CustomerProfileId = isCounterSale ? null : await ResolveOrCreateCustomerProfileIdAsync(),
                 BusOperatorId = trip.BusOperatorId,
                 TripId = dto.TripId,
                 SeatHoldId = hold.Id,
+                SalesCounterId = salesCounter?.Id,
                 BoardingTerminalId = dto.BoardingTerminalId,
                 DroppingTerminalId = dto.DroppingTerminalId,
                 Pnr = GeneratePnr(),
                 ContactName = dto.ContactName,
                 ContactPhone = dto.ContactPhone,
                 ContactEmail = dto.ContactEmail,
+
+                Source = isCounterSale ? BookingSource.Counter : BookingSource.Web,
+                SaleChannel = isCounterSale ? SaleChannel.Counter : SaleChannel.Online,
+                MoneyCollectedBy = isCounterSale ? MoneyCollectedBy.Operator : MoneyCollectedBy.Platform,
 
                 // Computed, never trusted from the client — see the class comment on BookingCreateDto.
                 SubTotal = subTotal,
@@ -592,6 +645,10 @@ namespace TicketPortal.Api.Controllers
             DeletedAtUtc = booking.DeletedAtUtc,
 
             Status = booking.Status,
+            Source = booking.Source,
+            SaleChannel = booking.SaleChannel,
+            MoneyCollectedBy = booking.MoneyCollectedBy,
+            SalesCounterId = booking.SalesCounterId,
 
             SubTotal = booking.SubTotal,
             DiscountAmount = booking.DiscountAmount,

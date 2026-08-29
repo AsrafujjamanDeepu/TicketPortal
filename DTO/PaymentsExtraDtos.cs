@@ -101,6 +101,17 @@ namespace TicketPortal.Api.DTO
         public string? Reason { get; set; }
     }
 
+    // Counter-sale equivalent of Initiate+Confirm combined into one call: cash changes hands
+    // in person at the moment this is submitted, so there's no separate gateway round trip to
+    // wait on. Only valid against a Booking created with SalesCounterId set (SaleChannel ==
+    // Counter) — see PaymentConfirmationService.ConfirmCounterSaleAsync.
+    public class CounterSaleConfirmDto
+    {
+        public Guid BookingId { get; set; }
+        public string HoldToken { get; set; } = string.Empty;
+        public PaymentMethod Method { get; set; } = PaymentMethod.Cash;
+    }
+
     public class PaymentResponseDto
     {
         public Guid Id { get; set; }

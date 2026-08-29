@@ -249,60 +249,7 @@ namespace TicketPortal.Api.Services
 
             // Seats are confirmed as this booking's — now lock in the booking itself and issue
             // one ticket per passenger.
-            await using (var tx = await _db.Database.BeginTransactionAsync())
-            {
-                booking.Confirm(); // Booking's own method — throws if it's not in a confirmable state.
-
-                // BookingPassenger and TripSeat don't have a direct FK to each other in this
-                // schema (BookingCreateDto doesn't collect a per-passenger seat choice either),
-                // so passengers are paired to this booking's now-Booked seats in a fixed,
-                // deterministic order. Fine for the current demo-level checkout; a real
-                // "passenger picks seat X" flow would need an explicit link instead.
-                var passengers = await _db.BookingPassengers
-                    .Where(p => p.BookingId == booking.Id)
-                    .OrderBy(p => p.CreatedAtUtc)
-                    .ToListAsync();
-
-                var bookedSeats = await _db.TripSeats
-                    .Where(ts => ts.BookingId == booking.Id)
-                    .OrderBy(ts => ts.SeatNumber)
-                    .ToListAsync();
-
-                if (passengers.Count != bookedSeats.Count)
-                {
-                    throw new InvalidOperationException(
-                        $"Booking {booking.Id} has {passengers.Count} passenger(s) but {bookedSeats.Count} " +
-                        "booked seat(s) — cannot safely pair them into tickets.");
-                }
-
-                var tickets = new List<Ticket>();
-                for (int i = 0; i < passengers.Count; i++)
-                {
-                    var seat = bookedSeats[i];
-                    tickets.Add(new Ticket
-                    {
-                        BookingId = booking.Id,
-                        BookingPassengerId = passengers[i].Id,
-                        TripId = booking.TripId,
-                        TripSeatId = seat.Id,
-                        TicketNumber = GenerateTicketNumber(),
-                        SeatNumberSnapshot = seat.SeatNumber,
-                        QrCodePayload = $"{booking.Pnr}|{seat.SeatNumber}|{Guid.NewGuid():N}",
-                        Fare = seat.Fare,
-                        DiscountAmount = 0m,
-                        FinalFare = seat.Fare,
-                        Status = TicketStatus.Issued,
-                        IssuedAtUtc = DateTime.UtcNow,
-                    });
-                }
-
-                _db.Tickets.AddRange(tickets);
-                await _db.SaveChangesAsync();
-                await tx.CommitAsync();
-
-                result.Tickets = tickets;
-            }
-
+            result.Tickets = await ConfirmBookingAndIssueTicketsAsync(booking);
             result.Outcome = PaymentConfirmationOutcome.Confirmed;
 
             // Ledger posting last, isolated in its own try/catch. A missing commission-rule
@@ -507,11 +454,189 @@ namespace TicketPortal.Api.Services
             await _seatHoldService.ReleaseHoldAsync(holdToken);
         }
 
-        // Finds the operator's active online-sale commission rule (preferring one scoped to
-        // this trip's specific route over a general one) and their contract's gateway-fee-bearer
-        // setting. Throws if nothing is configured — see the try/catch around the caller for why
-        // that's safe to do this late in the flow.
-        private async Task<(decimal commission, GatewayFeeBearer feeBearer)> ResolveCommissionAsync(Booking booking)
+        // Counter-sale counterpart to InitiatePaymentAsync + ConfirmOnlinePaymentAsync,
+        // collapsed into one call: cash (or a card swiped at the counter) changes hands in
+        // person the moment this is submitted, so there's no gateway round trip to wait on —
+        // Payment is recorded straight to Succeeded instead of Initiated. Only the two
+        // downstream steps (convert hold → booking, issue tickets) are shared with the online
+        // flow (see ConfirmBookingAndIssueTicketsAsync); everything about how the money itself
+        // got recorded, and which side of the ledger it posts to, is different. Only reachable
+        // for a Booking BookingsController.Create already created with SaleChannel.Counter /
+        // MoneyCollectedBy.Operator — see the check below.
+        public async Task<PaymentConfirmationResult> ConfirmCounterSaleAsync(
+            Guid bookingId,
+            string holdToken,
+            PaymentMethod method)
+        {
+            var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId)
+                ?? throw new InvalidOperationException($"Booking {bookingId} does not exist.");
+
+            if (booking.SaleChannel != SaleChannel.Counter || booking.MoneyCollectedBy != MoneyCollectedBy.Operator)
+            {
+                throw new InvalidOperationException(
+                    $"Booking {bookingId} is a {booking.SaleChannel} sale, not a counter sale. " +
+                    "Use the online Initiate/Confirm payment flow instead.");
+            }
+
+            // Idempotency: there's no gateway here to retry a webhook, but staff double-tapping
+            // "confirm" on a counter terminal is a completely realistic failure mode — if this
+            // booking already has a succeeded payment, hand back what already happened instead
+            // of collecting the customer's cash twice over.
+            var existingPayment = await _db.Payments
+                .Where(p => p.BookingId == bookingId && p.Status == PaymentStatus.Succeeded)
+                .OrderByDescending(p => p.PaidAtUtc)
+                .FirstOrDefaultAsync();
+
+            if (existingPayment != null)
+            {
+                return await BuildIdempotentResultAsync(existingPayment);
+            }
+
+            if (booking.Status != BookingStatus.PendingPayment && booking.Status != BookingStatus.Draft)
+            {
+                throw new InvalidOperationException(
+                    $"Booking {bookingId} is {booking.Status} and can no longer accept payment.");
+            }
+
+            var payment = new Payment
+            {
+                BookingId = booking.Id,
+                Method = method,
+                Gateway = PaymentGateway.None,
+                CollectedBy = MoneyCollectedBy.Operator,
+                Amount = booking.GrandTotal,
+                // Cash in hand at a counter has no gateway fee to deduct.
+                NetReceivedAmount = booking.GrandTotal,
+                Currency = booking.Currency,
+                Status = PaymentStatus.Succeeded,
+                TransactionDateUtc = DateTime.UtcNow,
+                PaidAtUtc = DateTime.UtcNow,
+            };
+
+            _db.Payments.Add(payment);
+            _db.PaymentHistories.Add(new PaymentHistory
+            {
+                PaymentId = payment.Id,
+                Status = PaymentStatus.Succeeded,
+                Remarks = $"Collected in person at the counter ({method})."
+            });
+            await _db.SaveChangesAsync();
+
+            var result = new PaymentConfirmationResult { Payment = payment, Booking = booking };
+
+            try
+            {
+                await _seatHoldService.ConvertHoldToBookingAsync(holdToken, booking.Id);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Unlike the online flow, the platform never held this money — the counter
+                // already has the cash (or card payment) in hand. There's nothing on OUR side to
+                // refund, so no Refund row is raised here; flag it on the payment's own history
+                // instead so it's queryable, and leave getting the customer's money back to the
+                // counter that collected it.
+                _db.PaymentHistories.Add(new PaymentHistory
+                {
+                    PaymentId = payment.Id,
+                    Status = PaymentStatus.ReconciliationNeeded,
+                    Remarks = $"Seats were lost before this counter sale could be finalized ({ex.Message}). " +
+                              "Payment was already collected at the counter — refund the customer directly there."
+                });
+                await _db.SaveChangesAsync();
+
+                result.Outcome = PaymentConfirmationOutcome.PaidButSeatsLost;
+                return result;
+            }
+
+            result.Tickets = await ConfirmBookingAndIssueTicketsAsync(booking);
+            result.Outcome = PaymentConfirmationOutcome.Confirmed;
+
+            // Ledger posting last, isolated in its own try/catch — same reasoning as the online
+            // flow: a missing CommissionRule must never be the reason a walk-in customer who's
+            // already paid at the counter leaves without a ticket.
+            try
+            {
+                var commissionRule = await ResolveCommissionRuleAsync(booking, SaleChannel.Counter);
+                var commission = ComputeCommission(commissionRule, booking.GrandTotal);
+                await _financeLedgerService.PostCounterSaleCommissionAsync(
+                    booking.Id, booking.BusOperatorId, commission, booking.Currency);
+            }
+            catch (Exception ex)
+            {
+                result.LedgerWarning =
+                    $"Ticket issued and booking confirmed, but the counter-sale commission ledger entry failed: " +
+                    $"{ex.Message}. Needs manual reconciliation.";
+            }
+
+            return result;
+        }
+
+        // Shared by both the online and counter-sale confirmation paths: locks in the booking
+        // itself and issues one ticket per passenger, once SeatHoldService has confirmed every
+        // seat in the hold really did convert to this booking. Kept as one method so the
+        // passenger/seat pairing rule (see the comment inside) can never drift between the two
+        // channels.
+        private async Task<List<Ticket>> ConfirmBookingAndIssueTicketsAsync(Booking booking)
+        {
+            await using var tx = await _db.Database.BeginTransactionAsync();
+
+            booking.Confirm(); // Booking's own method — throws if it's not in a confirmable state.
+
+            // BookingPassenger and TripSeat don't have a direct FK to each other in this
+            // schema (BookingCreateDto doesn't collect a per-passenger seat choice either), so
+            // passengers are paired to this booking's now-Booked seats in a fixed, deterministic
+            // order. Fine for the current demo-level checkout; a real "passenger picks seat X"
+            // flow would need an explicit link instead.
+            var passengers = await _db.BookingPassengers
+                .Where(p => p.BookingId == booking.Id)
+                .OrderBy(p => p.CreatedAtUtc)
+                .ToListAsync();
+
+            var bookedSeats = await _db.TripSeats
+                .Where(ts => ts.BookingId == booking.Id)
+                .OrderBy(ts => ts.SeatNumber)
+                .ToListAsync();
+
+            if (passengers.Count != bookedSeats.Count)
+            {
+                throw new InvalidOperationException(
+                    $"Booking {booking.Id} has {passengers.Count} passenger(s) but {bookedSeats.Count} " +
+                    "booked seat(s) — cannot safely pair them into tickets.");
+            }
+
+            var tickets = new List<Ticket>();
+            for (int i = 0; i < passengers.Count; i++)
+            {
+                var seat = bookedSeats[i];
+                tickets.Add(new Ticket
+                {
+                    BookingId = booking.Id,
+                    BookingPassengerId = passengers[i].Id,
+                    TripId = booking.TripId,
+                    TripSeatId = seat.Id,
+                    TicketNumber = GenerateTicketNumber(),
+                    SeatNumberSnapshot = seat.SeatNumber,
+                    QrCodePayload = $"{booking.Pnr}|{seat.SeatNumber}|{Guid.NewGuid():N}",
+                    Fare = seat.Fare,
+                    DiscountAmount = 0m,
+                    FinalFare = seat.Fare,
+                    Status = TicketStatus.Issued,
+                    IssuedAtUtc = DateTime.UtcNow,
+                });
+            }
+
+            _db.Tickets.AddRange(tickets);
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            return tickets;
+        }
+
+        // Finds the operator's active commission rule for the given channel (preferring one
+        // scoped to this trip's specific route over a general one). Throws if nothing is
+        // configured — see the try/catch around each caller for why that's safe to do this late
+        // in the flow.
+        private async Task<CommissionRule> ResolveCommissionRuleAsync(Booking booking, SaleChannel channel)
         {
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -522,23 +647,32 @@ namespace TicketPortal.Api.Services
 
             var candidates = await _db.CommissionRules
                 .Where(cr => cr.BusOperatorId == booking.BusOperatorId
-                    && cr.SaleChannel == SaleChannel.Online
+                    && cr.SaleChannel == channel
                     && cr.IsActive
                     && cr.EffectiveFrom <= today
                     && (cr.EffectiveTo == null || cr.EffectiveTo >= today))
                 .ToListAsync();
 
-            var rule = candidates.FirstOrDefault(cr => cr.BusRouteId == busRouteId)
+            return candidates.FirstOrDefault(cr => cr.BusRouteId == busRouteId)
                 ?? candidates.FirstOrDefault(cr => cr.BusRouteId == null)
                 ?? throw new InvalidOperationException(
-                    $"No active online CommissionRule configured for operator {booking.BusOperatorId}.");
+                    $"No active {channel} CommissionRule configured for operator {booking.BusOperatorId}.");
+        }
 
-            var commission = rule.CommissionType switch
-            {
-                CommissionType.Percentage => Math.Round(booking.GrandTotal * (rule.CommissionValue / 100m), 2),
-                CommissionType.FixedAmount => rule.CommissionValue,
-                _ => 0m
-            };
+        private static decimal ComputeCommission(CommissionRule rule, decimal grandTotal) => rule.CommissionType switch
+        {
+            CommissionType.Percentage => Math.Round(grandTotal * (rule.CommissionValue / 100m), 2),
+            CommissionType.FixedAmount => rule.CommissionValue,
+            _ => 0m
+        };
+
+        // Finds the operator's active online-sale commission rule and their contract's
+        // gateway-fee-bearer setting. Throws if no commission rule is configured — see the
+        // try/catch around the caller for why that's safe to do this late in the flow.
+        private async Task<(decimal commission, GatewayFeeBearer feeBearer)> ResolveCommissionAsync(Booking booking)
+        {
+            var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Online);
+            var commission = ComputeCommission(rule, booking.GrandTotal);
 
             var feeBearer = await _db.OperatorContracts
                 .Where(c => c.BusOperatorId == booking.BusOperatorId && c.IsActive)
