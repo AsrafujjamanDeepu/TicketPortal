@@ -125,7 +125,34 @@ namespace TicketPortal.Api.Services
             booking.DiscountAmount = discount;
             booking.RecomputeTotals();
 
-            await _db.SaveChangesAsync();
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Two customers can race to redeem the same limited coupon at the same
+                // moment: both pass the UsageLimit check above against the same "totalUses
+                // under the limit" snapshot, but only the first SaveChangesAsync actually
+                // lands — Coupon.RowVersion (an EF Core optimistic-concurrency token) makes
+                // the second one throw DbUpdateConcurrencyException instead of silently
+                // letting both redemptions through and corrupting UsedCount. Data was never
+                // actually wrong either way; this only changes what the LOSER of the race is
+                // told. Previously that exception fell straight through to Program.cs's global
+                // handler, which treats any DbUpdateException as a generic, unhelpful 500 ("A
+                // database error occurred while saving your changes."). Re-checking the limit
+                // here and throwing the same InvalidOperationException every other validation
+                // failure above uses gets it the same clean 400 message instead.
+                var currentTotalUses = await _db.CouponUsages.CountAsync(u => u.CouponId == couponId);
+                if (coupon.UsageLimit.HasValue && currentTotalUses >= coupon.UsageLimit.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Coupon '{coupon.Code}' has reached its usage limit ({coupon.UsageLimit.Value}).");
+                }
+
+                throw new InvalidOperationException(
+                    $"Coupon '{coupon.Code}' was just redeemed by another request. Please try again.");
+            }
 
             return usage;
         }
