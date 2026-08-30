@@ -104,7 +104,19 @@ namespace TicketPortal.Api.Services
                 .OrderByDescending(r => r.MinHoursBeforeDeparture)
                 .FirstOrDefault();
 
-            var baseAmount = ticket?.FinalFare ?? booking.GrandTotal;
+            // For a whole-booking request, the refundable base is what's actually still
+            // outstanding — the fare of tickets not already Cancelled/Refunded — not the
+            // booking's original GrandTotal. Without this, requesting a whole-booking
+            // cancellation AFTER an earlier per-ticket cancellation was already refunded (the
+            // booking is PartiallyCancelled, which is deliberately still allowed to reach this
+            // point — cancelling "the rest" of a booking is a legitimate ask) would compute its
+            // refund off money that includes a ticket that's already been paid back, risking a
+            // double refund once approved.
+            var baseAmount = ticket != null
+                ? ticket.FinalFare
+                : booking.Tickets
+                    .Where(t => t.Status is not (TicketStatus.Cancelled or TicketStatus.Refunded))
+                    .Sum(t => t.FinalFare);
 
             // No policy configured at all, or no rule covers this window, both fall back to a
             // 0% refund rather than blocking the request outright — staff can still override
@@ -149,9 +161,16 @@ namespace TicketPortal.Api.Services
             }
 
             var booking = cr.Booking;
+            // Same reasoning as RequestAsync's baseAmount above: a whole-booking approval's
+            // ceiling has to be what's still outstanding on the booking right now, not the
+            // original GrandTotal — otherwise approving this could authorize refunding a
+            // ticket a second time if some of the booking's tickets were already individually
+            // cancelled and refunded before this request was made.
             var ceiling = cr.TicketId.HasValue
                 ? booking.Tickets.FirstOrDefault(t => t.Id == cr.TicketId.Value)?.FinalFare ?? 0m
-                : booking.GrandTotal;
+                : booking.Tickets
+                    .Where(t => t.Status is not (TicketStatus.Cancelled or TicketStatus.Refunded))
+                    .Sum(t => t.FinalFare);
 
             var approvedAmount = approvedRefundAmountOverride ?? cr.RequestedRefundAmount;
             if (approvedAmount < 0 || approvedAmount > ceiling)
