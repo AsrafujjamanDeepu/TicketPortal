@@ -155,7 +155,12 @@ namespace TicketPortal.Api.Services
                     .Sum(l => l.DebitAmount),
                 RefundAmount = ledgerRows
                     .Where(l => l.ItemType == StatementItemType.Refund)
-                    .Sum(l => l.DebitAmount),
+                    // A Refund row is a debit for an online refund (platform money paying the
+                    // customer back) but a credit for a counter-sale refund reversal (the
+                    // operator's commission being handed back — see
+                    // FinanceLedgerService.PostCounterSaleRefundAsync). Exactly one side is ever
+                    // non-zero for a given row, so summing both captures either direction.
+                    .Sum(l => l.DebitAmount + l.CreditAmount),
                 NetAmount = netAmount,
                 Remarks = remarks,
             };
@@ -270,7 +275,9 @@ namespace TicketPortal.Api.Services
                 StatementItemType.PlatformCommission => (0m, l.DebitAmount, 0m, 0m),
                 StatementItemType.CounterSaleCommission => (0m, l.DebitAmount, 0m, 0m),
                 StatementItemType.GatewayCharge => (0m, 0m, l.DebitAmount, 0m),
-                StatementItemType.Refund => (0m, 0m, 0m, l.DebitAmount),
+                // Debit for an online refund, credit for a counter-sale refund reversal — see
+                // the comment on OperatorSettlement.RefundAmount above. Exactly one is non-zero.
+                StatementItemType.Refund => (0m, 0m, 0m, l.DebitAmount + l.CreditAmount),
                 _ => (0m, 0m, 0m, 0m),
             };
 
