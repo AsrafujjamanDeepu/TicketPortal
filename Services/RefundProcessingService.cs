@@ -96,6 +96,13 @@ namespace TicketPortal.Api.Services
         // to pay a guest back today is a manual bank/mobile-banking transfer. Once the ledger
         // side is posted, a guest refund parks at PendingManualPayout until staff calls
         // CompleteManualPayoutAsync with proof the transfer actually happened.
+        //
+        // A counter-sale booking (see BookingsController.Create's SalesCounterId path) is a
+        // third, simpler case, handled separately below: the platform never held that
+        // booking's cash to begin with, so Stage 1 posts against a different ledger method
+        // (reversing the commission, not "refunding" money we never received), and there is no
+        // Stage 2 at all — no wallet to credit, no manual payout to track, since paying the
+        // customer back was never the platform's job for that sale.
         public async Task ProcessAsync(Guid refundId)
         {
             var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
@@ -119,12 +126,28 @@ namespace TicketPortal.Api.Services
             });
             await _db.SaveChangesAsync();
 
+            // A counter-sale booking's cash never passed through the platform in the first
+            // place (see FinanceLedgerService.PostCounterSaleCommissionAsync) — only the ERP
+            // commission on it is really ours. Both stages below branch on this: what gets
+            // reversed on the ledger, and who's actually on the hook for paying the customer
+            // back, are both different for a sale we never held the money for.
+            var isCounterSale = booking.MoneyCollectedBy == MoneyCollectedBy.Operator;
+
             // Stage 1 — post to the commission ledger. If this throws, nothing has moved yet:
             // a plain Failed status is fully accurate and there is nothing to reconcile.
             try
             {
-                await _financeLedgerService.PostRefundAsync(
-                    refund.BookingId, refund.Id, booking.BusOperatorId, refund.Amount, refund.Currency);
+                if (isCounterSale)
+                {
+                    var commissionToReverse = await _financeLedgerService.GetPostedCounterSaleCommissionAsync(booking.Id);
+                    await _financeLedgerService.PostCounterSaleRefundAsync(
+                        refund.BookingId, refund.Id, booking.BusOperatorId, commissionToReverse, refund.Currency);
+                }
+                else
+                {
+                    await _financeLedgerService.PostRefundAsync(
+                        refund.BookingId, refund.Id, booking.BusOperatorId, refund.Amount, refund.Currency);
+                }
             }
             catch (Exception ex)
             {
@@ -139,9 +162,32 @@ namespace TicketPortal.Api.Services
                 throw;
             }
 
-            // Stage 2 — pay the customer back. The ledger side is already committed at this
-            // point, so a failure here leaves the two sides out of sync rather than leaving
-            // nothing moved — that's the case ReconciliationNeeded exists to flag.
+            if (isCounterSale)
+            {
+                // There's nothing for the PLATFORM to pay back here — the customer paid the
+                // operator's own counter directly, and the operator is the one holding that
+                // cash. The ledger reversal above is the platform's entire side of this;
+                // CustomerWalletService doesn't apply, since it wasn't the channel the customer
+                // paid through in the first place. This is done the moment the ledger side
+                // lands — there's no "pending payout" state for the platform to sit in, because
+                // the platform was never the one who owed the customer anything.
+                refund.Status = RefundStatus.Succeeded;
+                refund.RefundedAtUtc = DateTime.UtcNow;
+                _db.RefundHistories.Add(new RefundHistory
+                {
+                    RefundId = refund.Id,
+                    Status = RefundStatus.Succeeded,
+                    Remarks = "Counter-sale commission reversed. The customer paid the operator's own counter " +
+                              "directly, so returning their money is the operator's responsibility, not the platform's."
+                });
+                await _db.SaveChangesAsync();
+                return;
+            }
+
+            // Stage 2 (online sale only) — pay the customer back. The ledger side is already
+            // committed at this point, so a failure here leaves the two sides out of sync
+            // rather than leaving nothing moved — that's the case ReconciliationNeeded exists
+            // to flag.
             if (booking.CustomerProfileId.HasValue)
             {
                 try

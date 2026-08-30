@@ -111,6 +111,12 @@ namespace TicketPortal.Api.Services
             decimal refundAmount,
             string currency = "BDT")
         {
+            // Safety check first, same reasoning as PostOnlineSaleAsync/PostCounterSaleCommissionAsync
+            // above — this posts against the assumption that the platform itself held this
+            // booking's money in the first place, which is only true for a Platform-collected
+            // sale. A counter sale's refund goes through PostCounterSaleRefundAsync instead.
+            await EnsureMoneyCollectedByAsync(bookingId, MoneyCollectedBy.Platform, nameof(PostRefundAsync));
+
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
             var entry = NewEntry(bookingId, busOperatorId, StatementItemType.Refund,
@@ -123,6 +129,54 @@ namespace TicketPortal.Api.Services
 
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
+        }
+
+        // Counter-sale counterpart to PostRefundAsync. The platform never held a counter sale's
+        // money in the first place — PostCounterSaleCommissionAsync only ever put the
+        // operator's own ERP-usage commission on our books, nothing else (see its comment) — so
+        // there's no platform-held cash to "refund" here. What this actually reverses is that
+        // commission: the booking it was charged against no longer stands, so the operator no
+        // longer owes us that fee. Getting the customer's own money back to them is the
+        // operator's job (they're the one who physically collected it), not something this
+        // class has any part to play in — see RefundProcessingService.ProcessAsync for how it
+        // closes out a counter-sale refund without a customer-wallet credit.
+        public async Task PostCounterSaleRefundAsync(
+            Guid bookingId,
+            Guid? refundId,
+            Guid busOperatorId,
+            decimal commissionToReverse,
+            string currency = "BDT")
+        {
+            await EnsureMoneyCollectedByAsync(bookingId, MoneyCollectedBy.Operator, nameof(PostCounterSaleRefundAsync));
+
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            var entry = NewEntry(bookingId, busOperatorId, StatementItemType.Refund,
+                SaleChannel.Counter, credit: commissionToReverse, debit: 0m, currency,
+                "Counter-sale ERP commission reversed — booking refunded/cancelled");
+            entry.RefundId = refundId;
+
+            _db.PlatformLedgers.Add(entry);
+            // Exact mirror image of PostCounterSaleCommissionAsync's own posting: give the
+            // operator back the commission they no longer owe, and take the same amount back
+            // out of the running counter-sales total so it doesn't overstate a sale that's
+            // since been undone.
+            await ApplyWalletDeltaAsync(busOperatorId, commissionToReverse, totalCounterSalesDelta: -commissionToReverse);
+
+            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+
+        // How much counter-sale commission was actually posted for this booking — looked up
+        // from the diary itself rather than recomputed from today's CommissionRule, so a
+        // reversal always matches exactly what was charged even if the operator's rate has
+        // since changed. Used by RefundProcessingService right before calling
+        // PostCounterSaleRefundAsync above.
+        public async Task<decimal> GetPostedCounterSaleCommissionAsync(Guid bookingId)
+        {
+            return await _db.PlatformLedgers
+                .Where(l => l.BookingId == bookingId && l.ItemType == StatementItemType.CounterSaleCommission)
+                .SumAsync(l => l.DebitAmount);
         }
 
         // A trust check: works out an operator's balance completely from scratch by re-adding

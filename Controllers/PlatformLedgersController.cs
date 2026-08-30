@@ -72,7 +72,8 @@ namespace TicketPortal.Api.Controllers
 
         // No POST/PUT/DELETE — see the class comment above. All writes go through
         // FinanceLedgerService (PostOnlineSaleAsync / PostCounterSaleCommissionAsync /
-        // PostRefundAsync), called from PaymentConfirmationService and RefundProcessingService.
+        // PostRefundAsync / PostCounterSaleRefundAsync), called from PaymentConfirmationService
+        // and RefundProcessingService.
 
         private static PlatformLedgerResponseDto ToResponseDto(PlatformLedger x) => new()
         {
