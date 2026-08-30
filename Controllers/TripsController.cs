@@ -372,6 +372,29 @@ namespace TicketPortal.Api.Controllers
             }
 
             // =========================================================
+            // 11a. Resolve InventoryMode — copied and frozen onto the Trip at creation time
+            // (see the field comment on Trip.InventoryMode). A route-level override
+            // (OperatorRoute.InventoryModeOverride) wins if one exists for this exact
+            // operator+route pair; otherwise fall back to the operator's own platform-wide
+            // default (BusOperator.InventoryMode). Without this the field silently stays at
+            // the model's default (PlatformManaged) for every trip, which defeats the counter-
+            // sale safety check in PaymentConfirmationService.ConfirmCounterSaleAsync for any
+            // API-connected operator.
+            // =========================================================
+
+            var operatorDefaultInventoryMode = await db.BusOperators
+                .Where(o => o.Id == dto.BusOperatorId)
+                .Select(o => o.InventoryMode)
+                .SingleAsync();
+
+            var routeInventoryModeOverride = await db.OperatorRoutes
+                .Where(r => r.BusOperatorId == dto.BusOperatorId && r.BusRouteId == dto.BusRouteId)
+                .Select(r => r.InventoryModeOverride)
+                .FirstOrDefaultAsync();
+
+            var resolvedInventoryMode = routeInventoryModeOverride ?? operatorDefaultInventoryMode;
+
+            // =========================================================
             // 12. Create Trip
             // =========================================================
 
@@ -392,6 +415,7 @@ namespace TicketPortal.Api.Controllers
                 BaseFare = dto.BaseFare,
                 Currency = dto.Currency,
                 IsWheelchairAccessible = dto.IsWheelchairAccessible,
+                InventoryMode = resolvedInventoryMode,
                 TripSeats = dto.TripSeats
                     .Select(s =>
                     {

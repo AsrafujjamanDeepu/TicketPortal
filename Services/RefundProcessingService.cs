@@ -105,7 +105,12 @@ namespace TicketPortal.Api.Services
         // customer back was never the platform's job for that sale.
         public async Task ProcessAsync(Guid refundId)
         {
-            var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
+            // CancellationRequest is included so a counter-sale reversal below can tell
+            // whether this refund covers one ticket or the whole booking (see
+            // FinanceLedgerService.ResolveCounterSaleCommissionToReverseAsync).
+            var refund = await _db.Refunds
+                .Include(r => r.CancellationRequest)
+                .FirstOrDefaultAsync(r => r.Id == refundId)
                 ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
 
             if (refund.Status != RefundStatus.Approved)
@@ -114,7 +119,9 @@ namespace TicketPortal.Api.Services
                     $"Refund {refundId} is {refund.Status}; only an Approved refund can be processed.");
             }
 
-            var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == refund.BookingId)
+            var booking = await _db.Bookings
+                .Include(b => b.Tickets)
+                .FirstOrDefaultAsync(b => b.Id == refund.BookingId)
                 ?? throw new InvalidOperationException($"Booking for refund {refundId} no longer exists.");
 
             refund.Status = RefundStatus.Processing;
@@ -139,7 +146,16 @@ namespace TicketPortal.Api.Services
             {
                 if (isCounterSale)
                 {
-                    var commissionToReverse = await _financeLedgerService.GetPostedCounterSaleCommissionAsync(booking.Id);
+                    // Null TicketId means this refund covers the whole booking, not one seat —
+                    // see ResolveCounterSaleCommissionToReverseAsync for how each case is handled.
+                    var cancelledTicketId = refund.CancellationRequest?.TicketId;
+                    var cancelledTicketFinalFare = cancelledTicketId.HasValue
+                        ? booking.Tickets.FirstOrDefault(t => t.Id == cancelledTicketId.Value)?.FinalFare
+                        : null;
+
+                    var commissionToReverse = await _financeLedgerService.ResolveCounterSaleCommissionToReverseAsync(
+                        booking.Id, booking.GrandTotal, cancelledTicketFinalFare);
+
                     await _financeLedgerService.PostCounterSaleRefundAsync(
                         refund.BookingId, refund.Id, booking.BusOperatorId, commissionToReverse, refund.Currency);
                 }

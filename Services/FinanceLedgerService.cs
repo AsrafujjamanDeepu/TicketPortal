@@ -170,13 +170,58 @@ namespace TicketPortal.Api.Services
         // How much counter-sale commission was actually posted for this booking — looked up
         // from the diary itself rather than recomputed from today's CommissionRule, so a
         // reversal always matches exactly what was charged even if the operator's rate has
-        // since changed. Used by RefundProcessingService right before calling
-        // PostCounterSaleRefundAsync above.
+        // since changed.
         public async Task<decimal> GetPostedCounterSaleCommissionAsync(Guid bookingId)
         {
             return await _db.PlatformLedgers
                 .Where(l => l.BookingId == bookingId && l.ItemType == StatementItemType.CounterSaleCommission)
                 .SumAsync(l => l.DebitAmount);
+        }
+
+        // Works out how much of a counter-sale booking's commission a SINGLE refund should
+        // reverse. Commission is posted once, on the full booking.GrandTotal, when the counter
+        // sale is confirmed (see PostCounterSaleCommissionAsync) — but cancellations can be
+        // per-ticket (CancellationRequest.TicketId), so one booking can have several
+        // independent counter-sale refunds against it over time, each covering only one seat.
+        // Naively reversing the full original commission on every one of those would
+        // over-reverse a partial cancellation, and double-reverse the same money if a second
+        // ticket in the booking is cancelled later. This instead:
+        //   1. Prorates by the cancelled ticket's own fare share of the booking (or, for a
+        //      whole-booking cancellation with no single ticket, takes whatever's left), and
+        //   2. Caps the result at whatever commission hasn't already been reversed for this
+        //      booking, so repeated partial refunds can never add up to more than what was
+        //      actually charged.
+        // Used by RefundProcessingService right before calling PostCounterSaleRefundAsync.
+        public async Task<decimal> ResolveCounterSaleCommissionToReverseAsync(
+            Guid bookingId,
+            decimal bookingGrandTotal,
+            decimal? cancelledTicketFinalFare)
+        {
+            var originalCommission = await GetPostedCounterSaleCommissionAsync(bookingId);
+
+            var alreadyReversed = await _db.PlatformLedgers
+                .Where(l => l.BookingId == bookingId
+                    && l.ItemType == StatementItemType.Refund
+                    && l.SaleChannel == SaleChannel.Counter)
+                .SumAsync(l => l.CreditAmount);
+
+            var remainingCommission = originalCommission - alreadyReversed;
+            if (remainingCommission <= 0m)
+            {
+                return 0m;
+            }
+
+            // No single ticket (whole-booking cancellation) — take whatever's left rather than
+            // prorating a share against itself.
+            if (cancelledTicketFinalFare == null || bookingGrandTotal <= 0m)
+            {
+                return remainingCommission;
+            }
+
+            var ticketShareOfCommission = originalCommission
+                * (cancelledTicketFinalFare.Value / bookingGrandTotal);
+
+            return Math.Min(remainingCommission, Math.Round(ticketShareOfCommission, 2));
         }
 
         // A trust check: works out an operator's balance completely from scratch by re-adding
