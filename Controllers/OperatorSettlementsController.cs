@@ -17,9 +17,13 @@ namespace TicketPortal.Api.Controllers
     // exclusively by SettlementGenerationService (see that file for the full design rationale).
     //
     // Admin/platform-Staff see every operator's settlements. An operator's own Staff/Operator
-    // account (StaffProfile.BusOperatorId set) only sees/acts on its own operator's settlements
-    // — the "see your own settlements" follow-up this class comment used to defer, now that
-    // Piece 1 wires up the scoping (User.GetBusOperatorIdAsync / CanManageOperatorAsync).
+    // account (StaffProfile.BusOperatorId set) only sees/generates its own operator's
+    // settlements — the "see your own settlements" follow-up this class comment used to defer,
+    // now that Piece 1 wires up the scoping (User.GetBusOperatorIdAsync / CanManageOperatorAsync).
+    //
+    // Approve is the one exception: it's platform-only regardless of which operator the
+    // settlement is for (see the comment on Approve below) — generating a settlement and
+    // signing off on it are different levels of trust, even for the operator's own record.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -84,13 +88,17 @@ namespace TicketPortal.Api.Controllers
             }
         }
 
-        // Staff sign-off — Draft -> Approved. No money moves here (see the service for why).
+        // Staff sign-off — Draft -> Approved. No money moves here (see the service for why),
+        // but it's still the counterparty's own transaction being signed off, so this is
+        // platform-only (Admin or our own platform staff) rather than CanManageOperatorAsync —
+        // the operator being settled with should not be the one approving their own settlement,
+        // even though the figures themselves are computed server-side and can't be fabricated.
         [HttpPost("{id}/approve")]
         public async Task<IActionResult> Approve(Guid id, SettlementApproveDto dto)
         {
             var settlement = await db.OperatorSettlements.FirstOrDefaultAsync(x => x.Id == id);
             if (settlement == null) return NotFound();
-            if (!await User.CanManageOperatorAsync(db, settlement.BusOperatorId)) return Forbid();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             try
             {

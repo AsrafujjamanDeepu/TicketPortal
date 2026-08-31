@@ -16,10 +16,14 @@ namespace TicketPortal.Api.Controllers
     // from the real total received rather than trusting a client value. Once recorded, a receipt
     // is never edited or deleted — same "financial trail" reasoning as PlatformLedger.
     //
-    // Admin/platform-Staff manage every operator's receipts; an operator's own Staff/Operator
-    // account (Piece 1) is scoped to its own operator's receipts only. This entity has no
-    // BusOperatorId of its own, so scoping always joins through
+    // Reads: Admin/platform-Staff see every operator's receipts; an operator's own
+    // Staff/Operator account (Piece 1) is scoped to its own operator's receipts only. This
+    // entity has no BusOperatorId of its own, so scoping always joins through
     // OperatorInvoice.BusOperatorId.
+    //
+    // Writes: Create is Admin/platform-Staff ONLY, not scoped down to the operator's own
+    // account — see the comment on Create for why letting the operator confirm their own
+    // payment receipt is a real hole, not just an access nicety.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -59,10 +63,20 @@ namespace TicketPortal.Api.Controllers
             return Ok(ToResponseDto(item));
         }
 
+        // Platform-confirmed only. This receipt is the sole record of whether an invoice the
+        // operator owes the platform has actually been paid (see InvoicePaymentService's class
+        // comment) — letting the operator's OWN staff record it would let them zero out their
+        // own debt with a self-supplied ReferenceNo and no independent verification that money
+        // really moved. CanManageOperatorAsync (used everywhere else in this controller for
+        // read access) deliberately is NOT used here for that reason; only Admin or our own
+        // platform staff (StaffProfile.BusOperatorId == null) may record a receipt.
         [HttpPost]
         public async Task<IActionResult> Create(OperatorPaymentReceiptCreateDto dto)
         {
-            if (!await CanAccessAsync(dto.OperatorInvoiceId)) return Forbid();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
+
+            var invoiceExists = await db.OperatorInvoices.AnyAsync(i => i.Id == dto.OperatorInvoiceId);
+            if (!invoiceExists) return NotFound(new { message = "OperatorInvoice not found." });
 
             try
             {

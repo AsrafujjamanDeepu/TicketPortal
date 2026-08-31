@@ -14,9 +14,15 @@ namespace TicketPortal.Api.Controllers
     // made-up BankTransactionReference and no check against what was actually available to pay
     // out. Every write here now goes through PayoutProcessingService (Create reserves the
     // amount atomically, Complete requires a bank reference, Fail/Cancel release the
-    // reservation) — see that file for the full lifecycle. Admin/platform-Staff manage every
-    // operator's payouts; an operator's own Staff/Operator account is scoped to its own
-    // operator's payouts only (Piece 1).
+    // reservation) — see that file for the full lifecycle.
+    //
+    // Reads and Create: Admin/platform-Staff manage every operator's payouts; an operator's
+    // own Staff/Operator account is scoped to its own operator's payouts only (Piece 1).
+    //
+    // Process/Complete/Fail/Cancel are platform-only (see CheckAccessAsync below) — these are
+    // the steps that certify the platform's own bank transfer actually happened (or didn't).
+    // The operator being paid is not allowed to confirm that on the platform's behalf, even for
+    // their own payout.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -151,19 +157,21 @@ namespace TicketPortal.Api.Controllers
 
         private enum AccessResult { Ok, NotFound, Forbidden }
 
-        // Single-record gate for the four action endpoints above — loads the payout so
-        // CanManageOperatorAsync can check its real BusOperatorId. Distinguishes "no such
-        // payout" (404) from "exists, but not this caller's operator" (403).
+        // Single-record gate for the four STATE-CHANGING endpoints above (Process/Complete/
+        // Fail/Cancel) — deliberately platform-only (Admin or our own platform staff), NOT
+        // CanManageOperatorAsync. Complete in particular is what confirms money actually left
+        // the PLATFORM's own bank account (via a BankTransactionReference) — the operator being
+        // paid has no way to independently know that reference, and letting their own
+        // Staff/Operator account confirm it themselves would mean the party receiving the
+        // payout is also the one certifying it was sent. Read access (GetAll/GetById) and
+        // Create (reserving from the operator's own already-verified AvailablePayoutBalance)
+        // are unaffected and still use CanManageOperatorAsync.
         private async Task<AccessResult> CheckAccessAsync(Guid payoutId)
         {
-            var operatorId = await db.OperatorPayouts
-                .Where(p => p.Id == payoutId)
-                .Select(p => (Guid?)p.BusOperatorId)
-                .FirstOrDefaultAsync();
+            var exists = await db.OperatorPayouts.AnyAsync(p => p.Id == payoutId);
+            if (!exists) return AccessResult.NotFound;
 
-            if (operatorId == null) return AccessResult.NotFound;
-
-            return await User.CanManageOperatorAsync(db, operatorId.Value)
+            return await User.IsPlatformStaffOrAdminAsync(db)
                 ? AccessResult.Ok
                 : AccessResult.Forbidden;
         }
