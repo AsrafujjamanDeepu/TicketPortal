@@ -23,6 +23,11 @@ namespace TicketPortal.Api.Controllers
     // against that operator's own bookings; a plain Customer only sees refunds against their
     // own bookings. Refund itself doesn't carry BusOperatorId, so operator-scoping always
     // joins through Booking.BusOperatorId — see CanAccessAsync/GetAll below.
+    //
+    // Approve/Reject/Process stay on that same operator-scoped access — deciding and executing
+    // a refund against your own booking is normal customer-service judgment, and Process
+    // computes its own amount rather than trusting a client value. CompleteManualPayout is the
+    // one exception (platform-only) — see its own comment for why.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -121,10 +126,20 @@ namespace TicketPortal.Api.Controllers
         // PendingManualPayout instead of Succeeded) can finish — staff confirms the guest was
         // actually paid back by hand and records proof, the same way OperatorPayoutsController
         // requires a real BankTransactionReference before a payout counts as done.
+        //
+        // Platform-only, deliberately NOT CanManageAsync/CanManageOperatorAsync: this is the
+        // platform's own money going to the platform's own customer out-of-band (bank/mobile
+        // transfer), something the operator was never a party to. ManualPayoutReference is a
+        // free-text, client-supplied string with no independent verification — letting the
+        // operator's own staff self-attest that transfer happened is the exact same hole
+        // OperatorPayoutsController.Complete had (see that controller's comments), just on the
+        // refund side of the ledger instead of the payout side.
         [HttpPost("{id}/manual-payout")]
         public async Task<IActionResult> CompleteManualPayout(Guid id, RefundManualPayoutDto dto)
         {
-            if (!await CanManageAsync(id)) return Forbid();
+            var exists = await db.Refunds.AnyAsync(r => r.Id == id);
+            if (!exists) return NotFound();
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             try
             {
@@ -173,10 +188,10 @@ namespace TicketPortal.Api.Controllers
                 b.Id == refund.BookingId && b.CustomerProfile != null && b.CustomerProfile.UserId == userId);
         }
 
-        // Action endpoints (Approve/Reject/Process/CompleteManualPayout) are staff-only —
-        // a Customer never reaches this regardless of whose refund it is. Resolves the refund's
-        // Booking.BusOperatorId first, then defers to the same shared CanManageOperatorAsync
-        // used everywhere else, so both problems close through one mechanism (Piece 2).
+        // Gate for Approve/Reject/Process — a Customer never reaches this regardless of whose
+        // refund it is. Resolves the refund's Booking.BusOperatorId first, then defers to the
+        // same shared CanManageOperatorAsync used everywhere else. NOT used by
+        // CompleteManualPayout (see that action's own comment for why).
         private async Task<bool> CanManageAsync(Guid refundId)
         {
             var bookingId = await db.Refunds
