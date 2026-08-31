@@ -153,9 +153,16 @@ namespace TicketPortal.Api.Services
 
                 ApplyAuth(request, integration);
 
-                _httpClient.Timeout = TimeSpan.FromSeconds(integration.TimeoutSeconds);
+                // Per-call timeout via a linked CancellationTokenSource, NOT _httpClient.Timeout —
+                // this same _httpClient instance is reused across every booking in one sweep tick
+                // (see SyncPendingBookingsAsync's loop), and HttpClient.Timeout can only be set
+                // BEFORE the first request is ever sent on an instance; setting it again on the
+                // second booking's call throws InvalidOperationException. TimeoutSeconds also
+                // varies per operator, so a single fixed client-level timeout wouldn't fit anyway.
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(integration.TimeoutSeconds));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
-                using var response = await _httpClient.SendAsync(request, ct);
+                using var response = await _httpClient.SendAsync(request, linkedCts.Token);
                 var responseJson = await response.Content.ReadAsStringAsync(ct);
                 log.ResponseJson = responseJson;
 
