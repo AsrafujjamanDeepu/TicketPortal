@@ -11,6 +11,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
 using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -171,7 +172,18 @@ builder.Services.AddHostedService<ExternalBookingSyncSweepService>();
 // 6. Controllers + Swagger
 // ============================================================
 
-builder.Services.AddControllers();
+// Every status/type enum in this API (BookingStatus, PaymentStatus, TripStatus, ...) would
+// otherwise serialize as its raw underlying int (e.g. "status": 3), forcing the frontend to
+// hardcode number->label maps that silently break if an enum is ever reordered or extended.
+// JsonStringEnumConverter makes both directions (serialize AND model-binding a request body)
+// use the enum member's name instead, e.g. "status": "Confirmed". Swagger UI's example/schema
+// values pick this up too, since it's registered on the same JsonSerializerOptions Swashbuckle
+// reads from.
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 
 builder.Services.AddEndpointsApiExplorer();
 
