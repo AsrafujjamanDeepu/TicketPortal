@@ -263,6 +263,19 @@ namespace TicketPortal.Api.Services
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(h => h.Status, SeatHoldStatus.Expired));
 
+            // ...and finally, the Booking these holds belong to (if one was ever created —
+            // BookingsController.Create makes the Booking BEFORE payment, linked back via
+            // Booking.SeatHoldId). Without this, a customer who abandons checkout leaves a
+            // Booking row stuck at Draft/PendingPayment forever, even though its seats and hold
+            // are already gone — Confirmed/later bookings are untouched since their hold was
+            // already ConvertedToBooking, not Active, so they were never in expiredHoldIds.
+            await _db.Bookings
+                .Where(b => b.SeatHoldId != null
+                    && expiredHoldIds.Contains(b.SeatHoldId.Value)
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(b => b.Status, BookingStatus.Expired));
+
             await transaction.CommitAsync();
             return expiredHoldIds.Count;
         }
