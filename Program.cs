@@ -159,6 +159,13 @@ builder.Services.AddHostedService<SeatHoldExpirySweepService>();
 // Services/PaymentReconciliationSweepService.cs.
 builder.Services.AddHostedService<PaymentReconciliationSweepService>();
 
+// Piece 7 (concept doc §3.2): the "call the operator's API to sync and check booking status"
+// engine for API-connected operators — see Services/ExternalBookingSyncService.cs and
+// Services/ExternalBookingSyncSweepService.cs. Typed-client registration so HttpClient arrives
+// pooled/managed by IHttpClientFactory instead of the service newing one up itself.
+builder.Services.AddHttpClient<ExternalBookingSyncService>();
+builder.Services.AddHostedService<ExternalBookingSyncSweepService>();
+
 
 // ============================================================
 // 6. Controllers + Swagger
