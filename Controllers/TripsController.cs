@@ -760,6 +760,31 @@ namespace TicketPortal.Api.Controllers
 
 
             // =========================================================
+            // 15a. Re-resolve InventoryMode — mirrors Create's step 11a. Trip.InventoryMode is
+            // deliberately frozen against a later change to the OPERATOR's own setting (see the
+            // field comment on Trip.InventoryMode) — but that freeze doesn't apply here, because
+            // this Update can reassign the trip itself to a different BusOperatorId/BusRouteId.
+            // Without this, reassigning a trip to a different operator kept whatever
+            // InventoryMode its *previous* operator/route had, which meant an operator with its
+            // own ERP (ExternalApiManaged) could get a Trip stuck at PlatformManaged: wrongly
+            // allowing a counter sale through our ERP for a sale channel that operator's own
+            // system is supposed to be the sole source of truth for (concept doc §3.2).
+            // =========================================================
+
+            var operatorDefaultInventoryMode = await db.BusOperators
+                .Where(o => o.Id == dto.BusOperatorId)
+                .Select(o => o.InventoryMode)
+                .SingleAsync();
+
+            var routeInventoryModeOverride = await db.OperatorRoutes
+                .Where(r => r.BusOperatorId == dto.BusOperatorId && r.BusRouteId == dto.BusRouteId)
+                .Select(r => r.InventoryModeOverride)
+                .FirstOrDefaultAsync();
+
+            trip.InventoryMode = routeInventoryModeOverride ?? operatorDefaultInventoryMode;
+
+
+            // =========================================================
             // 16. Update Trip master
             // =========================================================
 
