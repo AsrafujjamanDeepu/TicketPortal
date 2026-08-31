@@ -167,7 +167,17 @@ namespace TicketPortal.Api.Services
         // permanent Booking. We re-check the timer even here, inside the same transaction,
         // because the background sweep job (see ExpireOverdueHoldsAsync) could theoretically
         // have reclaimed these exact seats a split second before this payment confirmation arrived.
-        public async Task ConvertHoldToBookingAsync(string holdToken, Guid bookingId)
+        //
+        // expectedSeatHoldId is the caller's Booking.SeatHoldId (set once, at
+        // BookingsController.Create, and never trusted from the client) — NOT derived from
+        // holdToken itself. Without this cross-check, this method would happily reassign
+        // whatever hold holdToken pointed to onto bookingId, with no verification the two ever
+        // had anything to do with each other: a stale or mismatched token from the caller (a
+        // reloaded checkout tab, a second unrelated hold from browsing another trip, or
+        // deliberately supplied) would silently attach a completely different trip/seats/price
+        // onto this booking. Same reasoning as the same-style fix in
+        // PaymentConfirmationService.InitiatePaymentAsync.
+        public async Task ConvertHoldToBookingAsync(string holdToken, Guid bookingId, Guid expectedSeatHoldId)
         {
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
@@ -176,6 +186,17 @@ namespace TicketPortal.Api.Services
             {
                 throw new InvalidOperationException(
                     "This seat hold has expired. The seats must be reselected and paid for again.");
+            }
+
+            if (hold.Id != expectedSeatHoldId)
+            {
+                // Treated the same as an invalid/expired hold — the caller (see
+                // PaymentConfirmationService.ConfirmOnlinePaymentAsync) already handles that as
+                // a "seats lost, refund the payment" case, which is exactly the right outcome
+                // here too: money was taken for booking X, but the seats this token points to
+                // were never actually booking X's.
+                throw new InvalidOperationException(
+                    "This seat hold does not belong to the booking being confirmed. The seats must be reselected and paid for again.");
             }
 
             var affected = await _db.TripSeats

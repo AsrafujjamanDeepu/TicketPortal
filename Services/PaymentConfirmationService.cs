@@ -55,10 +55,12 @@ namespace TicketPortal.Api.Services
         // from an active hold. Amount is always taken from the booking's own GrandTotal —
         // never from the caller — so a request can't just declare its own price.
         //
-        // Note: Booking doesn't currently get its SeatHoldId set by BookingsController.Create,
-        // so we take the hold token directly from the caller (the front-end already has it in
-        // the checkout session from the SeatHolds step) rather than looking it up via the
-        // booking. We still cross-check it against the booking's TripId below.
+        // holdToken is still taken from the caller (matches the checkout session's own state)
+        // but is now cross-checked against Booking.SeatHoldId — the actual source of truth for
+        // which hold this booking was created from (set at BookingsController.Create) — not
+        // merely against the booking's TripId. A same-trip-but-different-hold token used to pass
+        // this check; see the same fix in SeatHoldService.ConvertHoldToBookingAsync for why that
+        // mattered.
         public async Task<Payment> InitiatePaymentAsync(
             Guid bookingId,
             string holdToken,
@@ -77,9 +79,9 @@ namespace TicketPortal.Api.Services
             var hold = await _db.SeatHolds.FirstOrDefaultAsync(h => h.HoldToken == holdToken)
                 ?? throw new InvalidOperationException("This hold token is invalid.");
 
-            if (hold.TripId != booking.TripId)
+            if (hold.Id != booking.SeatHoldId)
             {
-                throw new InvalidOperationException("This hold does not belong to the same trip as the booking.");
+                throw new InvalidOperationException("This hold does not belong to this booking.");
             }
 
             var gateway = PaymentGateway.None;
@@ -164,6 +166,14 @@ namespace TicketPortal.Api.Services
             var booking = await _db.Bookings.FirstOrDefaultAsync(b => b.Id == payment.BookingId)
                 ?? throw new InvalidOperationException($"Booking for payment {paymentId} no longer exists.");
 
+            // Every booking is created from a hold — BookingsController.Create rejects a
+            // booking request with no valid hold — so this is a "should never happen" defensive
+            // check, not a normal business rejection. Checked before touching payment state.
+            if (booking.SeatHoldId is null)
+            {
+                throw new InvalidOperationException($"Booking {booking.Id} has no SeatHoldId.");
+            }
+
             // Record the money as received first. This is the source-of-truth fact and stays
             // true even in the seat-loss branch below — the payment really did succeed; what
             // happens next is a separate question.
@@ -222,7 +232,7 @@ namespace TicketPortal.Api.Services
 
             try
             {
-                await _seatHoldService.ConvertHoldToBookingAsync(holdToken, booking.Id);
+                await _seatHoldService.ConvertHoldToBookingAsync(holdToken, booking.Id, booking.SeatHoldId.Value);
             }
             catch (InvalidOperationException ex)
             {
@@ -478,6 +488,14 @@ namespace TicketPortal.Api.Services
                     "Use the online Initiate/Confirm payment flow instead.");
             }
 
+            // Every booking is created from a hold — BookingsController.Create rejects a
+            // booking request with no valid hold — so this is a "should never happen" defensive
+            // check, not a normal business rejection.
+            if (booking.SeatHoldId is null)
+            {
+                throw new InvalidOperationException($"Booking {booking.Id} has no SeatHoldId.");
+            }
+
             // Idempotency: there's no gateway here to retry a webhook, but staff double-tapping
             // "confirm" on a counter terminal is a completely realistic failure mode — if this
             // booking already has a succeeded payment, hand back what already happened instead
@@ -526,7 +544,7 @@ namespace TicketPortal.Api.Services
 
             try
             {
-                await _seatHoldService.ConvertHoldToBookingAsync(holdToken, booking.Id);
+                await _seatHoldService.ConvertHoldToBookingAsync(holdToken, booking.Id, booking.SeatHoldId.Value);
             }
             catch (InvalidOperationException ex)
             {
