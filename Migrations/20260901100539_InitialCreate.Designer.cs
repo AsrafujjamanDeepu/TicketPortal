@@ -12,8 +12,8 @@ using TicketPortal.Api.Data;
 namespace TicketPortal.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260808042931_InitialA")]
-    partial class InitialA
+    [Migration("20260901100539_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -405,6 +405,12 @@ namespace TicketPortal.Api.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("EffectiveFromUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EffectiveToUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -883,6 +889,9 @@ namespace TicketPortal.Api.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");
 
+                    b.Property<DateTime?>("RegistrationDate")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("RegistrationNumber")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -1282,6 +1291,9 @@ namespace TicketPortal.Api.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
 
+                    b.Property<int?>("FoundedYear")
+                        .HasColumnType("int");
+
                     b.Property<int>("InventoryMode")
                         .HasColumnType("int");
 
@@ -1303,6 +1315,9 @@ namespace TicketPortal.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
+
+                    b.Property<DateTime?>("RegisteredOnUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("RegistrationNumber")
                         .HasMaxLength(80)
@@ -4635,6 +4650,10 @@ namespace TicketPortal.Api.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
+                    b.Property<string>("ManualPayoutReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<Guid>("PaymentId")
                         .HasColumnType("uniqueidentifier");
 
@@ -5612,6 +5631,9 @@ namespace TicketPortal.Api.Migrations
                         .HasColumnType("int");
 
                     b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsWheelchairAccessible")
                         .HasColumnType("bit");
 
                     b.Property<Guid?>("OperatorRouteId")

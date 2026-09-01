@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace TicketPortal.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialA : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -118,6 +118,8 @@ namespace TicketPortal.Api.Migrations
                     District = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: false),
                     Country = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: false),
                     SupportHotline = table.Column<string>(type: "nvarchar(30)", maxLength: 30, nullable: true),
+                    FoundedYear = table.Column<int>(type: "int", nullable: true),
+                    RegisteredOnUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     InventoryMode = table.Column<int>(type: "int", nullable: false),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
@@ -600,6 +602,7 @@ namespace TicketPortal.Api.Migrations
                     ChassisNumber = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: true),
                     EngineNumber = table.Column<string>(type: "nvarchar(80)", maxLength: 80, nullable: true),
                     ManufactureYear = table.Column<int>(type: "int", nullable: true),
+                    RegistrationDate = table.Column<DateTime>(type: "datetime2", nullable: true),
                     FuelType = table.Column<int>(type: "int", nullable: true),
                     BusType = table.Column<int>(type: "int", nullable: false),
                     TotalSeats = table.Column<int>(type: "int", nullable: false),
@@ -641,6 +644,8 @@ namespace TicketPortal.Api.Migrations
                     Name = table.Column<string>(type: "nvarchar(120)", maxLength: 120, nullable: false),
                     Description = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
+                    EffectiveFromUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    EffectiveToUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     PolicyDocumentImageUrl = table.Column<string>(type: "nvarchar(300)", maxLength: 300, nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     CreatedByUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
@@ -1934,6 +1939,7 @@ namespace TicketPortal.Api.Migrations
                     ActualArrivalTimeUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     ReportingTimeUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     Status = table.Column<int>(type: "int", nullable: false),
+                    IsWheelchairAccessible = table.Column<bool>(type: "bit", nullable: false),
                     BaseFare = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
                     Currency = table.Column<string>(type: "nvarchar(3)", maxLength: 3, nullable: false),
                     DelayReason = table.Column<string>(type: "nvarchar(250)", maxLength: 250, nullable: true),
@@ -2856,6 +2862,7 @@ namespace TicketPortal.Api.Migrations
                     Status = table.Column<int>(type: "int", nullable: false),
                     Reason = table.Column<string>(type: "nvarchar(250)", maxLength: 250, nullable: false),
                     GatewayRefundReference = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    ManualPayoutReference = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     RequestedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     RefundedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
