@@ -25,12 +25,32 @@ namespace TicketPortal.Api.DTO
     {
         // Verified/overridden server-side for an operator's own staff — see AgentsController.
         public Guid? BusOperatorId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string AgencyCode { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string ContactPerson { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string PhoneNumber { get; set; } = string.Empty;
+
+        [StringLength(120)]
+        [EmailAddress]
         public string? Email { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Address { get; set; } = string.Empty;
+
+        [Range(0, 100, ErrorMessage = "CommissionPercentage must be between 0 and 100.")]
         public decimal CommissionPercentage { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -39,12 +59,31 @@ namespace TicketPortal.Api.DTO
     // a generic edit should be able to reassign (see AgentsController).
     public class AgentUpdateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string AgencyCode { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string ContactPerson { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string PhoneNumber { get; set; } = string.Empty;
+
+        [StringLength(120)]
+        [EmailAddress]
         public string? Email { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Address { get; set; } = string.Empty;
+
+        [Range(0, 100, ErrorMessage = "CommissionPercentage must be between 0 and 100.")]
         public decimal CommissionPercentage { get; set; }
         public bool IsActive { get; set; } = true;
 
@@ -74,20 +113,48 @@ namespace TicketPortal.Api.DTO
     // trusting a client-supplied ownership id.
     public class CustomerAddressCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string Label { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string AddressLine { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string City { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string District { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Country { get; set; } = "Bangladesh";
         public bool IsDefault { get; set; }
     }
 
     public class CustomerAddressUpdateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string Label { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string AddressLine { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string City { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string District { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Country { get; set; } = "Bangladesh";
         public bool IsDefault { get; set; }
 
@@ -116,10 +183,16 @@ namespace TicketPortal.Api.DTO
     public class CustomerProfileCreateDto
     {
         public Guid UserId { get; set; }
+
+        [StringLength(30)]
         public string? NationalIdNumber { get; set; }
         public DateOnly? DateOfBirth { get; set; }
         public Gender Gender { get; set; } = Gender.Unknown;
+
+        [StringLength(30)]
         public string? EmergencyContactPhone { get; set; }
+
+        [StringLength(10)]
         public string? PreferredLanguageCode { get; set; }
     }
 
@@ -127,10 +200,15 @@ namespace TicketPortal.Api.DTO
     // changes after creation, and WalletBalance is CustomerWalletService's alone to write.
     public class CustomerProfileUpdateDto
     {
+        [StringLength(30)]
         public string? NationalIdNumber { get; set; }
         public DateOnly? DateOfBirth { get; set; }
         public Gender Gender { get; set; } = Gender.Unknown;
+
+        [StringLength(30)]
         public string? EmergencyContactPhone { get; set; }
+
+        [StringLength(10)]
         public string? PreferredLanguageCode { get; set; }
 
         // Required — optimistic-concurrency token, echo back what GET returned.
@@ -176,6 +254,9 @@ namespace TicketPortal.Api.DTO
     public class DriverLicenseCreateDto
     {
         public Guid StaffProfileId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string LicenseNumber { get; set; } = string.Empty;
         public LicenseType Type { get; set; }
         public DateOnly IssueDate { get; set; }
@@ -186,6 +267,8 @@ namespace TicketPortal.Api.DTO
     // it's a new record.
     public class DriverLicenseUpdateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string LicenseNumber { get; set; } = string.Empty;
         public LicenseType Type { get; set; }
         public DateOnly IssueDate { get; set; }
@@ -211,15 +294,29 @@ namespace TicketPortal.Api.DTO
     // CustomerProfileId deliberately omitted — same reasoning as CustomerAddressCreateDto above.
     public class EmergencyContactCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string Phone { get; set; } = string.Empty;
+
+        [StringLength(60)]
         public string? Relation { get; set; }
     }
 
     public class EmergencyContactUpdateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string Phone { get; set; } = string.Empty;
+
+        [StringLength(60)]
         public string? Relation { get; set; }
 
         // Required — optimistic-concurrency token, echo back what GET returned.
@@ -243,9 +340,21 @@ namespace TicketPortal.Api.DTO
         public Guid BusOperatorId { get; set; }
         public Guid TerminalId { get; set; }
         public Guid? OperatorBranchId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string CounterName { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string CounterCode { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string PhoneNumber { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Address { get; set; } = string.Empty;
         public bool IsActive { get; set; } = true;
     }
@@ -279,6 +388,8 @@ namespace TicketPortal.Api.DTO
         public Guid StaffProfileId { get; set; }
         public DateOnly AttendanceDate { get; set; }
         public AttendanceStatus Status { get; set; }
+
+        [StringLength(250)]
         public string? Remarks { get; set; }
     }
 
@@ -286,6 +397,8 @@ namespace TicketPortal.Api.DTO
     {
         public DateOnly AttendanceDate { get; set; }
         public AttendanceStatus Status { get; set; }
+
+        [StringLength(250)]
         public string? Remarks { get; set; }
 
         // Required — optimistic-concurrency token, echo back what GET returned.
@@ -312,11 +425,20 @@ namespace TicketPortal.Api.DTO
     {
         public Guid UserId { get; set; }
         public Guid? BusOperatorId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(50)]
         public string EmployeeCode { get; set; } = string.Empty;
         public StaffRole Role { get; set; }
+
+        [StringLength(30)]
         public string? NationalIdNumber { get; set; }
         public DateOnly? JoiningDate { get; set; }
+
+        [StringLength(250)]
         public string? Address { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int TotalTripsCompleted { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -325,11 +447,19 @@ namespace TicketPortal.Api.DTO
     // which operator (if any) it belongs to, are never reassignable via a generic edit.
     public class StaffProfileUpdateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(50)]
         public string EmployeeCode { get; set; } = string.Empty;
         public StaffRole Role { get; set; }
+
+        [StringLength(30)]
         public string? NationalIdNumber { get; set; }
         public DateOnly? JoiningDate { get; set; }
+
+        [StringLength(250)]
         public string? Address { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int TotalTripsCompleted { get; set; }
         public bool IsActive { get; set; } = true;
 
@@ -361,9 +491,13 @@ namespace TicketPortal.Api.DTO
         public Guid StaffProfileId { get; set; }
         public DateOnly PayPeriodStart { get; set; }
         public DateOnly PayPeriodEnd { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Amount cannot be negative.")]
         public decimal Amount { get; set; }
         public bool IsPaid { get; set; }
         public DateTime? PaidAtUtc { get; set; }
+
+        [StringLength(120)]
         public string? PaymentReference { get; set; }
     }
 
@@ -371,9 +505,13 @@ namespace TicketPortal.Api.DTO
     {
         public DateOnly PayPeriodStart { get; set; }
         public DateOnly PayPeriodEnd { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Amount cannot be negative.")]
         public decimal Amount { get; set; }
         public bool IsPaid { get; set; }
         public DateTime? PaidAtUtc { get; set; }
+
+        [StringLength(120)]
         public string? PaymentReference { get; set; }
 
         // Required — optimistic-concurrency token, echo back what GET returned.

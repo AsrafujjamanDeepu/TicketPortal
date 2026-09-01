@@ -8,6 +8,7 @@
 
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Finance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -46,6 +47,11 @@ namespace TicketPortal.Api.Controllers
         {
             if (!User.IsInRole("Admin")) return Forbid();
 
+            if (!IsCommissionValueValid(dto.CommissionType, dto.CommissionValue, out var validationError))
+            {
+                return BadRequest(new { message = validationError });
+            }
+
             var item = new CommissionRule
             {
                 BusOperatorId = dto.BusOperatorId,
@@ -82,6 +88,11 @@ namespace TicketPortal.Api.Controllers
                 {
                     message = "This CommissionRule was changed by another request. Please GET the latest data and try again."
                 });
+            }
+
+            if (!IsCommissionValueValid(dto.CommissionType, dto.CommissionValue, out var validationError))
+            {
+                return BadRequest(new { message = validationError });
             }
 
             db.Entry(item).Property(x => x.RowVersion).OriginalValue = dto.RowVersion;
@@ -139,6 +150,22 @@ namespace TicketPortal.Api.Controllers
             }
 
             return NoContent();
+        }
+
+        // CommissionRuleCreateDto.CommissionValue is only non-negative-checked at the DTO level
+        // ([Range(0, double.MaxValue)]) because a flat CommissionValue can legitimately exceed
+        // 100. A Percentage-type value can't, though — this is the one bound that genuinely
+        // depends on a sibling field, so it lives here rather than as a data annotation.
+        private static bool IsCommissionValueValid(CommissionType type, decimal value, out string? error)
+        {
+            if (type == CommissionType.Percentage && value > 100)
+            {
+                error = "CommissionValue cannot exceed 100 when CommissionType is Percentage.";
+                return false;
+            }
+
+            error = null;
+            return true;
         }
 
         private static CommissionRuleResponseDto ToResponseDto(CommissionRule x) => new()

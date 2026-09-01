@@ -15,6 +15,11 @@ namespace TicketPortal.Api.DTO
         public Guid? BusRouteId { get; set; }
         public SaleChannel SaleChannel { get; set; }
         public CommissionType CommissionType { get; set; } = CommissionType.Percentage;
+
+        // Non-negative regardless of CommissionType — a Percentage value is additionally capped
+        // at 100 in CommissionRulesController, since whether 100 is a valid ceiling depends on
+        // which type this is (a flat CommissionValue has no such ceiling).
+        [Range(0, double.MaxValue, ErrorMessage = "CommissionValue cannot be negative.")]
         public decimal CommissionValue { get; set; }
         public DateOnly EffectiveFrom { get; set; }
         public DateOnly? EffectiveTo { get; set; }
@@ -47,12 +52,19 @@ namespace TicketPortal.Api.DTO
     public class OperatorContractCreateDto
     {
         public Guid BusOperatorId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(60)]
         public string ContractNo { get; set; } = string.Empty;
         public DateOnly EffectiveFrom { get; set; }
         public DateOnly? EffectiveTo { get; set; }
+
+        [Range(1, int.MaxValue, ErrorMessage = "SettlementIntervalDays must be at least 1.")]
         public int SettlementIntervalDays { get; set; } = 7;
         public GatewayFeeBearer GatewayFeeBearer { get; set; } = GatewayFeeBearer.Operator;
         public bool IsActive { get; set; } = true;
+
+        [StringLength(500)]
         public string? Notes { get; set; }
     }
 
@@ -93,12 +105,19 @@ namespace TicketPortal.Api.DTO
         public DateOnly InvoiceDate { get; set; }
         public DateOnly? DueDate { get; set; }
         public SettlementDirection Direction { get; set; }
+
+        [Range(0.01, double.MaxValue, ErrorMessage = "Amount must be greater than zero.")]
         public decimal Amount { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(3, MinimumLength = 3)]
         public string Currency { get; set; } = "BDT";
     }
 
     public class OperatorInvoiceActionDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(500)]
         public string Reason { get; set; } = string.Empty;
     }
 
@@ -122,9 +141,18 @@ namespace TicketPortal.Api.DTO
     public class OperatorPaymentReceiptCreateDto
     {
         public Guid OperatorInvoiceId { get; set; }
+
+        [Range(0.01, double.MaxValue, ErrorMessage = "Amount must be greater than zero.")]
         public decimal Amount { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(3, MinimumLength = 3)]
         public string Currency { get; set; } = "BDT";
+
+        [StringLength(120)]
         public string? ReferenceNo { get; set; }
+
+        [StringLength(250)]
         public string? Notes { get; set; }
     }
 
@@ -146,18 +174,29 @@ namespace TicketPortal.Api.DTO
     {
         public Guid BusOperatorId { get; set; }
         public Guid? OperatorSettlementId { get; set; }
+
+        [Range(0.01, double.MaxValue, ErrorMessage = "Amount must be greater than zero.")]
         public decimal Amount { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(3, MinimumLength = 3)]
         public string Currency { get; set; } = "BDT";
+
+        [StringLength(250)]
         public string? Notes { get; set; }
     }
 
     public class OperatorPayoutCompleteDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string BankTransactionReference { get; set; } = string.Empty;
     }
 
     public class OperatorPayoutActionDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(500)]
         public string Reason { get; set; } = string.Empty;
     }
 
@@ -185,11 +224,14 @@ namespace TicketPortal.Api.DTO
         public Guid BusOperatorId { get; set; }
         public DateOnly FromDate { get; set; }
         public DateOnly ToDate { get; set; }
+
+        [StringLength(500)]
         public string? Remarks { get; set; }
     }
 
     public class SettlementApproveDto
     {
+        [StringLength(500)]
         public string? Remarks { get; set; }
     }
 

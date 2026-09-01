@@ -12,7 +12,12 @@ namespace TicketPortal.Api.DTO
     {
         public Guid OperatorIntegrationId { get; set; }
         public Guid BookingId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string ExternalBookingKey { get; set; } = string.Empty;
+
+        [StringLength(120)]
         public string? ExternalPnr { get; set; }
         public BookingStatus? LastKnownExternalStatus { get; set; }
         public DateTime? LastSyncedAtUtc { get; set; }
@@ -42,7 +47,12 @@ namespace TicketPortal.Api.DTO
     {
         public Guid OperatorIntegrationId { get; set; }
         public Guid OperatorRouteId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string ExternalRouteKey { get; set; } = string.Empty;
+
+        [StringLength(160)]
         public string? ExternalRouteName { get; set; }
     }
 
@@ -68,7 +78,12 @@ namespace TicketPortal.Api.DTO
     {
         public Guid OperatorIntegrationId { get; set; }
         public Guid TripSeatId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string ExternalSeatKey { get; set; } = string.Empty;
+
+        [StringLength(20)]
         public string? ExternalSeatNumber { get; set; }
     }
 
@@ -94,6 +109,9 @@ namespace TicketPortal.Api.DTO
     {
         public Guid OperatorIntegrationId { get; set; }
         public Guid TripId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string ExternalTripKey { get; set; } = string.Empty;
         public DateTime? LastSyncedAtUtc { get; set; }
         public string? LastSeatSnapshotJson { get; set; }
@@ -161,11 +179,24 @@ namespace TicketPortal.Api.DTO
     public class OperatorIntegrationCreateDto
     {
         public Guid BusOperatorId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(300)]
+        [Url(ErrorMessage = "BaseUrl must be a valid URL.")]
         public string BaseUrl { get; set; } = string.Empty;
         public IntegrationAuthType AuthType { get; set; } = IntegrationAuthType.ApiKey;
+
+        [StringLength(120)]
         public string? ApiKeyHeaderName { get; set; }
+
+        [StringLength(1000)]
         public string? SecretReference { get; set; }
+
+        [Range(1, int.MaxValue, ErrorMessage = "TimeoutSeconds must be at least 1.")]
         public int TimeoutSeconds { get; set; } = 30;
         public bool IsActive { get; set; } = true;
         public DateTime? LastSuccessfulSyncAtUtc { get; set; }
@@ -197,8 +228,17 @@ namespace TicketPortal.Api.DTO
     public class OperatorIntegrationEndpointCreateDto
     {
         public Guid OperatorIntegrationId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Purpose { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(10)]
         public string HttpMethod { get; set; } = "GET";
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(300)]
         public string PathTemplate { get; set; } = string.Empty;
         public bool IsActive { get; set; } = true;
     }

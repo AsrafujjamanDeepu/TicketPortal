@@ -10,7 +10,11 @@ namespace TicketPortal.Api.DTO
 {
     public class BusAmenityCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Name { get; set; } = string.Empty;
+
+        [StringLength(200)]
         public string? IconUrl { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -51,7 +55,11 @@ namespace TicketPortal.Api.DTO
 
     public class BusCategoryCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Name { get; set; } = string.Empty;
+
+        [StringLength(250)]
         public string? Description { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -76,9 +84,16 @@ namespace TicketPortal.Api.DTO
     public class BusImageCreateDto
     {
         public Guid BusId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(300)]
         public string ImageUrl { get; set; } = string.Empty;
+
+        [StringLength(120)]
         public string? Caption { get; set; }
         public bool IsPrimary { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int DisplayOrder { get; set; }
     }
 
@@ -105,11 +120,22 @@ namespace TicketPortal.Api.DTO
     {
         public Guid BusId { get; set; }
         public DateTime MaintenanceDateUtc { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int? OdometerKm { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Title { get; set; } = string.Empty;
+
+        [StringLength(1000)]
         public string? Description { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Cost cannot be negative.")]
         public decimal Cost { get; set; }
         public DateTime? NextDueDateUtc { get; set; }
+
+        [StringLength(120)]
         public string? PerformedBy { get; set; }
     }
 

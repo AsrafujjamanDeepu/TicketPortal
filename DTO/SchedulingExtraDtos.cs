@@ -14,13 +14,21 @@ namespace TicketPortal.Api.DTO
         public Guid BusRouteId { get; set; }
         public Guid? OperatorRouteId { get; set; }
         public Guid BusId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string ScheduleCode { get; set; } = string.Empty;
         public TimeSpan DepartureTimeOfDay { get; set; }
         public TimeSpan? ArrivalTimeOfDay { get; set; }
         public DayOfWeekFlag OperatingDays { get; set; } = DayOfWeekFlag.Everyday;
         public DateOnly EffectiveFrom { get; set; }
         public DateOnly? EffectiveTo { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "BaseFare cannot be negative.")]
         public decimal BaseFare { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(3, MinimumLength = 3)]
         public string Currency { get; set; } = "BDT";
         public bool IsActive { get; set; } = true;
     }

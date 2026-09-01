@@ -13,10 +13,22 @@ namespace TicketPortal.Api.DTO
         public Guid OriginTerminalId { get; set; }
         public Guid DestinationTerminalId { get; set; }
         public Guid? ReverseRouteId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string RouteCode { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(160)]
         public string Name { get; set; } = string.Empty;
+
+        [Range(0, double.MaxValue, ErrorMessage = "DistanceKm cannot be negative.")]
         public decimal DistanceKm { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int EstimatedDurationMinutes { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "DefaultBaseFare cannot be negative.")]
         public decimal? DefaultBaseFare { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -47,10 +59,25 @@ namespace TicketPortal.Api.DTO
     public class OperatorBranchCreateDto
     {
         public Guid BusOperatorId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string BranchName { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Address { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(30)]
         public string Phone { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string City { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string District { get; set; } = string.Empty;
     }
 
@@ -78,11 +105,19 @@ namespace TicketPortal.Api.DTO
     {
         public Guid OperatorRouteId { get; set; }
         public Guid TerminalId { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int StopOrder { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int? ArrivalOffsetMinutes { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int? DepartureOffsetMinutes { get; set; }
         public bool IsPickupPoint { get; set; } = true;
         public bool IsDropOffPoint { get; set; } = true;
+
+        [StringLength(120)]
         public string? ExternalStopKey { get; set; }
     }
 
@@ -111,8 +146,16 @@ namespace TicketPortal.Api.DTO
     public class OperatorSettingCreateDto
     {
         public Guid BusOperatorId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Key { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(1000)]
         public string Value { get; set; } = string.Empty;
+
+        [StringLength(250)]
         public string? Description { get; set; }
     }
 
@@ -138,9 +181,17 @@ namespace TicketPortal.Api.DTO
     {
         public Guid BusRouteId { get; set; }
         public Guid TerminalId { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int StopOrder { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int? ArrivalOffsetMinutes { get; set; }
+
+        [Range(0, int.MaxValue)]
         public int? DepartureOffsetMinutes { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "DistanceFromOriginKm cannot be negative.")]
         public decimal DistanceFromOriginKm { get; set; }
         public bool IsPickupPoint { get; set; } = true;
         public bool IsDropOffPoint { get; set; } = true;
@@ -170,14 +221,38 @@ namespace TicketPortal.Api.DTO
 
     public class TerminalCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(20)]
         public string Code { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string City { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string District { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Division { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Country { get; set; } = "Bangladesh";
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Address { get; set; } = string.Empty;
+
+        [Range(-90, 90)]
         public decimal? Latitude { get; set; }
+
+        [Range(-180, 180)]
         public decimal? Longitude { get; set; }
         public bool IsActive { get; set; } = true;
     }

@@ -10,8 +10,15 @@ namespace TicketPortal.Api.DTO
 {
     public class CurrencyCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(3, MinimumLength = 3)]
         public string Code { get; set; } = "BDT";
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(10)]
         public string Symbol { get; set; } = string.Empty;
+
+        [Range(0.000001, double.MaxValue, ErrorMessage = "ExchangeRateToBase must be greater than zero.")]
         public decimal ExchangeRateToBase { get; set; } = 1m;
         public bool IsBaseCurrency { get; set; }
         public bool IsActive { get; set; } = true;
@@ -42,7 +49,12 @@ namespace TicketPortal.Api.DTO
         public Guid BusRouteId { get; set; }
         public BusType? BusType { get; set; }
         public SeatType? SeatType { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "BaseFare cannot be negative.")]
         public decimal BaseFare { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(3, MinimumLength = 3)]
         public string Currency { get; set; } = "BDT";
         public DateTime EffectiveFromUtc { get; set; }
         public DateTime? EffectiveToUtc { get; set; }
@@ -77,6 +89,9 @@ namespace TicketPortal.Api.DTO
     public class PaymentInitiateDto
     {
         public Guid BookingId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(100)]
         public string HoldToken { get; set; } = string.Empty;
         public PaymentMethod Method { get; set; }
         public Guid? PaymentProviderId { get; set; }
@@ -89,15 +104,27 @@ namespace TicketPortal.Api.DTO
     // before any of this is trusted.
     public class PaymentGatewayResultDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(100)]
         public string HoldToken { get; set; } = string.Empty;
+
+        [StringLength(100)]
         public string? GatewayTransactionId { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "GatewayFeeAmount cannot be negative.")]
         public decimal GatewayFeeAmount { get; set; }
+
+        [StringLength(2000)]
         public string? GatewayResponseJson { get; set; }
     }
 
     public class PaymentFailDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(100)]
         public string HoldToken { get; set; } = string.Empty;
+
+        [StringLength(500)]
         public string? Reason { get; set; }
     }
 
@@ -108,6 +135,9 @@ namespace TicketPortal.Api.DTO
     public class CounterSaleConfirmDto
     {
         public Guid BookingId { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(100)]
         public string HoldToken { get; set; } = string.Empty;
         public PaymentMethod Method { get; set; } = PaymentMethod.Cash;
     }
@@ -155,8 +185,15 @@ namespace TicketPortal.Api.DTO
     {
         public Guid PaymentProviderId { get; set; }
         public PaymentMethod Method { get; set; }
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string DisplayName { get; set; } = string.Empty;
+
+        [Range(0, double.MaxValue, ErrorMessage = "FixedFee cannot be negative.")]
         public decimal? FixedFee { get; set; }
+
+        [Range(0, 100, ErrorMessage = "PercentageFee must be between 0 and 100.")]
         public decimal? PercentageFee { get; set; }
         public bool IsActive { get; set; } = true;
     }
@@ -183,11 +220,22 @@ namespace TicketPortal.Api.DTO
 
     public class PaymentProviderCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Name { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(40)]
         public string Code { get; set; } = string.Empty;
         public PaymentProviderKind ProviderKind { get; set; } = PaymentProviderKind.Gateway;
         public PaymentGateway Gateway { get; set; } = PaymentGateway.None;
+
+        [StringLength(300)]
+        [Url(ErrorMessage = "CheckoutBaseUrl must be a valid URL.")]
         public string? CheckoutBaseUrl { get; set; }
+
+        [StringLength(300)]
+        [Url(ErrorMessage = "WebhookUrl must be a valid URL.")]
         public string? WebhookUrl { get; set; }
         public bool SupportsRefund { get; set; }
         public bool IsActive { get; set; } = true;
@@ -242,11 +290,14 @@ namespace TicketPortal.Api.DTO
     // by a client. From there it only moves via these two actions, or Process (no body needed).
     public class RefundApproveDto
     {
+        [StringLength(500)]
         public string? Remarks { get; set; }
     }
 
     public class RefundRejectDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Reason { get; set; } = string.Empty;
     }
 
@@ -254,6 +305,8 @@ namespace TicketPortal.Api.DTO
     // supplies proof (bank/mobile-banking reference) that the guest was actually paid back.
     public class RefundManualPayoutDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(100)]
         public string ManualPayoutReference { get; set; } = string.Empty;
     }
 
@@ -292,7 +345,11 @@ namespace TicketPortal.Api.DTO
 
     public class TaxRuleCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Name { get; set; } = string.Empty;
+
+        [Range(0, 100, ErrorMessage = "Percentage must be between 0 and 100.")]
         public decimal Percentage { get; set; }
         public bool IsActive { get; set; } = true;
     }

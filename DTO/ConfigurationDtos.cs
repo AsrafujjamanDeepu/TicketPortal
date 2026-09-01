@@ -10,7 +10,12 @@ namespace TicketPortal.Api.DTO
 {
     public class LanguageCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(10)]
         public string Code { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(80)]
         public string Name { get; set; } = string.Empty;
         public bool IsDefault { get; set; }
         public bool IsActive { get; set; } = true;
@@ -36,8 +41,15 @@ namespace TicketPortal.Api.DTO
 
     public class SystemSettingCreateDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(120)]
         public string Key { get; set; } = string.Empty;
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(2000)]
         public string Value { get; set; } = string.Empty;
+
+        [StringLength(250)]
         public string? Description { get; set; }
     }
 

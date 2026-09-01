@@ -18,6 +18,9 @@ namespace TicketPortal.Api.DTO
     {
         public Guid BookingId { get; set; }
         public Guid? TicketId { get; set; } // Null = cancel the whole booking, not just one ticket.
+
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string Reason { get; set; } = string.Empty;
     }
 
@@ -25,12 +28,17 @@ namespace TicketPortal.Api.DTO
     // calculated RequestedRefundAmount as-is, or set it to override (e.g. a goodwill exception).
     public class CancellationApproveDto
     {
+        [Range(0, double.MaxValue, ErrorMessage = "ApprovedRefundAmount cannot be negative.")]
         public decimal? ApprovedRefundAmount { get; set; }
+
+        [StringLength(500)]
         public string? Remarks { get; set; }
     }
 
     public class CancellationRejectDto
     {
+        [Required(AllowEmptyStrings = false)]
+        [StringLength(250)]
         public string RejectedReason { get; set; } = string.Empty;
     }
 
@@ -63,6 +71,8 @@ namespace TicketPortal.Api.DTO
     public class SeatHoldCreateDto
     {
         public Guid TripId { get; set; }
+
+        [MinLength(1, ErrorMessage = "At least one seat must be selected.")]
         public List<Guid> TripSeatIds { get; set; } = new();
     }
 
