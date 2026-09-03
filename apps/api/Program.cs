@@ -4,6 +4,7 @@ using TicketPortal.Api.Services;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc.Formatters;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -179,7 +180,20 @@ builder.Services.AddHostedService<ExternalBookingSyncSweepService>();
 // use the enum member's name instead, e.g. "status": "Confirmed". Swagger UI's example/schema
 // values pick this up too, since it's registered on the same JsonSerializerOptions Swashbuckle
 // reads from.
-builder.Services.AddControllers()
+// RemoveType<StringOutputFormatter>() matters: without it, any action that
+// returns a bare C# string (e.g. AccountController.Register's success path,
+// StatusCode(201, someInterpolatedString)) gets serialized as raw text/plain
+// instead of JSON. Swagger UI doesn't care and just shows you whatever came
+// back, so this looked fine there - but Angular's HttpClient always tries to
+// JSON.parse a 'json' responseType body, so an unquoted plain-text string
+// throws a SyntaxError there instead of surfacing the real message.
+// Removing this formatter forces every string return value through the JSON
+// formatter instead, so it comes back properly quoted like every other
+// response from this API already does.
+builder.Services.AddControllers(options =>
+    {
+        options.OutputFormatters.RemoveType<StringOutputFormatter>();
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
