@@ -53,3 +53,10 @@ apps/api/obj/
 apps/api/**/bin/
 apps/api/**/obj/
 *.user
+
+# Visual Studio / stray .NET build output if opened or built from the repo
+# root instead of apps/api/ directly (e.g. "Open Folder" on the repo root
+# in Visual Studio creates .vs/ wherever you opened, not inside apps/api)
+/.vs/
+/bin/
+/obj/
