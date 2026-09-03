@@ -1,0 +1,152 @@
+/* =============================================================================
+   TicketPortal shared component classes. Angular's TpButtonDirective and
+   React's <Button>/<StatusPill> both apply these class names — this is what
+   keeps the two frameworks visually identical instead of two hand-tuned
+   copies drifting apart. If you change a style here, both apps get it.
+   ============================================================================= */
+
+.tp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tp-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--tp-radius-sm);
+  font-family: var(--tp-font-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--tp-transition-fast), border-color var(--tp-transition-fast),
+    transform var(--tp-transition-fast), opacity var(--tp-transition-fast);
+  white-space: nowrap;
+}
+
+.tp-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.tp-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tp-btn--sm {
+  padding: var(--tp-space-2) var(--tp-space-3);
+  font-size: 13px;
+}
+
+.tp-btn--md {
+  padding: 10px var(--tp-space-4);
+  font-size: 14px;
+}
+
+.tp-btn--lg {
+  padding: 14px var(--tp-space-5);
+  font-size: 15px;
+}
+
+.tp-btn--primary {
+  background: var(--tp-yellow);
+  border-color: var(--tp-yellow);
+  color: var(--tp-text-on-yellow);
+}
+
+.tp-btn--primary:hover:not(:disabled) {
+  background: var(--tp-yellow-dark);
+  border-color: var(--tp-yellow-dark);
+}
+
+.tp-btn--secondary {
+  background: var(--tp-bg);
+  border-color: var(--tp-border);
+  color: var(--tp-text);
+}
+
+.tp-btn--secondary:hover:not(:disabled) {
+  border-color: var(--tp-yellow-dark);
+  background: var(--tp-yellow-tint);
+}
+
+.tp-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--tp-text-muted);
+}
+
+.tp-btn--ghost:hover:not(:disabled) {
+  background: var(--tp-bg-soft);
+  color: var(--tp-text);
+}
+
+.tp-btn--danger {
+  background: var(--tp-danger);
+  border-color: var(--tp-danger);
+  color: #ffffff;
+}
+
+.tp-btn--danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+/* ---- Card -------------------------------------------------------------- */
+
+.tp-card {
+  display: block;
+  background: var(--tp-surface);
+  border: 1px solid var(--tp-border);
+  border-radius: var(--tp-radius-md);
+  box-shadow: var(--tp-shadow-card);
+}
+
+.tp-card--padded {
+  padding: var(--tp-space-5);
+}
+
+.tp-card--hoverable {
+  cursor: pointer;
+  transition: transform var(--tp-transition), box-shadow var(--tp-transition), border-color var(--tp-transition);
+}
+
+.tp-card--hoverable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--tp-shadow-elevated);
+  border-color: var(--tp-yellow-dark);
+}
+
+/* ---- Status pill --------------------------------------------------------- */
+
+.tp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px var(--tp-space-3);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.tp-pill--success {
+  background: var(--tp-success-tint);
+  color: var(--tp-success);
+}
+
+.tp-pill--danger {
+  background: var(--tp-danger-tint);
+  color: var(--tp-danger);
+}
+
+.tp-pill--warning {
+  background: var(--tp-warning-tint);
+  color: #8a5a00;
+}
+
+.tp-pill--info {
+  background: var(--tp-info-tint);
+  color: var(--tp-info);
+}
+
+.tp-pill--neutral {
+  background: var(--tp-bg-soft);
+  color: var(--tp-text-muted);
+  border: 1px solid var(--tp-border);
+}

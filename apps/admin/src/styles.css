@@ -1,0 +1,199 @@
+/* Base resets + admin-specific layout. Colors/spacing come from
+   @ticketportal-mono/design-tokens (imported in main.tsx) — this file only
+   has structural/layout CSS unique to the admin app's sidebar shell. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--tp-bg-soft);
+  color: var(--tp-text);
+  font-family: var(--tp-font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--tp-font-heading);
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+a {
+  color: inherit;
+}
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.shell__content {
+  flex: 1;
+  padding: 32px 40px;
+  max-width: 1200px;
+}
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--tp-surface);
+  border-right: 1px solid var(--tp-border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--tp-font-heading);
+  font-weight: 700;
+  font-size: 16px;
+  padding: 0 8px 24px;
+}
+
+.sidebar__logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--tp-yellow);
+}
+
+.sidebar__badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tp-text-muted);
+  background: var(--tp-bg-soft);
+  border: 1px solid var(--tp-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.sidebar__link {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tp-text-muted);
+  text-decoration: none;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.sidebar__link:hover {
+  background: var(--tp-bg-soft);
+  color: var(--tp-text);
+}
+
+.sidebar__link--active {
+  background: var(--tp-yellow-tint);
+  color: var(--tp-text);
+  font-weight: 600;
+}
+
+.sidebar__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 8px 0;
+  border-top: 1px solid var(--tp-border);
+  margin-top: 12px;
+}
+
+.sidebar__user {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tp-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.auth-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tp-text-muted);
+}
+
+.auth-card input {
+  border: 1px solid var(--tp-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: var(--tp-font-body);
+  color: var(--tp-text);
+}
+
+.auth-card input:focus {
+  outline: none;
+  border-color: var(--tp-yellow-dark);
+  box-shadow: 0 0 0 3px var(--tp-yellow-tint);
+}
+
+.auth-card .error {
+  font-size: 13px;
+  color: var(--tp-danger);
+  margin: 0;
+}
+
+.page-placeholder {
+  text-align: center;
+  padding: 64px 24px;
+}
+
+.page-placeholder__icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.tp-muted {
+  color: var(--tp-text-muted);
+}
