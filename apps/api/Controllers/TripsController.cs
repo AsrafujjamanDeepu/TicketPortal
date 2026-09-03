@@ -5,6 +5,7 @@ using TicketPortal.Api.Models.Scheduling;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using TicketPortal.Api.Models.Enums;
 
 namespace TicketPortal.Api.Controllers
@@ -497,6 +498,12 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
+            // Captured before any mutation below so the TripStatusHistory write near the bottom
+            // of this action (see step 16) can tell whether dto.Status actually changed anything,
+            // rather than logging a no-op "changed to the same status it already had" entry on
+            // every plain edit (e.g. just moving DepartureTimeUtc).
+            var previousStatus = trip.Status;
+
 
             // =========================================================
             // 1a. Authorization — operator scoping. Checked against BOTH the Trip's current
@@ -871,6 +878,27 @@ namespace TicketPortal.Api.Controllers
 
 
                 // -----------------------------------------------------
+                // Record the status change, if any (TripStatusHistoriesController is the
+                // read-only view onto this trail — see the class comment there). Saved in the
+                // same SaveChangesAsync/transaction as the rest of this update so the history
+                // row can never exist without the status change it describes actually landing,
+                // or vice versa.
+                // -----------------------------------------------------
+
+                if (trip.Status != previousStatus)
+                {
+                    db.TripStatusHistories.Add(new TripStatusHistory
+                    {
+                        TripId = trip.Id,
+                        ChangedByUserId = GetCurrentUserId(),
+                        Status = trip.Status,
+                        ChangedAtUtc = DateTime.UtcNow,
+                        Remarks = trip.DelayReason,
+                    });
+                }
+
+
+                // -----------------------------------------------------
                 // Save
                 // -----------------------------------------------------
 
@@ -971,8 +999,24 @@ namespace TicketPortal.Api.Controllers
                 // Don't cascade-delete: Bookings are real customer purchases. Soft-delete + cancel
                 // the trip instead — every existing Booking, and the customer who holds it, is
                 // completely untouched; the trip just stops showing up in "browse trips" listings.
+                var previousStatus = trip.Status;
                 trip.Status = TripStatus.Cancelled;
                 trip.MarkDeleted();
+
+                // Same trail as Update's status-change write above — only logged when this
+                // actually flips the status (a Trip that was already Cancelled and is being
+                // deleted again shouldn't get a second identical "changed to Cancelled" entry).
+                if (previousStatus != TripStatus.Cancelled)
+                {
+                    db.TripStatusHistories.Add(new TripStatusHistory
+                    {
+                        TripId = trip.Id,
+                        ChangedByUserId = GetCurrentUserId(),
+                        Status = TripStatus.Cancelled,
+                        ChangedAtUtc = DateTime.UtcNow,
+                        Remarks = "Trip soft-deleted after Bookings were made against it.",
+                    });
+                }
 
                 try
                 {
@@ -1180,5 +1224,16 @@ namespace TicketPortal.Api.Controllers
         // the single User.CanManageOperatorAsync(db, ...) extension in
         // Extensions/ClaimsPrincipalExtensions.cs (Piece 2), used above and by every other
         // controller that needs the same check.
+
+        // Same pattern as AccountController/BookingsController/CancellationRequestsController's
+        // own private copies — who actually made the status change that Update/Delete above just
+        // wrote to TripStatusHistory. Null (rather than throwing) for the rare case a caller's
+        // token doesn't carry a parseable NameIdentifier, since a missing "who" shouldn't block
+        // the status change itself from being recorded.
+        private Guid? GetCurrentUserId()
+        {
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(claim, out var id) ? id : null;
+        }
     }
 }
