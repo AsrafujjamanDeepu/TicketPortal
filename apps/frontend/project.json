@@ -4,7 +4,10 @@
   "projectType": "application",
   "prefix": "app",
   "sourceRoot": "apps/frontend/src",
-  "tags": ["type:app", "scope:frontend"],
+  "tags": [
+    "type:app",
+    "scope:frontend"
+  ],
   "targets": {
     "build": {
       "executor": "@angular/build:application",
@@ -16,6 +19,9 @@
         "outputPath": "dist/apps/frontend",
         "browser": "apps/frontend/src/main.ts",
         "tsConfig": "apps/frontend/tsconfig.app.json",
+        "polyfills": [
+          "zone.js"
+        ],
         "inlineStyleLanguage": "scss",
         "assets": [
           {
