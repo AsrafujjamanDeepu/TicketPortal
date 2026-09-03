@@ -1,0 +1,61 @@
+/* =============================================================================
+   TicketPortal Design Tokens — "Whitish & Banana Yellow"
+   SINGLE SOURCE OF TRUTH for both apps/frontend (Angular) and apps/admin
+   (React). Plain CSS custom properties — imported directly by both:
+     Angular: added to the "styles" array in apps/frontend/project.json
+     React:   `import '@ticketportal-mono/design-tokens/tokens.css'` in main.tsx
+   Change a color here once, both apps update — never hardcode a hex value
+   or redefine one of these variables locally in either app.
+   ============================================================================= */
+
+:root {
+  /* ---- Color: surfaces ------------------------------------------------- */
+  --tp-bg: #ffffff;
+  --tp-bg-soft: #fffdf5;
+  --tp-surface: #ffffff;
+  --tp-border: #edeae0;
+
+  /* ---- Color: brand / accent (banana yellow) ---------------------------- */
+  --tp-yellow: #ffe135;
+  --tp-yellow-dark: #f4c430;
+  --tp-yellow-tint: #fff6d6;
+
+  /* ---- Color: text ------------------------------------------------------- */
+  --tp-text: #2b2b2b;
+  --tp-text-muted: #6b6b6b;
+  --tp-text-on-yellow: #2b2b2b; /* never white-on-yellow — fails contrast */
+
+  /* ---- Color: semantic --------------------------------------------------- */
+  --tp-success: #2e9e5b;
+  --tp-success-tint: #e7f6ed;
+  --tp-danger: #e5484d;
+  --tp-danger-tint: #fdecec;
+  --tp-warning: #f5a623;
+  --tp-warning-tint: #fef3e1;
+  --tp-info: #3b82f6;
+  --tp-info-tint: #eaf2fe;
+
+  /* ---- Typography --------------------------------------------------------- */
+  --tp-font-heading: 'Poppins', 'Segoe UI', sans-serif;
+  --tp-font-body: 'Inter', 'Segoe UI', sans-serif;
+
+  /* ---- Shape / elevation -------------------------------------------------- */
+  --tp-radius-sm: 8px;
+  --tp-radius-md: 14px;
+  --tp-radius-lg: 20px;
+  --tp-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --tp-shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.1);
+
+  /* ---- Motion --------------------------------------------------------------- */
+  --tp-transition-fast: 150ms ease;
+  --tp-transition: 200ms ease;
+
+  /* ---- Spacing scale (4px base) ---------------------------------------- */
+  --tp-space-1: 4px;
+  --tp-space-2: 8px;
+  --tp-space-3: 12px;
+  --tp-space-4: 16px;
+  --tp-space-5: 24px;
+  --tp-space-6: 32px;
+  --tp-space-7: 48px;
+}
