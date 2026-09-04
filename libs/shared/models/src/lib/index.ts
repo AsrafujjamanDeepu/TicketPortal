@@ -1,6 +1,7 @@
 export * from './booking.model';
 export * from './payment.model';
 export * from './bus-operator.model';
+export * from './finance.model';
 export * from './api-error.model';
 export * from './fleet.model';
 export * from './network.model';

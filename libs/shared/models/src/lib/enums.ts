@@ -216,3 +216,46 @@ export type AttendanceStatus = "Present" | "Absent" | "OnLeave";
 
 // Mirrors ModelEnums.cs -> ComplaintStatus.
 export type ComplaintStatus = "Open" | "InProgress" | "Resolved" | "Closed";
+
+// --- Added for Piece 6 (Finance & Settlement Panel) ---
+
+export type CommissionType = "Percentage" | "FixedAmount";
+
+// For an online sale, who actually pays the payment gateway's processing fee.
+export type GatewayFeeBearer = "Platform" | "Operator" | "Customer";
+
+// What kind of financial event one ledger/statement line represents.
+export type StatementItemType =
+  | "OnlineTicketSale"
+  | "PlatformCommission"
+  | "GatewayCharge"
+  | "Refund"
+  | "CancellationFee"
+  | "CounterSaleCommission"
+  | "ManualAdjustment"
+  | "Tax"
+  | "Payout";
+
+export type InvoiceStatus =
+  | "Draft"
+  | "Issued"
+  | "PartiallyPaid"
+  | "Paid"
+  | "Cancelled";
+
+export type PayoutStatus =
+  | "Pending"
+  | "Processing"
+  | "Paid"
+  | "Failed"
+  | "Cancelled";
+
+// A broader family/category for a PaymentProvider row (group "all mobile banking
+// providers", "all card networks", etc).
+export type PaymentProviderKind =
+  | "Gateway"
+  | "MobileBanking"
+  | "CardNetwork"
+  | "Bank"
+  | "Cash"
+  | "Wallet";

@@ -38,6 +38,7 @@ const STATUS_TONE_MAP: Record<string, PillTone> = {
   PendingManualPayout: 'warning',
   PartiallyCancelled: 'warning',
   PartiallyRefunded: 'warning',
+  PartiallyPaid: 'warning', // InvoiceStatus (Piece 6) — same "needs attention" bucket as the other Partially* states.
   Delayed: 'warning',
 
   // informational / neutral-but-notable states
