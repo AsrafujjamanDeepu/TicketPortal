@@ -32,6 +32,18 @@ export class ApiService {
     return this.http.post<T>(this.url(path), body);
   }
 
+  /**
+   * multipart/form-data POST — for the handful of `{id}/images` endpoints that bind an
+   * `IFormFile` (BusOperators logo, Buses/Trips cover image). Pass the raw File; this wraps it
+   * in a FormData under the `file` field name the backend model-binds to. Don't set a
+   * Content-Type header yourself — HttpClient derives the multipart boundary from the FormData.
+   */
+  postForm<T>(path: string, file: File): Observable<T> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<T>(this.url(path), formData);
+  }
+
   put<T>(path: string, body: unknown = {}): Observable<T> {
     return this.http.put<T>(this.url(path), body);
   }
@@ -47,6 +59,19 @@ export class ApiService {
   private url(path: string): string {
     const cleanPath = path.startsWith('/') ? path.slice(1) : path;
     return `${this.baseUrl}/${cleanPath}`;
+  }
+
+  /**
+   * Uploaded images (Bus/Trip/BusOperator logo) come back as a server-relative path like
+   * "/images/xyz.png", not a full URL — resolve it against the API's origin (not apiBaseUrl,
+   * which has a trailing "/api" that would double up) for use in an <img src>. Returns null
+   * unchanged so templates can `*ngIf` on it directly.
+   */
+  resolveAssetUrl(relativeUrl: string | null | undefined): string | null {
+    if (!relativeUrl) return null;
+    if (/^https?:\/\//i.test(relativeUrl)) return relativeUrl;
+    const origin = this.baseUrl.replace(/\/api\/?$/, '');
+    return `${origin}${relativeUrl.startsWith('/') ? '' : '/'}${relativeUrl}`;
   }
 
   private buildParams(params?: QueryParams): HttpParams {
