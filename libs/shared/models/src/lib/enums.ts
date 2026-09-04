@@ -208,3 +208,11 @@ export const DAY_OF_WEEK_FLAGS: readonly Exclude<
   "Friday",
   "Saturday",
 ];
+
+// --- Added for Piece 5 (Counter & Agent Operations Panel) ---
+
+// Mirrors ModelEnums.cs -> AttendanceStatus.
+export type AttendanceStatus = "Present" | "Absent" | "OnLeave";
+
+// Mirrors ModelEnums.cs -> ComplaintStatus.
+export type ComplaintStatus = "Open" | "InProgress" | "Resolved" | "Closed";

@@ -1,22 +1,7 @@
-// Mirrors DTO/CompanyNetworkExtraDtos.cs -> TerminalResponseDto. Read-only reference data for
-// Piece 4 — writes are Admin-only (TerminalsController), so Network Setup shows these as a
-// picker for OperatorRouteStop.terminalId, not a CRUD list.
-export interface Terminal {
-  id: string;
-  name: string;
-  code: string;
-  city: string;
-  district: string;
-  division: string;
-  country: string;
-  address: string;
-  latitude: number | null;
-  longitude: number | null;
-  isActive: boolean;
-  createdAtUtc: string;
-  updatedAtUtc: string | null;
-  rowVersion: string;
-}
+// Terminal now lives in terminal.model.ts (the canonical shared definition used by Piece 2,
+// Piece 3, and Piece 5) — re-declaring it here caused a duplicate-export ambiguity once
+// terminal.model.ts was wired into the barrel. Network Setup's picker for
+// OperatorRouteStop.terminalId still uses this same Terminal shape via the barrel import.
 
 // Mirrors DTO/CompanyNetworkExtraDtos.cs -> BusRouteResponseDto. The unified "Dhaka to
 // Chittagong" route every operator's own OperatorRoute maps onto. Read-only for Piece 4 too

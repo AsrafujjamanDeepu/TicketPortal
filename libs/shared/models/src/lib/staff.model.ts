@@ -1,11 +1,12 @@
-import { LicenseType, StaffRole } from './enums';
+import { LicenseType, StaffRole, AttendanceStatus } from './enums';
 
 // Mirrors DTO/PeopleDtos.cs -> StaffProfileResponseDto/CreateDto/UpdateDto.
 // GET /api/staffprofiles is auto-scoped server-side (an operator's own Operator/Staff account
 // only ever sees their own operator's staff) — this is also what Piece 4's OperatorContextService
 // uses to resolve "which BusOperator does the logged-in user belong to" (see
 // features/operator/services/operator-context.service.ts): find the entry whose userId matches
-// the current session and read its busOperatorId.
+// the current session and read its busOperatorId. Piece 5's counter/HR screens (attendance,
+// salary) work off StaffProfile.id, the same records this defines.
 export interface StaffProfile {
   id: string;
   userId: string;
@@ -72,5 +73,67 @@ export interface DriverLicenseUpdateRequest {
   type: LicenseType;
   issueDate: string;
   expiryDate: string;
+  rowVersion: string;
+}
+
+// Mirrors StaffAttendanceCreateDto/UpdateDto. StaffProfileId is verified
+// against the caller's own operator scope server-side.
+export interface StaffAttendanceCreateRequest {
+  staffProfileId: string;
+  attendanceDate: string; // yyyy-MM-dd
+  status: AttendanceStatus;
+  remarks?: string;
+}
+
+export interface StaffAttendanceUpdateRequest {
+  attendanceDate: string;
+  status: AttendanceStatus;
+  remarks?: string;
+  rowVersion: string;
+}
+
+export interface StaffAttendance {
+  id: string;
+  staffProfileId: string;
+  attendanceDate: string;
+  status: AttendanceStatus;
+  remarks: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string | null;
+  rowVersion: string;
+}
+
+// Mirrors StaffSalaryCreateDto/UpdateDto.
+export interface StaffSalaryCreateRequest {
+  staffProfileId: string;
+  payPeriodStart: string; // yyyy-MM-dd
+  payPeriodEnd: string;
+  amount: number;
+  isPaid: boolean;
+  paidAtUtc?: string;
+  paymentReference?: string;
+}
+
+export interface StaffSalaryUpdateRequest {
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  amount: number;
+  isPaid: boolean;
+  paidAtUtc?: string;
+  paymentReference?: string;
+  rowVersion: string;
+}
+
+export interface StaffSalary {
+  id: string;
+  staffProfileId: string;
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  amount: number;
+  isPaid: boolean;
+  paidAtUtc: string | null;
+  paymentReference: string | null;
+  createdAtUtc: string;
+  updatedAtUtc: string | null;
   rowVersion: string;
 }
