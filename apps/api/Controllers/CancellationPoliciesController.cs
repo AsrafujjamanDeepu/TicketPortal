@@ -376,12 +376,19 @@ namespace TicketPortal.Api.Controllers
         }
 
         // Admin: manages any policy, including platform-wide (null) ones. Platform Staff
-        // (StaffProfile.BusOperatorId == null): same. Operator-scoped Staff: only their own
-        // operator's policies — never a null/platform-wide policy. Anyone else: never.
+        // (StaffProfile.BusOperatorId == null): same. Operator-scoped Staff/Operator: only their
+        // own operator's policies — never a null/platform-wide policy. Anyone else: never.
+        //
+        // Fixed for Piece 4 (Operator & Fleet Management Panel — Fare & Cancellation Policy
+        // Config screen): this only checked IsInRole("Staff"), the same class of bug already
+        // fixed elsewhere in this codebase (see ClaimsPrincipalExtensions.CanManageOperatorAsync's
+        // header comment) — "Operator" is the actual login role for an operator's own staff, so
+        // without this an Operator account could never save a cancellation policy at all,
+        // including for their own operator, and would always get Forbid().
         private async Task<bool> CanManagePolicyOperatorAsync(Guid? busOperatorId)
         {
             if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff")) return false;
+            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
 
             var callerOperatorId = await GetCallerBusOperatorIdAsync();
             if (callerOperatorId == null) return true;
