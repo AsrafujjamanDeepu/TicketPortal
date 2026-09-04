@@ -74,6 +74,7 @@ namespace TicketPortal.Api.Controllers
             var bus = new Bus
             {
                 BusOperatorId = dto.BusOperatorId,
+                BusCategoryId = dto.BusCategoryId,
                 RegistrationNumber = dto.RegistrationNumber,
                 CoachNumber = dto.CoachNumber,
                 Brand = dto.Brand,
@@ -151,6 +152,7 @@ namespace TicketPortal.Api.Controllers
             // 4. Update Bus
             // ----------------------------------------
             bus.BusOperatorId = dto.BusOperatorId;
+            bus.BusCategoryId = dto.BusCategoryId;
             bus.RegistrationNumber = dto.RegistrationNumber;
             bus.CoachNumber = dto.CoachNumber;
             bus.Brand = dto.Brand;
@@ -352,6 +354,7 @@ namespace TicketPortal.Api.Controllers
         {
             Id = bus.Id,
             BusOperatorId = bus.BusOperatorId,
+            BusCategoryId = bus.BusCategoryId,
             RegistrationNumber = bus.RegistrationNumber,
             CoachNumber = bus.CoachNumber,
             CreatedAtUtc = bus.CreatedAtUtc,

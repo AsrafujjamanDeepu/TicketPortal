@@ -45,6 +45,13 @@ namespace TicketPortal.Api.DTO
         [Required]
         public Guid BusOperatorId { get; set; }
 
+        // Added for Piece 4 (Operator & Fleet Management Panel) — Bus.BusCategoryId already
+        // existed on the model/DB (see Models/BusFleet/Bus.cs + the initial migration) but was
+        // never surfaced through this DTO, so a bus's category could never actually be set or
+        // read via the API. Nullable/optional, same as the model column — a bus doesn't have to
+        // have a category.
+        public Guid? BusCategoryId { get; set; }
+
         [Required, MaxLength(40)]
         public string RegistrationNumber { get; set; } = string.Empty;
 
@@ -89,6 +96,7 @@ namespace TicketPortal.Api.DTO
     {
         public Guid Id { get; set; }
         public Guid BusOperatorId { get; set; }
+        public Guid? BusCategoryId { get; set; }
         public string RegistrationNumber { get; set; } = string.Empty;
         public string CoachNumber { get; set; } = string.Empty;
 
