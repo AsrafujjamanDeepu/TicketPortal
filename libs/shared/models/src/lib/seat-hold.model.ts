@@ -26,3 +26,18 @@ export interface SeatHold {
   updatedAtUtc: string | null;
   rowVersion: string;
 }
+
+// Mirrors DTO/BookingsExtraDtos.cs -> SeatHoldItemResponseDto. Read-only (SeatHoldItemsController
+// has no write endpoints — items are written only as a side effect of SeatHoldService). Piece 3's
+// checkout needs this to know which TripSeat (and its frozen FareAtHold) each held seat maps to,
+// so it can render one passenger-details row per seat with the correct fare — join on
+// tripSeatId === Trip.tripSeats[].id (see trip.model.ts).
+export interface SeatHoldItem {
+  id: string;
+  seatHoldId: string;
+  tripSeatId: string;
+  fareAtHold: number;
+  createdAtUtc: string;
+  updatedAtUtc: string | null;
+  rowVersion: string;
+}

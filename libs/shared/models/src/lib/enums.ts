@@ -85,3 +85,7 @@ export type CancellationRequestStatus = 'Requested' | 'Approved' | 'Rejected' | 
 export type SettlementDirection = 'PlatformPaysOperator' | 'OperatorPaysPlatform' | 'NetZero';
 
 export type SettlementStatus = 'Draft' | 'Approved' | 'Invoiced' | 'Paid' | 'Cancelled';
+
+export type CouponType = 'FixedAmount' | 'Percentage';
+
+export type CustomerWalletTransactionType = 'TopUp' | 'BookingPayment' | 'RefundCredit' | 'AdminAdjustment';
