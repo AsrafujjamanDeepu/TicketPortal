@@ -27,7 +27,7 @@ import { TpButtonDirective } from '../../shared/ui/button/tp-button.directive';
           @if (auth.hasRole('Customer')) {
             <a routerLink="/my-bookings">My Bookings</a>
           }
-          @if (auth.hasRole('Operator')) {
+          @if (auth.hasRole('Operator', 'Staff', 'Admin')) {
             <a routerLink="/operator">Operator Panel</a>
           }
           @if (auth.hasRole('Staff')) {
