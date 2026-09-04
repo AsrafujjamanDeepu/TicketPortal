@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, inject, Input, Output } from '@angular/core';
 import { OperatorLookupService } from '../services/operator-lookup.service';
 
 /**
@@ -56,8 +56,10 @@ export class OperatorFilterComponent {
   @Input() value: string | null = null;
   @Output() valueChange = new EventEmitter<string | null>();
 
-  constructor(protected readonly operatorLookup: OperatorLookupService) {
-    operatorLookup.ensureLoaded();
+  protected readonly operatorLookup = inject(OperatorLookupService);
+
+  constructor() {
+    this.operatorLookup.ensureLoaded();
   }
 
   onChange(event: Event): void {
