@@ -4,88 +4,207 @@
 // Program.cs's JsonSerializerOptions first.
 
 export type TripStatus =
-  | 'Scheduled'
-  | 'Boarding'
-  | 'Departed'
-  | 'Running'
-  | 'Arrived'
-  | 'Completed'
-  | 'Delayed'
-  | 'Cancelled';
+  | "Scheduled"
+  | "Boarding"
+  | "Departed"
+  | "Running"
+  | "Arrived"
+  | "Completed"
+  | "Delayed"
+  | "Cancelled";
 
-export type TripSeatStatus = 'Available' | 'Held' | 'Booked' | 'Blocked' | 'Cancelled';
+export type TripSeatStatus =
+  | "Available"
+  | "Held"
+  | "Booked"
+  | "Blocked"
+  | "Cancelled";
 
-export type SeatHoldStatus = 'Active' | 'ConvertedToBooking' | 'Expired' | 'Released' | 'Cancelled';
+export type SeatHoldStatus =
+  | "Active"
+  | "ConvertedToBooking"
+  | "Expired"
+  | "Released"
+  | "Cancelled";
 
 export type BookingStatus =
-  | 'Draft'
-  | 'PendingPayment'
-  | 'Confirmed'
-  | 'Completed'
-  | 'PartiallyCancelled'
-  | 'Cancelled'
-  | 'Expired'
-  | 'Failed'
-  | 'Refunded';
+  | "Draft"
+  | "PendingPayment"
+  | "Confirmed"
+  | "Completed"
+  | "PartiallyCancelled"
+  | "Cancelled"
+  | "Expired"
+  | "Failed"
+  | "Refunded";
 
-export type TicketStatus = 'PendingPayment' | 'Issued' | 'CheckedIn' | 'Used' | 'Cancelled' | 'Refunded' | 'NoShow';
+export type TicketStatus =
+  | "PendingPayment"
+  | "Issued"
+  | "CheckedIn"
+  | "Used"
+  | "Cancelled"
+  | "Refunded"
+  | "NoShow";
 
-export type BookingSource = 'Web' | 'MobileApp' | 'Counter' | 'Agent' | 'Admin' | 'ExternalApi';
+export type BookingSource =
+  | "Web"
+  | "MobileApp"
+  | "Counter"
+  | "Agent"
+  | "Admin"
+  | "ExternalApi";
 
-export type SaleChannel = 'Online' | 'Counter' | 'Agent' | 'Admin' | 'ExternalApi';
+export type SaleChannel =
+  | "Online"
+  | "Counter"
+  | "Agent"
+  | "Admin"
+  | "ExternalApi";
 
-export type MoneyCollectedBy = 'Platform' | 'Operator' | 'Agent' | 'Unknown';
+export type MoneyCollectedBy = "Platform" | "Operator" | "Agent" | "Unknown";
 
-export type OperatorInventoryMode = 'PlatformManaged' | 'ExternalApiManaged' | 'Hybrid';
+export type OperatorInventoryMode =
+  | "PlatformManaged"
+  | "ExternalApiManaged"
+  | "Hybrid";
 
 export type PaymentStatus =
-  | 'Initiated'
-  | 'Pending'
-  | 'Succeeded'
-  | 'Failed'
-  | 'Cancelled'
-  | 'PartiallyRefunded'
-  | 'Refunded'
-  | 'ReconciliationNeeded';
+  | "Initiated"
+  | "Pending"
+  | "Succeeded"
+  | "Failed"
+  | "Cancelled"
+  | "PartiallyRefunded"
+  | "Refunded"
+  | "ReconciliationNeeded";
 
 export type RefundStatus =
-  | 'Requested'
-  | 'Approved'
-  | 'Processing'
-  | 'Succeeded'
-  | 'Rejected'
-  | 'Failed'
-  | 'PendingManualPayout'
-  | 'ReconciliationNeeded';
+  | "Requested"
+  | "Approved"
+  | "Processing"
+  | "Succeeded"
+  | "Rejected"
+  | "Failed"
+  | "PendingManualPayout"
+  | "ReconciliationNeeded";
 
-export type PaymentMethod = 'Cash' | 'Card' | 'MobileBanking' | 'BankTransfer' | 'OnlineGateway' | 'Wallet';
+export type PaymentMethod =
+  | "Cash"
+  | "Card"
+  | "MobileBanking"
+  | "BankTransfer"
+  | "OnlineGateway"
+  | "Wallet";
 
 export type PaymentGateway =
-  | 'None'
-  | 'SslCommerz'
-  | 'Bkash'
-  | 'Nagad'
-  | 'Rocket'
-  | 'Stripe'
-  | 'PayPal'
-  | 'Visa'
-  | 'MasterCard'
-  | 'Manual';
+  | "None"
+  | "SslCommerz"
+  | "Bkash"
+  | "Nagad"
+  | "Rocket"
+  | "Stripe"
+  | "PayPal"
+  | "Visa"
+  | "MasterCard"
+  | "Manual";
 
-export type Gender = 'Unknown' | 'Male' | 'Female' | 'Other';
+export type Gender = "Unknown" | "Male" | "Female" | "Other";
 
-export type PassengerType = 'Adult' | 'Child' | 'Senior' | 'Student';
+export type PassengerType = "Adult" | "Child" | "Senior" | "Student";
 
-export type BusType = 'NonAc' | 'Ac' | 'Sleeper' | 'DoubleDecker' | 'BusinessClass' | 'Economy' | 'Luxury';
+export type BusType =
+  | "NonAc"
+  | "Ac"
+  | "Sleeper"
+  | "DoubleDecker"
+  | "BusinessClass"
+  | "Economy"
+  | "Luxury";
 
-export type SeatType = 'Regular' | 'Window' | 'Aisle' | 'Middle' | 'Sleeper' | 'Business';
+export type SeatType =
+  | "Regular"
+  | "Window"
+  | "Aisle"
+  | "Middle"
+  | "Sleeper"
+  | "Business";
 
-export type CancellationRequestStatus = 'Requested' | 'Approved' | 'Rejected' | 'Completed';
+export type CancellationRequestStatus =
+  | "Requested"
+  | "Approved"
+  | "Rejected"
+  | "Completed";
 
-export type SettlementDirection = 'PlatformPaysOperator' | 'OperatorPaysPlatform' | 'NetZero';
+export type SettlementDirection =
+  | "PlatformPaysOperator"
+  | "OperatorPaysPlatform"
+  | "NetZero";
 
-export type SettlementStatus = 'Draft' | 'Approved' | 'Invoiced' | 'Paid' | 'Cancelled';
+export type SettlementStatus =
+  | "Draft"
+  | "Approved"
+  | "Invoiced"
+  | "Paid"
+  | "Cancelled";
 
-export type CouponType = 'FixedAmount' | 'Percentage';
+export type CouponType = "FixedAmount" | "Percentage";
 
-export type CustomerWalletTransactionType = 'TopUp' | 'BookingPayment' | 'RefundCredit' | 'AdminAdjustment';
+export type CustomerWalletTransactionType =
+  | "TopUp"
+  | "BookingPayment"
+  | "RefundCredit"
+  | "AdminAdjustment";
+
+// --- Added for Piece 4 (Operator & Fleet Management Panel) ---
+
+// A staff member's JOB/function for HR/reporting — NOT the login role (see AppRole in
+// role.model.ts). 'Operator' here means "this operator's own management/back-office staff",
+// distinct from the AppRole string 'Operator' used for login/JWT roles.
+export type StaffRole =
+  | "SuperAdmin"
+  | "Admin"
+  | "Manager"
+  | "Operator"
+  | "CounterStaff"
+  | "BusOwner"
+  | "Driver"
+  | "Supervisor"
+  | "Helper"
+  | "Finance";
+
+// A staff member's role specifically while assigned to one trip (see TripCrew).
+export type CrewRole = "Driver" | "AssistantDriver" | "Supervisor" | "Helper";
+
+// Driving license class required to operate a given bus.
+export type LicenseType = "Light" | "Heavy" | "Commercial";
+
+// A bitmask enum (see Models/Enums/ModelEnums.cs -> DayOfWeekFlag) — the backend's
+// JsonStringEnumConverter serializes/parses a combination as a comma-joined string, e.g.
+// "Monday, Wednesday, Friday" or "Everyday" for the full-week shorthand. Build/parse this with
+// the DAY_OF_WEEK_FLAGS helper below rather than hand-rolling the join/split.
+export type DayOfWeekFlagName =
+  | "None"
+  | "Sunday"
+  | "Monday"
+  | "Tuesday"
+  | "Wednesday"
+  | "Thursday"
+  | "Friday"
+  | "Saturday"
+  | "Everyday";
+
+// The seven real day names a UI should render as checkboxes — deliberately excludes the
+// 'None'/'Everyday' shorthands, which are derived, not picked directly.
+export const DAY_OF_WEEK_FLAGS: readonly Exclude<
+  DayOfWeekFlagName,
+  "None" | "Everyday"
+>[] = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];

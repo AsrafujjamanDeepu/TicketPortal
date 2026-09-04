@@ -71,3 +71,40 @@ export interface TripSearchQuery {
   date: string; // yyyy-MM-dd — backend binds this to a DateOnly
   minAvailableSeats?: number;
 }
+
+// --- Added for Piece 4 (Operator & Fleet Management Panel) — write side ---
+
+// Mirrors DTO/TripDtos.cs -> TripSeatCreateDto. NOTE: deliberately no `status` field — a
+// TripSeat's status only ever changes through the seat-hold/booking flow (SeatHoldService), see
+// the backend DTO's own comment. Piece 4 seeds every seat as available by construction.
+export interface TripSeatCreateRequest {
+  seatId: string;
+  seatNumber: string;
+  seatType: SeatType;
+  fare: number;
+}
+
+// Mirrors DTO/TripDtos.cs -> TripCreateDto.
+export interface TripCreateRequest {
+  busOperatorId: string;
+  busRouteId: string;
+  busId: string;
+  departureTerminalId: string;
+  arrivalTerminalId: string;
+  tripCode: string;
+  departureTimeUtc: string;
+  arrivalTimeUtc: string;
+  baseFare: number;
+  currency: string;
+  isWheelchairAccessible: boolean;
+  tripSeats: TripSeatCreateRequest[];
+}
+
+// Mirrors DTO/TripDtos.cs -> TripUpdateDto. Like BusUpdateRequest, this REPLACES the whole
+// TripSeats array — when only editing scalar trip fields or changing Status, resend the
+// unchanged tripSeats exactly as loaded (don't drop them, or the seat map is wiped).
+export interface TripUpdateRequest extends TripCreateRequest {
+  status: TripStatus;
+  delayReason?: string | null;
+  rowVersion: string;
+}
