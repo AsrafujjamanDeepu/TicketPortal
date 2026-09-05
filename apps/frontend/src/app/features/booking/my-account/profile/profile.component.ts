@@ -1,6 +1,10 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { CustomerProfile, CustomerProfileCreateRequest, CustomerProfileUpdateRequest, Gender } from '@ticketportal-mono/models';
 import { ApiService } from '../../../../core/services/api.service';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -9,6 +13,22 @@ import { TpButtonDirective, TpCardComponent, TpSpinnerComponent } from '../../..
 import { AccountNavComponent } from '../account-nav/account-nav.component';
 
 const GENDERS: Gender[] = ['Unknown', 'Male', 'Female', 'Other'];
+
+/** 'YYYY-MM-DD', built from local date parts (not toISOString) so the day never shifts across a UTC boundary. */
+function toIsoDateString(value: Date | null): string | undefined {
+  if (!value) return undefined;
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function parseIsoDateString(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
 
 /**
  * A CustomerProfile isn't created at registration (see PeopleDtos.cs) — it's created lazily,
@@ -20,7 +40,18 @@ const GENDERS: Gender[] = ['Unknown', 'Male', 'Female', 'Other'];
 @Component({
   selector: 'tp-profile',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, AccountNavComponent, TpCardComponent, TpButtonDirective, TpSpinnerComponent],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    AccountNavComponent,
+    TpCardComponent,
+    TpButtonDirective,
+    TpSpinnerComponent,
+    MatFormFieldModule,
+    MatInputModule,
+    MatSelectModule,
+    MatDatepickerModule,
+  ],
   template: `
     <div class="tp-page tp-profile-page">
       <h2>My Account</h2>
@@ -32,30 +63,36 @@ const GENDERS: Gender[] = ['Unknown', 'Male', 'Female', 'Other'];
         <tp-card>
           <form [formGroup]="form" (ngSubmit)="submit()">
             <div class="tp-form-grid">
-              <label>
-                National ID (optional)
-                <input type="text" formControlName="nationalIdNumber" />
-              </label>
-              <label>
-                Date of Birth
-                <input type="date" formControlName="dateOfBirth" />
-              </label>
-              <label>
-                Gender
-                <select formControlName="gender">
+              <mat-form-field appearance="outline">
+                <mat-label>National ID (optional)</mat-label>
+                <input matInput formControlName="nationalIdNumber" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Date of Birth</mat-label>
+                <input matInput [matDatepicker]="dobPicker" formControlName="dateOfBirth" />
+                <mat-datepicker-toggle matIconSuffix [for]="dobPicker" />
+                <mat-datepicker #dobPicker startView="multi-year" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Gender</mat-label>
+                <mat-select formControlName="gender">
                   @for (g of genders; track g) {
-                    <option [value]="g">{{ g }}</option>
+                    <mat-option [value]="g">{{ g }}</mat-option>
                   }
-                </select>
-              </label>
-              <label>
-                Emergency Contact Phone
-                <input type="text" formControlName="emergencyContactPhone" />
-              </label>
-              <label>
-                Preferred Language Code
-                <input type="text" formControlName="preferredLanguageCode" placeholder="en" />
-              </label>
+                </mat-select>
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Emergency Contact Phone</mat-label>
+                <input matInput formControlName="emergencyContactPhone" />
+              </mat-form-field>
+
+              <mat-form-field appearance="outline">
+                <mat-label>Preferred Language Code</mat-label>
+                <input matInput formControlName="preferredLanguageCode" placeholder="en" />
+              </mat-form-field>
             </div>
             <div class="tp-profile-page__actions">
               <button tpButton variant="primary" type="submit" [disabled]="saving()">
@@ -76,32 +113,23 @@ const GENDERS: Gender[] = ['Unknown', 'Male', 'Female', 'Other'];
       .tp-form-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: var(--tp-space-4);
+        gap: var(--tp-space-2) var(--tp-space-4);
       }
 
-      label {
-        display: flex;
-        flex-direction: column;
-        gap: var(--tp-space-2);
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--tp-text-muted);
-      }
-
-      input,
-      select {
-        border: 1px solid var(--tp-border);
-        border-radius: var(--tp-radius-sm);
-        padding: 10px var(--tp-space-3);
-        font-size: 14px;
-        font-family: var(--tp-font-body);
-        color: var(--tp-text);
+      .tp-form-grid mat-form-field {
+        width: 100%;
       }
 
       .tp-profile-page__actions {
         display: flex;
         justify-content: flex-end;
-        margin-top: var(--tp-space-5);
+        margin-top: var(--tp-space-3);
+      }
+
+      @media (max-width: 560px) {
+        .tp-form-grid {
+          grid-template-columns: 1fr;
+        }
       }
     `,
   ],
@@ -119,7 +147,7 @@ export class ProfileComponent implements OnInit {
 
   protected readonly form = this.fb.nonNullable.group({
     nationalIdNumber: [''],
-    dateOfBirth: [''],
+    dateOfBirth: this.fb.control<Date | null>(null),
     gender: this.fb.nonNullable.control<Gender>('Unknown', Validators.required),
     emergencyContactPhone: [''],
     preferredLanguageCode: ['en'],
@@ -132,7 +160,7 @@ export class ProfileComponent implements OnInit {
         if (this.existingProfile) {
           this.form.patchValue({
             nationalIdNumber: this.existingProfile.nationalIdNumber ?? '',
-            dateOfBirth: this.existingProfile.dateOfBirth ?? '',
+            dateOfBirth: parseIsoDateString(this.existingProfile.dateOfBirth),
             gender: this.existingProfile.gender,
             emergencyContactPhone: this.existingProfile.emergencyContactPhone ?? '',
             preferredLanguageCode: this.existingProfile.preferredLanguageCode ?? 'en',
@@ -147,12 +175,13 @@ export class ProfileComponent implements OnInit {
   submit(): void {
     if (this.form.invalid) return;
     const values = this.form.getRawValue();
+    const dateOfBirth = toIsoDateString(values.dateOfBirth);
     this.saving.set(true);
 
     if (this.existingProfile) {
       const request: CustomerProfileUpdateRequest = {
         nationalIdNumber: values.nationalIdNumber || undefined,
-        dateOfBirth: values.dateOfBirth || undefined,
+        dateOfBirth,
         gender: values.gender,
         emergencyContactPhone: values.emergencyContactPhone || undefined,
         preferredLanguageCode: values.preferredLanguageCode || undefined,
@@ -171,7 +200,7 @@ export class ProfileComponent implements OnInit {
       const request: CustomerProfileCreateRequest = {
         userId: currentUser.userId,
         nationalIdNumber: values.nationalIdNumber || undefined,
-        dateOfBirth: values.dateOfBirth || undefined,
+        dateOfBirth,
         gender: values.gender,
         emergencyContactPhone: values.emergencyContactPhone || undefined,
         preferredLanguageCode: values.preferredLanguageCode || undefined,

@@ -1,3 +1,34 @@
+// Angular Material theming (M3). This defines the --mat-sys-* CSS variables
+// that every Material component (mat-tab-nav-bar, mat-form-field, mat-select,
+// mat-datepicker, the MatRipple used by tpButton, ...) reads for its colors.
+// The palette is tuned to match apps/frontend's own blue/white brand theme
+// (see styles/theme-overrides.css) so Material components and our own
+// tp-btn/tp-card/tp-pill components look like one consistent design system
+// instead of two different products bolted together.
+//
+// This is scoped to apps/frontend only — apps/admin doesn't use Angular
+// Material, so its look is completely unaffected.
+@use '@angular/material' as mat;
+
+html {
+  color-scheme: light;
+
+  @include mat.theme(
+    (
+      color: (
+        theme-type: light,
+        primary: mat.$blue-palette,
+        tertiary: mat.$azure-palette,
+      ),
+      typography: (
+        brand-family: 'Poppins, Segoe UI, sans-serif',
+        plain-family: 'Inter, Segoe UI, sans-serif',
+      ),
+      density: 0,
+    )
+  );
+}
+
 // Base resets + layout utilities only. Color/spacing tokens and the shared
 // .tp-btn/.tp-card/.tp-pill classes live in libs/shared/design-tokens —
 // wired into the "styles" array in project.json, not imported here — so

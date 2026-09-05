@@ -32,6 +32,7 @@
         "styles": [
           "libs/shared/design-tokens/tokens.css",
           "libs/shared/design-tokens/components.css",
+          "apps/frontend/src/styles/theme-overrides.css",
           "apps/frontend/src/styles.scss"
         ],
         "optimization": {

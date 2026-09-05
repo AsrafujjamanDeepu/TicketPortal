@@ -1,59 +1,72 @@
 import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+import { MatTabsModule } from '@angular/material/tabs';
 
 /**
- * TpTabsComponent (shared UI kit) is index-based — it's built for tabs that switch which
- * component is rendered in place, not tabs that are each their own route. My Account's five
- * sections ARE each their own route (so profile/addresses/wallet are all directly linkable and
- * survive a refresh), so this is a small bespoke nav instead, styled to match the same visual
- * language (yellow underline on the active tab) rather than reusing TpTabsComponent's
- * component-scoped styles, which wouldn't apply outside that component anyway.
+ * My Account's five sections are each their own route (so profile/addresses/
+ * wallet are all directly linkable and survive a refresh), so this uses
+ * Angular Material's router-aware `mat-tab-nav-bar` / `mat-tab-link` rather
+ * than TpTabsComponent (which is index-based, for tabs that swap which
+ * component renders in place rather than tabs that navigate).
+ *
+ * This replaces a previous hand-rolled `<nav>` that set `overflow-x: auto`
+ * without an explicit `overflow-y`. Per the CSS overflow spec, when only one
+ * axis is set to something other than `visible`, browsers force the other
+ * axis to `auto` too — so that nav could silently pick up its own tiny
+ * internal vertical scroll region. `mat-tab-nav-bar` handles genuine overflow
+ * itself, with proper pagination arrows instead of a stray native scrollbar,
+ * so this whole class of bug goes away.
  */
 @Component({
   selector: 'tp-account-nav',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive],
+  imports: [RouterLink, RouterLinkActive, MatTabsModule],
   template: `
-    <nav class="tp-account-nav" aria-label="My Account">
-      <a routerLink="/my-bookings" routerLinkActive="tp-account-nav__link--active" [routerLinkActiveOptions]="{ exact: true }">
+    <nav mat-tab-nav-bar class="tp-account-nav" aria-label="My Account" [disableRipple]="false">
+      <a
+        mat-tab-link
+        routerLink="/my-bookings"
+        routerLinkActive
+        #bookingsLink="routerLinkActive"
+        [routerLinkActiveOptions]="{ exact: true }"
+        [active]="bookingsLink.isActive"
+      >
         Bookings
       </a>
-      <a routerLink="/my-bookings/profile" routerLinkActive="tp-account-nav__link--active">Profile</a>
-      <a routerLink="/my-bookings/addresses" routerLinkActive="tp-account-nav__link--active">Addresses</a>
-      <a routerLink="/my-bookings/wallet" routerLinkActive="tp-account-nav__link--active">Wallet</a>
-      <a routerLink="/my-bookings/cancellations" routerLinkActive="tp-account-nav__link--active">Cancellations &amp; Refunds</a>
+      <a mat-tab-link routerLink="/my-bookings/profile" routerLinkActive #profileLink="routerLinkActive" [active]="profileLink.isActive">
+        Profile
+      </a>
+      <a
+        mat-tab-link
+        routerLink="/my-bookings/addresses"
+        routerLinkActive
+        #addressesLink="routerLinkActive"
+        [active]="addressesLink.isActive"
+      >
+        Addresses
+      </a>
+      <a mat-tab-link routerLink="/my-bookings/wallet" routerLinkActive #walletLink="routerLinkActive" [active]="walletLink.isActive">
+        Wallet
+      </a>
+      <a
+        mat-tab-link
+        routerLink="/my-bookings/cancellations"
+        routerLinkActive
+        #cancellationsLink="routerLinkActive"
+        [active]="cancellationsLink.isActive"
+      >
+        Cancellations &amp; Refunds
+      </a>
     </nav>
   `,
   styles: [
     `
       .tp-account-nav {
-        display: flex;
-        gap: var(--tp-space-2);
-        border-bottom: 1px solid var(--tp-border);
         margin-bottom: var(--tp-space-5);
-        overflow-x: auto;
-      }
-
-      .tp-account-nav a {
-        white-space: nowrap;
-        padding: var(--tp-space-3) var(--tp-space-2);
-        font-weight: 600;
-        font-size: 14px;
-        color: var(--tp-text-muted);
-        border-bottom: 2px solid transparent;
-        margin-bottom: -1px;
-        transition:
-          color var(--tp-transition-fast),
-          border-color var(--tp-transition-fast);
-      }
-
-      .tp-account-nav a:hover {
-        color: var(--tp-text);
-      }
-
-      .tp-account-nav__link--active {
-        color: var(--tp-text);
-        border-bottom-color: var(--tp-yellow-dark);
+        border-bottom: 1px solid var(--tp-border);
+        --mat-tab-header-label-text-weight: 600;
+        --mat-tab-header-label-text-size: 14px;
+        --mat-tab-header-label-text-tracking: 0.01em;
       }
     `,
   ],

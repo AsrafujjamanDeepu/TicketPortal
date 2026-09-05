@@ -3,10 +3,14 @@ import { Component, Input } from '@angular/core';
 let nextLogoId = 0;
 
 /**
- * The TicketPortal brand mark — a single reusable SVG badge that replaces
- * the old placeholder emoji icons that used to stand in for a real logo.
- * A winding route resolving into a pin reads as "journey / destination"
- * without leaning on a literal cartoon bus.
+ * The TicketPortal brand mark — a single reusable SVG badge, literally a
+ * ticket (rounded stub, two punched-out side notches, a dashed tear-line)
+ * rather than an abstract route/pin glyph, so the icon reads as "bus ticket
+ * booking" at a glance, including at favicon size.
+ *
+ * Gradient stops are driven by CSS variables (--tp-brand-1/2/3, defined in
+ * apps/frontend/src/styles/theme-overrides.css) so the mark always follows
+ * the app's current brand palette instead of hardcoding a color here.
  *
  * Usage:
  *   <tp-logo />                      // 32px badge only
@@ -29,20 +33,17 @@ let nextLogoId = 0;
       >
         <defs>
           <linearGradient [attr.id]="gradientId" x1="4" y1="2" x2="36" y2="38" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stop-color="#FFD25E" />
-            <stop offset="0.55" stop-color="#FFA726" />
-            <stop offset="1" stop-color="#FF7A1A" />
+            <stop offset="0" style="stop-color: var(--tp-brand-1, #74a9ff)" />
+            <stop offset="0.55" style="stop-color: var(--tp-brand-2, #2f6fed)" />
+            <stop offset="1" style="stop-color: var(--tp-brand-3, #123a92)" />
           </linearGradient>
         </defs>
         <rect width="40" height="40" rx="11" [attr.fill]="'url(#' + gradientId + ')'" />
-        <path
-          d="M10.5 27.5C10.5 18 15.5 13.5 20 13.5C24.5 13.5 24 19.5 18.5 20.7C14 21.7 14.5 26.3 19 27.2C23 28 26.5 25 27.5 19.5"
-          stroke="white"
-          stroke-width="2.6"
-          stroke-linecap="round"
-          fill="none"
-        />
-        <circle cx="27.7" cy="14" r="2.9" fill="white" />
+        <!-- Ticket silhouette: a stub with two punched side-notches and a tear-line. -->
+        <rect x="7" y="13" width="26" height="14" rx="3.2" stroke="white" stroke-width="2" fill="none" />
+        <circle cx="7" cy="20" r="2.8" [attr.fill]="'url(#' + gradientId + ')'" />
+        <circle cx="33" cy="20" r="2.8" [attr.fill]="'url(#' + gradientId + ')'" />
+        <line x1="21.5" y1="15.2" x2="21.5" y2="24.8" stroke="white" stroke-width="2" stroke-dasharray="2.2 2.4" stroke-linecap="round" />
       </svg>
       @if (wordmark) {
         <span class="tp-logo__word">TicketPortal</span>
@@ -61,7 +62,7 @@ let nextLogoId = 0;
       .tp-logo svg {
         display: block;
         flex-shrink: 0;
-        filter: drop-shadow(0 4px 10px rgba(255, 138, 20, 0.35));
+        filter: drop-shadow(0 4px 10px rgba(47, 111, 237, 0.35));
       }
 
       .tp-logo__word {

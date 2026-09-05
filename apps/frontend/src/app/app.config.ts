@@ -1,6 +1,8 @@
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideNativeDateAdapter } from '@angular/material/core';
 
 import { appRoutes } from './app.routes';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
@@ -14,5 +16,9 @@ export const appConfig: ApplicationConfig = {
     // Order matters: loading starts first (outermost), then auth attaches
     // the token, then error normalizes whatever comes back last.
     provideHttpClient(withInterceptors([loadingInterceptor, authInterceptor, errorInterceptor])),
+    // Angular Material (tab nav bar, form fields, datepicker, button ripple)
+    // needs the animations driver and a date adapter for mat-datepicker.
+    provideAnimationsAsync(),
+    provideNativeDateAdapter(),
   ],
 };
