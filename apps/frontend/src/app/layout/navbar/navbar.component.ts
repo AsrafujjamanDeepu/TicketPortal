@@ -16,7 +16,7 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
   standalone: true,
   imports: [RouterLink, RouterLinkActive, TpButtonDirective, TpLogoComponent, MatMenuModule, MatIconModule],
   template: `
-    <header class="tp-navbar tp-glass">
+    <header class="tp-navbar">
       <div class="tp-navbar__inner">
         <a routerLink="/search" class="tp-navbar__brand">
           <tp-logo [size]="34" />
@@ -75,7 +75,8 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
   styles: [
     `
       .tp-navbar {
-        border-bottom: 1px solid var(--tp-border);
+        background: var(--tp-bg);
+        border-bottom: 3px solid var(--tp-border);
         position: sticky;
         top: 0;
         z-index: 100;
@@ -98,7 +99,7 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
       }
 
       .tp-navbar__brand:hover {
-        transform: translateY(-1px);
+        transform: translate(1px, 1px);
       }
 
       .tp-navbar__links {
@@ -155,18 +156,17 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
         display: flex;
         align-items: center;
         gap: var(--tp-space-2);
-        border: 1px solid var(--tp-border);
+        border: 2px solid var(--tp-text);
         background: var(--tp-surface);
-        border-radius: var(--tp-radius-pill, 999px);
         padding: 4px 10px 4px 4px;
         cursor: pointer;
         font: inherit;
-        transition: border-color var(--tp-transition-fast), box-shadow var(--tp-transition-fast);
+        transition: transform var(--tp-transition-fast), box-shadow var(--tp-transition-fast);
       }
 
       .tp-navbar__account:hover {
-        border-color: var(--tp-yellow);
-        box-shadow: 0 0 0 3px var(--tp-yellow-tint);
+        box-shadow: 3px 3px 0 #000000;
+        transform: translate(-3px, -3px);
       }
 
       .tp-navbar__avatar {

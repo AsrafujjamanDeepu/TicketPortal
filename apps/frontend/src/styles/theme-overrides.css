@@ -1,76 +1,203 @@
 /* =============================================================================
-   TicketPortal — Customer Frontend Theme Override — "Sky Blue"
+   TicketPortal — Customer Frontend Theme Override — "Neo-Brutalist"
    -----------------------------------------------------------------------------
-   The shared tokens in libs/shared/design-tokens/tokens.css are the single
-   source of truth for BOTH apps/frontend (Angular) and apps/admin (React) —
-   that file is intentionally left untouched so the Platform Admin Dashboard
-   keeps its existing "sunrise gold" look exactly as-is.
+   Supersedes the earlier "Sky Blue" premium/gradient theme with a Neo-
+   Brutalist visual language: flat colors (no gradients, no blurred glass),
+   pure-black hard-edged borders, offset drop-shadows with zero blur, and
+   square corners everywhere.
 
-   This file is loaded ONLY by apps/frontend (see project.json's "styles"
-   array), after tokens.css/components.css, so it simply re-declares the same
-   custom-property names at :root with new values. Because CSS custom
-   properties resolve at used-value time, every shared component that already
-   reads var(--tp-yellow), var(--tp-gradient-brand), etc. — buttons, cards,
-   pills, the logo, empty states, the navbar/footer — re-themes automatically.
-   No component template had to change for the color swap.
+   As before, this file is loaded ONLY by apps/frontend (see project.json's
+   "styles" array), after tokens.css/components.css — so libs/shared/design-
+   tokens and apps/admin are completely untouched; admin keeps its current
+   look exactly. This file does two things:
 
-   Semantic status colors (success/danger/warning/info) are intentionally left
-   alone: they carry meaning (paid/cancelled/pending/etc.) that shouldn't
-   change just because the brand accent did.
+   1. Re-declares the shared --tp-* custom properties (same names the shared
+      components already read) with brutalist values — colors, shadows, and
+      radii mostly flow through automatically this way, no template changes
+      needed.
+   2. A handful of supplemental rules below the `:root` block, for the few
+      things that AREN'T token-driven in the shared components.css (e.g.
+      border-WIDTH is hardcoded to 1px there, only border-COLOR is a
+      variable) — these target the shared class names directly. Loading
+      after components.css means plain equal-specificity overrides win the
+      cascade without needing !important.
+
+   Semantic status colors (success/danger/warning/info) are intentionally
+   left alone — they still carry real meaning (paid/cancelled/pending/etc.).
    ============================================================================= */
 
 :root {
-  /* ---- Color: surfaces — crisp white with a cool, faint blue cast -------- */
+  /* ---- Color: surfaces — flat paper white, no soft/blue-tinted washes --- */
   --tp-bg: #ffffff;
-  --tp-bg-soft: #f4f8ff;
+  --tp-bg-soft: #f2f2f2;
   --tp-surface: #ffffff;
-  --tp-surface-alt: #eaf1fd;
-  --tp-border: #dde6f7;
+  --tp-surface-alt: #f2f2f2;
+  --tp-border: #000000; /* every "1px solid var(--tp-border)" in the shared CSS is now a hard black line for free */
 
-  /* ---- Color: brand / accent (sky blue) ----------------------------------
-     Same token names as the shared "sunrise gold" theme (--tp-yellow*) are
-     kept on purpose — every consuming component already reads these names,
-     so reusing them is what makes the re-theme automatic. Think of them as
-     "brand accent" slots rather than literally "yellow" from here on. */
-  --tp-yellow: #2f6fed; /* primary brand blue */
-  --tp-yellow-dark: #1c4fc4; /* hover/pressed */
-  --tp-yellow-tint: #e4edfe; /* badges, selected fill, focus rings */
-  --tp-yellow-2: #17b8e8; /* secondary gradient stop — bright sky cyan */
+  /* ---- Color: brand / accent — "Electric" blue, used FLAT (no gradient) -
+     Same token names the shared "Sky Blue" theme used are kept on purpose
+     (every consumer already reads these) — the values are just flat colors
+     now instead of gradient/soft-tint values. */
+  --tp-yellow: #2b2bff; /* primary — electric blue */
+  --tp-yellow-dark: #1616b8; /* hover/pressed */
+  --tp-yellow-tint: #e2e2ff; /* focus rings, selected fill */
+  --tp-yellow-2: #d6ff3b; /* "acid" signal accent — used sparingly (one stripe, one badge), not as a second gradient stop */
 
-  --tp-gradient-brand: linear-gradient(135deg, #5b9bff 0%, #2f6fed 55%, #1544b0 100%);
-  --tp-gradient-brand-hover: linear-gradient(135deg, #3f82ff 0%, #1c4fc4 55%, #0e3690 100%);
-  --tp-gradient-mesh: radial-gradient(circle at 15% 20%, rgba(47, 111, 237, 0.16), transparent 45%),
-    radial-gradient(circle at 85% 0%, rgba(23, 184, 232, 0.14), transparent 45%),
-    radial-gradient(circle at 50% 100%, rgba(91, 155, 255, 0.12), transparent 55%);
+  /* No more gradients: these tokens are still consumed via `background:`,
+     so a flat color works as a drop-in — buttons/badges/icon-badges that
+     read var(--tp-gradient-brand) just render as a flat electric-blue fill. */
+  --tp-gradient-brand: #2b2bff;
+  --tp-gradient-brand-hover: #1616b8;
+  --tp-gradient-mesh: none; /* kill the soft ambient blob wash entirely — flat backgrounds only */
 
-  /* Extra gradient stops used by the ticket logo mark specifically. */
-  --tp-brand-1: #74a9ff;
-  --tp-brand-2: #2f6fed;
-  --tp-brand-3: #123a92;
+  /* Bold, blocky display font instead of the rounder Poppins — brutalist
+     type wants to look structural, not friendly/soft. Body copy stays on
+     Inter for readability. */
+  --tp-font-heading: 'Space Grotesk', 'Segoe UI', sans-serif;
 
-  /* ---- Color: "ink" (footer band, auth hero panel) — bright, not dark ----
-     The name is inherited from the shared token contract (components still
-     read var(--tp-ink) expecting "the app's one non-white surface colour"),
-     but the value itself is a bright, smooth sky-blue gradient rather than
-     a dark/near-black tone — this is the one deliberately "not white, not
-     brand-primary" surface in the app, used for the footer band and the
-     login/register hero panel. --tp-ink-text stays white: it still has
-     strong contrast against this brighter blue, so no component that reads
-     it needed to change. */
-  --tp-ink: linear-gradient(135deg, #57a2ff 0%, #2f6fed 55%, #1f8fe0 100%);
-  --tp-ink-soft: #3f82ff;
-  --tp-ink-border: rgba(255, 255, 255, 0.22);
+  /* Logo mark gradient stops — all three equal, so the SVG "gradient" in
+     tp-logo.component.ts renders as one flat electric-blue block. */
+  --tp-brand-1: #2b2bff;
+  --tp-brand-2: #2b2bff;
+  --tp-brand-3: #2b2bff;
+
+  /* ---- Color: "ink" (footer band, auth hero panel) -----------------------
+     Flat electric blue, same as the primary brand color — reused
+     deliberately rather than introducing a second dark tone; bold, repeated
+     flat color blocks are more the brutalist move than a near-black band. */
+  --tp-ink: #2b2bff;
+  --tp-ink-soft: #1616b8;
+  --tp-ink-border: rgba(255, 255, 255, 0.35);
   --tp-ink-text: #ffffff;
-  --tp-ink-text-muted: rgba(255, 255, 255, 0.78);
+  --tp-ink-text-muted: rgba(255, 255, 255, 0.8);
 
-  /* ---- Color: text — cool neutral instead of warm neutral --------------- */
-  --tp-text: #16213e;
-  --tp-text-muted: #5c6b85;
-  --tp-text-on-yellow: #ffffff; /* white reads fine on this blue — unlike the old yellow */
+  /* ---- Color: text — pure black, not a soft near-black ------------------ */
+  --tp-text: #000000;
+  --tp-text-muted: #4a4a4a;
+  --tp-text-on-yellow: #ffffff;
 
-  /* ---- Shadows — blue-tinted instead of amber-tinted --------------------- */
-  --tp-shadow-card: 0 1px 2px rgba(16, 33, 62, 0.05), 0 10px 24px rgba(16, 33, 62, 0.07);
-  --tp-shadow-elevated: 0 12px 20px rgba(16, 33, 62, 0.09), 0 28px 56px rgba(16, 33, 62, 0.15);
-  --tp-shadow-glow: 0 10px 24px rgba(47, 111, 237, 0.3), 0 2px 6px rgba(47, 111, 237, 0.2);
-  --tp-shadow-glow-lg: 0 22px 48px rgba(47, 111, 237, 0.36), 0 4px 12px rgba(47, 111, 237, 0.2);
+  /* ---- Shadows — hard, offset, zero-blur "block" shadows ----------------
+     The signature Neo-Brutalist depth cue: a flat-color block sits a fixed
+     distance behind its element instead of a soft blurred glow. */
+  --tp-shadow-card: 4px 4px 0 #000000;
+  --tp-shadow-elevated: 6px 6px 0 #000000;
+  --tp-shadow-glow: 4px 4px 0 #000000;
+  --tp-shadow-glow-lg: 6px 6px 0 #000000;
+
+  /* ---- Radius — square corners everywhere -------------------------------
+     Zeroing every radius token (including "pill") turns rounded buttons,
+     cards, and status pills into sharp-cornered blocks/tags automatically,
+     with no template changes, since every shared component already reads
+     one of these tokens for its border-radius. */
+  --tp-radius-sm: 0px;
+  --tp-radius-md: 0px;
+  --tp-radius-lg: 0px;
+  --tp-radius-xl: 0px;
+  --tp-radius-pill: 0px;
+
+  /* Angular Material's M3 shape system — squares off mat-form-field,
+     mat-menu, mat-datepicker, etc. the same way, for anything Material
+     renders that isn't covered by the supplemental rules below. */
+  --mat-sys-corner-none: 0px;
+  --mat-sys-corner-extra-small: 0px;
+  --mat-sys-corner-small: 0px;
+  --mat-sys-corner-medium: 0px;
+  --mat-sys-corner-large: 0px;
+  --mat-sys-corner-extra-large: 0px;
+  --mat-sys-corner-full: 0px;
+}
+
+/* =============================================================================
+   Supplemental structural overrides — for the handful of properties the
+   shared components.css hardcodes (mainly border-WIDTH) rather than driving
+   through a --tp-* variable, plus a couple of "soft/premium" touches (the
+   button shine-sweep, the blurred glass navbar) that don't fit a raw,
+   unpolished aesthetic and have no token to override.
+   ============================================================================= */
+
+.tp-btn {
+  border-width: 3px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* The soft diagonal light-sweep on primary-button hover reads as "premium
+   gloss" — the opposite of raw/unpolished, so it's switched off here. */
+.tp-btn--primary::after {
+  content: none;
+}
+
+/* Brutalist "press": the button sits on top of its hard shadow at rest: on
+   press, it shifts down-right by the shadow's own offset and the shadow
+   disappears — it reads as the block physically settling onto the page,
+   instead of Material's subtle translateY+scale micro-lift. */
+.tp-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.tp-btn--primary:hover:not(:disabled),
+.tp-btn--danger:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+}
+
+.tp-btn--danger {
+  background: #ff2d55;
+  box-shadow: var(--tp-shadow-glow);
+}
+
+.tp-card,
+.tp-pill--neutral {
+  border-width: 2px;
+}
+
+.tp-card--hoverable:hover {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+/* Status pills: solid black outline instead of a borderless tint chip. */
+.tp-pill {
+  border: 2px solid var(--tp-text);
+}
+
+/* The sticky navbar used the shared .tp-glass utility (blurred translucent
+   background) — swapped for a flat surface with a hard bottom border in
+   navbar.component.ts directly, so this just neutralizes .tp-glass itself
+   in case anything else on the page ever applies it. */
+.tp-glass {
+  background: var(--tp-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.tp-badge,
+.tp-icon-badge {
+  border: 2px solid var(--tp-text);
+}
+
+/* ---- Angular Material — square corners + solid borders on the pieces
+   this app actually uses (mat-menu, mat-form-field, mat-tab-nav-bar). The
+   --mat-sys-corner-* overrides above handle most of this on their own;
+   these fill in the couple of spots Material renders with its own fixed
+   shape instead of reading the shape system tokens. ------------------------ */
+
+.mat-mdc-menu-panel {
+  border-radius: 0 !important;
+  border: 2px solid #000000;
+  box-shadow: 4px 4px 0 #000000 !important;
+}
+
+.mat-mdc-form-field .mdc-notched-outline__leading,
+.mat-mdc-form-field .mdc-notched-outline__notch,
+.mat-mdc-form-field .mdc-notched-outline__trailing {
+  border-radius: 0 !important;
+}
+
+.mat-datepicker-content {
+  border-radius: 0 !important;
+  border: 2px solid #000000;
+  box-shadow: 4px 4px 0 #000000 !important;
 }

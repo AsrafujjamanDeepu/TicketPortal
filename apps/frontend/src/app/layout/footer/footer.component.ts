@@ -24,7 +24,7 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
     `
       .tp-footer {
         background: var(--tp-ink);
-        margin-top: var(--tp-space-7);
+        margin-top: var(--tp-space-5);
         position: relative;
       }
 
@@ -34,14 +34,17 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
         top: 0;
         left: 0;
         right: 0;
-        height: 3px;
-        background: var(--tp-gradient-brand);
+        height: 4px;
+        /* Flat electric-blue is now the SAME color as --tp-ink itself (see
+           theme-overrides.css) — the acid accent is what actually shows up
+           as a stripe here instead of disappearing into the background. */
+        background: var(--tp-yellow-2);
       }
 
       .tp-footer__inner {
         max-width: 1200px;
         margin: 0 auto;
-        padding: var(--tp-space-6) var(--tp-space-5);
+        padding: var(--tp-space-4) var(--tp-space-5);
         display: flex;
         justify-content: space-between;
         align-items: flex-end;
