@@ -2,6 +2,7 @@ using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Diagnostics;
 using TicketPortal.Api.Models.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -159,6 +160,39 @@ namespace TicketPortal.Api.Controllers
                 // IReadOnlyCollection<string> — .ToList() here is required to compile, not optional.
                 Roles = roles.ToList()
             });
+        }
+
+        // [Authorize] on the action, not the class — this stays the one controller that's
+        // reachable without a token (see the class-level comment above); this is just the one
+        // action on it that needs an existing, valid token to know WHOSE password to change.
+        [HttpPost("change-password")]
+        [Authorize]
+        public async Task<IActionResult> ChangePassword(ChangePasswordDto dto)
+        {
+            // Same NameIdentifier-claim pattern BookingsController.ResolveOrCreateCustomerProfileIdAsync
+            // uses — the target user always comes from the bearer token, never the request body.
+            var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(claim, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            var user = await userManager.FindByIdAsync(userId.ToString());
+            if (user == null)
+            {
+                return Unauthorized();
+            }
+
+            // ChangePasswordAsync itself verifies dto.CurrentPassword against the stored hash
+            // before applying dto.NewPassword — this one call does both the "prove you're really
+            // you" check and the update, so there's no separate CheckPasswordAsync step needed.
+            var result = await userManager.ChangePasswordAsync(user, dto.CurrentPassword, dto.NewPassword);
+            if (!result.Succeeded)
+            {
+                return BadRequest(result.Errors.Select(e => e.Description));
+            }
+
+            return NoContent();
         }
     }
 }

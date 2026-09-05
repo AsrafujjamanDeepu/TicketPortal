@@ -1,5 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { MatMenuModule } from '@angular/material/menu';
+import { MatIconModule } from '@angular/material/icon';
 import { AuthService } from '../../core/services/auth.service';
 import { TpButtonDirective } from '../../shared/ui/button/tp-button.directive';
 import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
@@ -12,7 +14,7 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
 @Component({
   selector: 'tp-navbar',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, TpButtonDirective, TpLogoComponent],
+  imports: [RouterLink, RouterLinkActive, TpButtonDirective, TpLogoComponent, MatMenuModule, MatIconModule],
   template: `
     <header class="tp-navbar tp-glass">
       <div class="tp-navbar__inner">
@@ -41,11 +43,27 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
 
         <div class="tp-navbar__actions">
           @if (auth.isAuthenticated()) {
-            <span class="tp-navbar__user">
+            <button type="button" class="tp-navbar__account" [matMenuTriggerFor]="accountMenu">
               <span class="tp-navbar__avatar">{{ initial() }}</span>
-              {{ auth.currentUser()?.userName }}
-            </span>
-            <button tpButton variant="secondary" size="sm" (click)="logout()">Log out</button>
+              <span class="tp-navbar__username">{{ auth.currentUser()?.userName }}</span>
+              <mat-icon class="tp-navbar__chevron">expand_more</mat-icon>
+            </button>
+            <mat-menu #accountMenu="matMenu" xPosition="before" class="tp-account-menu">
+              @if (auth.hasRole('Customer')) {
+                <a mat-menu-item routerLink="/my-bookings/profile">
+                  <mat-icon>person</mat-icon>
+                  <span>My Profile</span>
+                </a>
+              }
+              <a mat-menu-item routerLink="/account/change-password">
+                <mat-icon>lock</mat-icon>
+                <span>Change Password</span>
+              </a>
+              <button mat-menu-item type="button" (click)="logout()">
+                <mat-icon>logout</mat-icon>
+                <span>Logout</span>
+              </button>
+            </mat-menu>
           } @else {
             <a routerLink="/auth/login"><button tpButton variant="secondary" size="sm">Log in</button></a>
             <a routerLink="/auth/register"><button tpButton variant="primary" size="sm">Sign up</button></a>
@@ -133,13 +151,22 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
         gap: var(--tp-space-3);
       }
 
-      .tp-navbar__user {
+      .tp-navbar__account {
         display: flex;
         align-items: center;
         gap: var(--tp-space-2);
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--tp-text-muted);
+        border: 1px solid var(--tp-border);
+        background: var(--tp-surface);
+        border-radius: var(--tp-radius-pill, 999px);
+        padding: 4px 10px 4px 4px;
+        cursor: pointer;
+        font: inherit;
+        transition: border-color var(--tp-transition-fast), box-shadow var(--tp-transition-fast);
+      }
+
+      .tp-navbar__account:hover {
+        border-color: var(--tp-yellow);
+        box-shadow: 0 0 0 3px var(--tp-yellow-tint);
       }
 
       .tp-navbar__avatar {
@@ -153,10 +180,32 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
         color: var(--tp-text-on-yellow);
         font-size: 12px;
         font-weight: 700;
+        flex-shrink: 0;
+      }
+
+      .tp-navbar__username {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--tp-text);
+        max-width: 160px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tp-navbar__chevron {
+        font-size: 18px;
+        width: 18px;
+        height: 18px;
+        color: var(--tp-text-muted);
       }
 
       @media (max-width: 720px) {
         .tp-navbar__links {
+          display: none;
+        }
+
+        .tp-navbar__username {
           display: none;
         }
       }

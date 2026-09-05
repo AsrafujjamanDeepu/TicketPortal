@@ -48,13 +48,20 @@
   --tp-brand-2: #2f6fed;
   --tp-brand-3: #123a92;
 
-  /* ---- Color: ink (dark surfaces — footer, hero panels, dark chrome) ----
-     Deep navy instead of near-black, so dark sections still read "blue". */
-  --tp-ink: #0b1c3d;
-  --tp-ink-soft: #122a54;
-  --tp-ink-border: rgba(255, 255, 255, 0.1);
-  --tp-ink-text: #f2f6ff;
-  --tp-ink-text-muted: rgba(242, 246, 255, 0.66);
+  /* ---- Color: "ink" (footer band, auth hero panel) — bright, not dark ----
+     The name is inherited from the shared token contract (components still
+     read var(--tp-ink) expecting "the app's one non-white surface colour"),
+     but the value itself is a bright, smooth sky-blue gradient rather than
+     a dark/near-black tone — this is the one deliberately "not white, not
+     brand-primary" surface in the app, used for the footer band and the
+     login/register hero panel. --tp-ink-text stays white: it still has
+     strong contrast against this brighter blue, so no component that reads
+     it needed to change. */
+  --tp-ink: linear-gradient(135deg, #57a2ff 0%, #2f6fed 55%, #1f8fe0 100%);
+  --tp-ink-soft: #3f82ff;
+  --tp-ink-border: rgba(255, 255, 255, 0.22);
+  --tp-ink-text: #ffffff;
+  --tp-ink-text-muted: rgba(255, 255, 255, 0.78);
 
   /* ---- Color: text — cool neutral instead of warm neutral --------------- */
   --tp-text: #16213e;

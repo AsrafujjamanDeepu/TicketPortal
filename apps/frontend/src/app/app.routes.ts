@@ -58,6 +58,16 @@ export const appRoutes: Routes = [
     title: 'Admin — TicketPortal',
   },
 
+  // Available to any authenticated user regardless of role (Staff/Operator/Admin need to
+  // change their password too) — deliberately NOT under 'my-bookings', which is Customer-only.
+  {
+    path: 'account/change-password',
+    loadComponent: () =>
+      import('./features/account/change-password/change-password.component').then((m) => m.ChangePasswordComponent),
+    canActivate: [authGuard],
+    title: 'Change Password — TicketPortal',
+  },
+
   {
     path: 'not-authorized',
     loadComponent: () => import('./layout/not-authorized/not-authorized.component').then((m) => m.NotAuthorizedComponent),

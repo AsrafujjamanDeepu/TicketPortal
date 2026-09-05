@@ -16,6 +16,12 @@ export interface LoginRequest {
   password: string;
 }
 
+// Mirrors DTO/AuthDtos.cs -> ChangePasswordDto.
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
 // Mirrors DTO/AuthDtos.cs -> AuthResponseDto. `expiresAtUtc` comes back as
 // an ISO string over JSON — convert to a Date only where you actually need
 // to do date math (AuthService does this once, on login).

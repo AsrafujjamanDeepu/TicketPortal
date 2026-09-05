@@ -30,6 +30,18 @@ namespace TicketPortal.Api.DTO
         public string Password { get; set; } = string.Empty;
     }
 
+    // POST /api/account/change-password — [Authorize]'d, so the target user is always "whoever
+    // the bearer token belongs to", never a body-supplied id (that would let any logged-in user
+    // change anyone else's password just by knowing their id).
+    public class ChangePasswordDto
+    {
+        [Required]
+        public string CurrentPassword { get; set; } = string.Empty;
+
+        [Required, MinLength(6)]
+        public string NewPassword { get; set; } = string.Empty;
+    }
+
     public class AuthResponseDto
     {
         // Paste this into Postman's Authorization tab as a Bearer token for every other endpoint.

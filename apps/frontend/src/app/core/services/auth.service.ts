@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
-import { AppRole, AuthResponse, CurrentUser, LoginRequest, RegisterRequest } from '@ticketportal-mono/models';
+import { AppRole, AuthResponse, ChangePasswordRequest, CurrentUser, LoginRequest, RegisterRequest } from '@ticketportal-mono/models';
 
 const STORAGE_KEY = 'tp_auth';
 
@@ -41,6 +41,11 @@ export class AuthService {
   logout(): void {
     localStorage.removeItem(STORAGE_KEY);
     this._currentUser.set(null);
+  }
+
+  /** POST /api/account/change-password. Available to any authenticated user, any role — the target user is always "whoever the bearer token belongs to" (see AccountController). */
+  changePassword(request: ChangePasswordRequest): Observable<void> {
+    return this.api.post<void>('account/change-password', request);
   }
 
   getToken(): string | null {
