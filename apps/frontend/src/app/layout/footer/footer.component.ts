@@ -35,10 +35,11 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
         left: 0;
         right: 0;
         height: 4px;
-        /* Flat electric-blue is now the SAME color as --tp-ink itself (see
-           theme-overrides.css) — the acid accent is what actually shows up
-           as a stripe here instead of disappearing into the background. */
-        background: var(--tp-yellow-2);
+        /* A soft white sheen reads as "catching the light" against the
+           icy-blue-to-peach prism gradient panel — stays visible across
+           the whole width, unlike a solid accent color that would blend
+           into whichever end of the gradient matches it. */
+        background: rgba(255, 255, 255, 0.9);
       }
 
       .tp-footer__inner {

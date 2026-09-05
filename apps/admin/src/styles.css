@@ -155,7 +155,10 @@ a {
 .logo svg {
   display: block;
   flex-shrink: 0;
-  filter: drop-shadow(0 4px 10px rgba(255, 138, 20, 0.35));
+  /* Matches the frontend logo's icy-blue-tinted glow (see
+     apps/frontend/src/app/shared/ui/logo/tp-logo.component.ts) instead of
+     the old orange one — admin's overall palette is otherwise unchanged. */
+  filter: drop-shadow(0 4px 10px rgba(168, 216, 234, 0.45));
 }
 
 .logo__word {

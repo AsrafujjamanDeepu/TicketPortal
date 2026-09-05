@@ -1,203 +1,140 @@
 /* =============================================================================
-   TicketPortal — Customer Frontend Theme Override — "Neo-Brutalist"
+   TicketPortal — Customer Frontend Theme Override — "Cloudy Glass"
+   (The Chromatic White)
    -----------------------------------------------------------------------------
-   Supersedes the earlier "Sky Blue" premium/gradient theme with a Neo-
-   Brutalist visual language: flat colors (no gradients, no blurred glass),
-   pure-black hard-edged borders, offset drop-shadows with zero blur, and
-   square corners everywhere.
+   Supersedes the Neo-Brutalist pass. Tech-forward, airy glassmorphism: a
+   barely-there warm-to-cool page gradient, translucent blurred glass cards,
+   two soft pastel accents (icy blue + peach), and the signature move —
+   colored (not grey/black) box-shadows, so glass panels look lit from
+   below/behind rather than merely "elevated."
 
    As before, this file is loaded ONLY by apps/frontend (see project.json's
    "styles" array), after tokens.css/components.css — so libs/shared/design-
-   tokens and apps/admin are completely untouched; admin keeps its current
-   look exactly. This file does two things:
+   tokens and apps/admin are untouched by this file. (Admin's LOGO was
+   updated to match this turn too, but that's a separate, explicit change to
+   apps/admin/src/components/Logo.tsx itself — not something that flows from
+   this override file, and admin's overall color scheme is still untouched.)
 
    1. Re-declares the shared --tp-* custom properties (same names the shared
-      components already read) with brutalist values — colors, shadows, and
-      radii mostly flow through automatically this way, no template changes
-      needed.
-   2. A handful of supplemental rules below the `:root` block, for the few
-      things that AREN'T token-driven in the shared components.css (e.g.
-      border-WIDTH is hardcoded to 1px there, only border-COLOR is a
-      variable) — these target the shared class names directly. Loading
-      after components.css means plain equal-specificity overrides win the
-      cascade without needing !important.
-
-   Semantic status colors (success/danger/warning/info) are intentionally
-   left alone — they still carry real meaning (paid/cancelled/pending/etc.).
+      components already read) with the new palette/shadows/radii — most of
+      the re-theme flows through automatically this way.
+   2. A few supplemental rules below `:root` for the one thing that isn't
+      fully token-driven in the shared components.css: the glass blur itself
+      (`backdrop-filter` isn't something a `background:` token can carry),
+      plus restoring the softer hover/press feel brutalism had stripped out.
    ============================================================================= */
 
 :root {
-  /* ---- Color: surfaces — flat paper white, no soft/blue-tinted washes --- */
-  --tp-bg: #ffffff;
-  --tp-bg-soft: #f2f2f2;
-  --tp-surface: #ffffff;
-  --tp-surface-alt: #f2f2f2;
-  --tp-border: #000000; /* every "1px solid var(--tp-border)" in the shared CSS is now a hard black line for free */
+  /* ---- Color: page background — the "60%" — a full-page diagonal wash,
+     warm cream to cool blue-grey, subtle enough most people won't
+     consciously clock it. `--tp-bg` is consumed via `background:` on
+     <body>, so a gradient value works as a drop-in for what was a flat
+     color before. */
+  --tp-bg: linear-gradient(135deg, #fdfbf7 0%, #f2f4f8 100%);
+  --tp-bg-soft: #f5f3ef;
+  --tp-surface: rgba(255, 255, 255, 0.7);
+  --tp-surface-alt: #edf2f7;
+  --tp-border: #e2e4ea; /* general/non-glass borders — buttons, tables, dividers */
 
-  /* ---- Color: brand / accent — "Electric" blue, used FLAT (no gradient) -
-     Same token names the shared "Sky Blue" theme used are kept on purpose
-     (every consumer already reads these) — the values are just flat colors
-     now instead of gradient/soft-tint values. */
-  --tp-yellow: #2b2bff; /* primary — electric blue */
-  --tp-yellow-dark: #1616b8; /* hover/pressed */
-  --tp-yellow-tint: #e2e2ff; /* focus rings, selected fill */
-  --tp-yellow-2: #d6ff3b; /* "acid" signal accent — used sparingly (one stripe, one badge), not as a second gradient stop */
+  /* ---- Color: accents — the "10%" ---------------------------------------
+     Two pastel accents used deliberately, not one dominant brand color.
+     Token NAMES are unchanged from earlier themes (every shared component
+     already reads these), values are the new palette:
+       --tp-yellow      -> icy baby blue (primary accent)
+       --tp-yellow-2    -> peach fuzz (secondary accent)
+       --tp-yellow-dark -> a slightly deeper icy blue for hover/pressed
+       --tp-yellow-tint -> a paler icy-blue wash for focus rings/hover fills */
+  --tp-yellow: #a8d8ea;
+  --tp-yellow-dark: #7ec2dc;
+  --tp-yellow-tint: #eef8fb;
+  --tp-yellow-2: #ffd3b4;
 
-  /* No more gradients: these tokens are still consumed via `background:`,
-     so a flat color works as a drop-in — buttons/badges/icon-badges that
-     read var(--tp-gradient-brand) just render as a flat electric-blue fill. */
-  --tp-gradient-brand: #2b2bff;
-  --tp-gradient-brand-hover: #1616b8;
-  --tp-gradient-mesh: none; /* kill the soft ambient blob wash entirely — flat backgrounds only */
+  /* The "prism" gradient — icy blue through a soft lavender to peach.
+     Used for primary buttons, icon-badges, and the logo mark, so the one
+     recurring flourish across the app is literally "light through a
+     prism", matching the brief's framing. */
+  --tp-gradient-brand: linear-gradient(135deg, #a8d8ea 0%, #d9c9f0 50%, #ffd3b4 100%);
+  --tp-gradient-brand-hover: linear-gradient(135deg, #7ec2dc 0%, #c7b2ea 50%, #f5b98a 100%);
+  --tp-gradient-mesh: radial-gradient(circle at 15% 20%, rgba(168, 216, 234, 0.38), transparent 45%),
+    radial-gradient(circle at 85% 0%, rgba(255, 211, 180, 0.32), transparent 45%),
+    radial-gradient(circle at 50% 100%, rgba(217, 201, 240, 0.28), transparent 55%);
 
-  /* Bold, blocky display font instead of the rounder Poppins — brutalist
-     type wants to look structural, not friendly/soft. Body copy stays on
-     Inter for readability. */
-  --tp-font-heading: 'Space Grotesk', 'Segoe UI', sans-serif;
+  /* Logo gradient stops — same three-color prism sweep as --tp-gradient-brand. */
+  --tp-brand-1: #a8d8ea;
+  --tp-brand-2: #d9c9f0;
+  --tp-brand-3: #ffd3b4;
 
-  /* Logo mark gradient stops — all three equal, so the SVG "gradient" in
-     tp-logo.component.ts renders as one flat electric-blue block. */
-  --tp-brand-1: #2b2bff;
-  --tp-brand-2: #2b2bff;
-  --tp-brand-3: #2b2bff;
+  /* Headings back to a rounder, friendlier face — "airy/magical" reads
+     better with Poppins than the blocky Space Grotesk brutalism used. */
+  --tp-font-heading: 'Poppins', 'Segoe UI', sans-serif;
 
   /* ---- Color: "ink" (footer band, auth hero panel) -----------------------
-     Flat electric blue, same as the primary brand color — reused
-     deliberately rather than introducing a second dark tone; bold, repeated
-     flat color blocks are more the brutalist move than a near-black band. */
-  --tp-ink: #2b2bff;
-  --tp-ink-soft: #1616b8;
-  --tp-ink-border: rgba(255, 255, 255, 0.35);
-  --tp-ink-text: #ffffff;
-  --tp-ink-text-muted: rgba(255, 255, 255, 0.8);
+     The full prism gradient at panel scale, rather than a flat/dark color —
+     this is the one place the icy-blue-to-peach sweep gets to be the star.
+     Both accents are pale, so text on top flips to dark here (unlike the
+     white text earlier "ink" themes used on a dark/saturated background). */
+  --tp-ink: linear-gradient(135deg, #a8d8ea 0%, #d9c9f0 50%, #ffd3b4 100%);
+  --tp-ink-soft: #cfe6ee;
+  --tp-ink-border: rgba(45, 42, 50, 0.14);
+  --tp-ink-text: #2d2a32;
+  --tp-ink-text-muted: rgba(45, 42, 50, 0.66);
 
-  /* ---- Color: text — pure black, not a soft near-black ------------------ */
-  --tp-text: #000000;
-  --tp-text-muted: #4a4a4a;
-  --tp-text-on-yellow: #ffffff;
+  /* ---- Color: text — soft warm charcoal, not pure black ------------------
+     Pure black felt harsh against a warm-cream/pastel palette; a warm dark
+     slate keeps the "airy" feel while staying easily readable. */
+  --tp-text: #2d2a32;
+  --tp-text-muted: #6b6875;
+  --tp-text-on-yellow: #2d2a32; /* dark text on the pale accent fills — white would fail contrast on baby blue/peach */
 
-  /* ---- Shadows — hard, offset, zero-blur "block" shadows ----------------
-     The signature Neo-Brutalist depth cue: a flat-color block sits a fixed
-     distance behind its element instead of a soft blurred glow. */
-  --tp-shadow-card: 4px 4px 0 #000000;
-  --tp-shadow-elevated: 6px 6px 0 #000000;
-  --tp-shadow-glow: 4px 4px 0 #000000;
-  --tp-shadow-glow-lg: 6px 6px 0 #000000;
+  /* ---- Shadows — colored, not grey/black — the "mindblowing trick" ------
+     Cards get an icy-blue glow; buttons/icon-badges/the logo get a peach
+     glow — so both accents show up as light sources somewhere on every
+     screen, rather than one flat neutral drop-shadow everywhere. Exact
+     values/spread match the brief. A .tp-card--peach utility below is
+     available for anyone who wants a specific card to glow peach instead. */
+  --tp-shadow-card: 0 15px 40px -10px #a8d8ea;
+  --tp-shadow-elevated: 0 20px 50px -8px #a8d8ea;
+  --tp-shadow-glow: 0 15px 40px -10px #ffd3b4;
+  --tp-shadow-glow-lg: 0 20px 50px -8px #ffd3b4;
 
-  /* ---- Radius — square corners everywhere -------------------------------
-     Zeroing every radius token (including "pill") turns rounded buttons,
-     cards, and status pills into sharp-cornered blocks/tags automatically,
-     with no template changes, since every shared component already reads
-     one of these tokens for its border-radius. */
-  --tp-radius-sm: 0px;
-  --tp-radius-md: 0px;
-  --tp-radius-lg: 0px;
-  --tp-radius-xl: 0px;
-  --tp-radius-pill: 0px;
-
-  /* Angular Material's M3 shape system — squares off mat-form-field,
-     mat-menu, mat-datepicker, etc. the same way, for anything Material
-     renders that isn't covered by the supplemental rules below. */
-  --mat-sys-corner-none: 0px;
-  --mat-sys-corner-extra-small: 0px;
-  --mat-sys-corner-small: 0px;
-  --mat-sys-corner-medium: 0px;
-  --mat-sys-corner-large: 0px;
-  --mat-sys-corner-extra-large: 0px;
-  --mat-sys-corner-full: 0px;
+  /* ---- Radius — soft and plush, the opposite of brutalism's sharp edges - */
+  --tp-radius-sm: 12px;
+  --tp-radius-md: 20px;
+  --tp-radius-lg: 28px;
+  --tp-radius-xl: 36px;
+  --tp-radius-pill: 999px;
 }
 
 /* =============================================================================
-   Supplemental structural overrides — for the handful of properties the
-   shared components.css hardcodes (mainly border-WIDTH) rather than driving
-   through a --tp-* variable, plus a couple of "soft/premium" touches (the
-   button shine-sweep, the blurred glass navbar) that don't fit a raw,
-   unpolished aesthetic and have no token to override.
+   Supplemental rules — just the actual glass effect. backdrop-filter isn't
+   something a background: token can carry, so .tp-card's blur/translucency
+   is set directly here rather than through --tp-surface/--tp-border. Every
+   other brutalist supplemental rule from the previous pass (thick borders,
+   hard press transforms, the squared Material corners, etc.) is gone
+   entirely now that this file has been rewritten from scratch — the shared
+   components.css defaults (soft hover lift, translateY+scale press) apply
+   again unmodified, which is exactly the softer feel this theme wants.
    ============================================================================= */
 
-.tp-btn {
-  border-width: 3px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+/* The "30%" — glass cards. background/border deliberately bypass the
+   --tp-surface/--tp-border tokens here to hit the brief's exact values
+   (translucent white + a near-white edge that "catches the light" against
+   the colored gradient-mesh backdrop behind it) without changing what
+   --tp-surface/--tp-border mean for ordinary, non-glass UI elsewhere. */
+.tp-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.8);
 }
 
-/* The soft diagonal light-sweep on primary-button hover reads as "premium
-   gloss" — the opposite of raw/unpolished, so it's switched off here. */
-.tp-btn--primary::after {
-  content: none;
+/* Opt-in: swap a specific card to the peach glow instead of the icy-blue
+   default, for the "different cards get different colored shadows" effect
+   in a spot that calls for it. */
+.tp-card--peach {
+  box-shadow: 0 15px 40px -10px #ffd3b4;
 }
 
-/* Brutalist "press": the button sits on top of its hard shadow at rest: on
-   press, it shifts down-right by the shadow's own offset and the shadow
-   disappears — it reads as the block physically settling onto the page,
-   instead of Material's subtle translateY+scale micro-lift. */
-.tp-btn:active:not(:disabled) {
-  transform: translate(4px, 4px);
-  box-shadow: none;
-}
-
-.tp-btn--primary:hover:not(:disabled),
-.tp-btn--danger:hover:not(:disabled) {
-  transform: none;
-  filter: none;
-}
-
-.tp-btn--danger {
-  background: #ff2d55;
-  box-shadow: var(--tp-shadow-glow);
-}
-
-.tp-card,
-.tp-pill--neutral {
-  border-width: 2px;
-}
-
-.tp-card--hoverable:hover {
-  transform: translate(3px, 3px);
-  box-shadow: none;
-}
-
-/* Status pills: solid black outline instead of a borderless tint chip. */
-.tp-pill {
-  border: 2px solid var(--tp-text);
-}
-
-/* The sticky navbar used the shared .tp-glass utility (blurred translucent
-   background) — swapped for a flat surface with a hard bottom border in
-   navbar.component.ts directly, so this just neutralizes .tp-glass itself
-   in case anything else on the page ever applies it. */
-.tp-glass {
-  background: var(--tp-bg);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.tp-badge,
-.tp-icon-badge {
-  border: 2px solid var(--tp-text);
-}
-
-/* ---- Angular Material — square corners + solid borders on the pieces
-   this app actually uses (mat-menu, mat-form-field, mat-tab-nav-bar). The
-   --mat-sys-corner-* overrides above handle most of this on their own;
-   these fill in the couple of spots Material renders with its own fixed
-   shape instead of reading the shape system tokens. ------------------------ */
-
-.mat-mdc-menu-panel {
-  border-radius: 0 !important;
-  border: 2px solid #000000;
-  box-shadow: 4px 4px 0 #000000 !important;
-}
-
-.mat-mdc-form-field .mdc-notched-outline__leading,
-.mat-mdc-form-field .mdc-notched-outline__notch,
-.mat-mdc-form-field .mdc-notched-outline__trailing {
-  border-radius: 0 !important;
-}
-
-.mat-datepicker-content {
-  border-radius: 0 !important;
-  border: 2px solid #000000;
-  box-shadow: 4px 4px 0 #000000 !important;
+.tp-card--peach.tp-card--hoverable:hover {
+  box-shadow: 0 20px 50px -8px #ffd3b4;
 }
