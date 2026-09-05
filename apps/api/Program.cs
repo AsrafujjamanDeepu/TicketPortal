@@ -319,6 +319,15 @@ using (var scope = app.Services.CreateScope())
         // user's role assignment below depends on the "Admin" role already existing.
         await DbSeeder.SeedRolesAsync(roleManager);
         await DbSeeder.SeedAdminUserAsync(userManager);
+
+        // Rich demo dataset (operators, fleets, staff, trips, bookings, the finance cycle,
+        // marketing, integrations, etc.) so the whole app can be clicked through end-to-end.
+        // Only runs in Development, and only if BusOperators is still empty - see
+        // DemoDataSeeder.SeedAsync for the exact guard.
+        if (app.Environment.IsDevelopment())
+        {
+            await DemoDataSeeder.SeedAsync(db, userManager);
+        }
     }
     catch (Exception ex)
     {
