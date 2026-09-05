@@ -3,7 +3,8 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
-import { TpButtonDirective, TpCardComponent } from '../../../shared/ui';
+import { TpButtonDirective } from '../../../shared/ui';
+import { TpLogoComponent } from '../../../shared/ui/logo/tp-logo.component';
 
 /**
  * Every self-signup account lands in the "Customer" role on the backend —
@@ -14,43 +15,56 @@ import { TpButtonDirective, TpCardComponent } from '../../../shared/ui';
 @Component({
   selector: 'tp-register',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, TpButtonDirective, TpCardComponent],
+  imports: [ReactiveFormsModule, RouterLink, TpButtonDirective, TpLogoComponent],
   template: `
     <div class="tp-auth-page">
-      <tp-card class="tp-auth-card">
-        <h2>Create your account</h2>
-        <p class="tp-muted">Book bus tickets across every operator on TicketPortal.</p>
+      <div class="tp-auth-split">
+        <aside class="tp-auth-brand">
+          <div class="tp-auth-brand__mesh" aria-hidden="true"></div>
+          <tp-logo [size]="40" [wordmark]="true" tone="light" />
+          <div class="tp-auth-brand__copy">
+            <h1>Join the network<br />of every operator.</h1>
+            <p>Create an account once and book any operator's bus, on any route, in seconds.</p>
+          </div>
+        </aside>
 
-        <form [formGroup]="form" (ngSubmit)="submit()">
-          <label>
-            Full name
-            <input type="text" formControlName="fullName" autocomplete="name" />
-          </label>
+        <div class="tp-auth-form-panel">
+          <div class="tp-auth-form-panel__inner">
+            <h2>Create your account</h2>
+            <p class="tp-muted">Book bus tickets across every operator on TicketPortal.</p>
 
-          <label>
-            Username
-            <input type="text" formControlName="userName" autocomplete="username" />
-          </label>
+            <form [formGroup]="form" (ngSubmit)="submit()">
+              <label>
+                Full name
+                <input type="text" formControlName="fullName" autocomplete="name" />
+              </label>
 
-          <label>
-            Email
-            <input type="email" formControlName="email" autocomplete="email" />
-          </label>
+              <label>
+                Username
+                <input type="text" formControlName="userName" autocomplete="username" />
+              </label>
 
-          <label>
-            Password
-            <input type="password" formControlName="password" autocomplete="new-password" />
-          </label>
+              <label>
+                Email
+                <input type="email" formControlName="email" autocomplete="email" />
+              </label>
 
-          <button tpButton variant="primary" type="submit" [disabled]="form.invalid || submitting()" style="width: 100%">
-            {{ submitting() ? 'Creating account…' : 'Sign up' }}
-          </button>
-        </form>
+              <label>
+                Password
+                <input type="password" formControlName="password" autocomplete="new-password" />
+              </label>
 
-        <p class="tp-auth-card__switch">
-          Already have an account? <a routerLink="/auth/login">Log in</a>
-        </p>
-      </tp-card>
+              <button tpButton variant="primary" type="submit" [disabled]="form.invalid || submitting()" style="width: 100%">
+                {{ submitting() ? 'Creating account…' : 'Sign up' }}
+              </button>
+            </form>
+
+            <p class="tp-auth-card__switch">
+              Already have an account? <a routerLink="/auth/login">Log in</a>
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   `,
   styles: [
@@ -61,9 +75,73 @@ import { TpButtonDirective, TpCardComponent } from '../../../shared/ui';
         padding: var(--tp-space-7) var(--tp-space-5);
       }
 
-      .tp-auth-card {
+      .tp-auth-split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
         width: 100%;
-        max-width: 420px;
+        max-width: 920px;
+        border-radius: var(--tp-radius-xl);
+        overflow: hidden;
+        box-shadow: var(--tp-shadow-elevated);
+        border: 1px solid var(--tp-border);
+      }
+
+      .tp-auth-brand {
+        position: relative;
+        background: var(--tp-ink);
+        color: var(--tp-ink-text);
+        padding: var(--tp-space-6);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        overflow: hidden;
+      }
+
+      .tp-auth-brand__mesh {
+        position: absolute;
+        inset: 0;
+        background: var(--tp-gradient-mesh);
+        opacity: 0.9;
+      }
+
+      .tp-auth-brand tp-logo {
+        position: relative;
+        z-index: 1;
+      }
+
+      .tp-auth-brand__copy {
+        position: relative;
+        z-index: 1;
+      }
+
+      .tp-auth-brand__copy h1 {
+        font-family: var(--tp-font-heading);
+        font-size: 28px;
+        line-height: 1.2;
+        margin: 0 0 var(--tp-space-3);
+      }
+
+      .tp-auth-brand__copy p {
+        margin: 0;
+        font-size: 14px;
+        color: var(--tp-ink-text-muted);
+        max-width: 300px;
+      }
+
+      .tp-auth-form-panel {
+        background: var(--tp-surface);
+        display: flex;
+        align-items: center;
+        padding: var(--tp-space-6);
+      }
+
+      .tp-auth-form-panel__inner {
+        width: 100%;
+      }
+
+      .tp-auth-form-panel h2 {
+        margin: 0 0 var(--tp-space-1);
+        font-family: var(--tp-font-heading);
       }
 
       form {
@@ -89,6 +167,7 @@ import { TpButtonDirective, TpCardComponent } from '../../../shared/ui';
         font-size: 14px;
         font-family: var(--tp-font-body);
         color: var(--tp-text);
+        transition: border-color var(--tp-transition-fast), box-shadow var(--tp-transition-fast);
       }
 
       input:focus {
@@ -108,6 +187,16 @@ import { TpButtonDirective, TpCardComponent } from '../../../shared/ui';
       .tp-auth-card__switch a {
         color: var(--tp-yellow-dark);
         font-weight: 600;
+      }
+
+      @media (max-width: 720px) {
+        .tp-auth-split {
+          grid-template-columns: 1fr;
+        }
+
+        .tp-auth-brand {
+          display: none;
+        }
       }
     `,
   ],

@@ -44,11 +44,14 @@ a {
   max-width: 1200px;
 }
 
+/* Dark "ink" sidebar — deliberately distinct from the customer app's light
+   glass navbar so the admin dashboard reads as a separate, pro-grade tool. */
 .sidebar {
-  width: 240px;
+  width: 248px;
   flex-shrink: 0;
-  background: var(--tp-surface);
-  border-right: 1px solid var(--tp-border);
+  background: var(--tp-ink);
+  color: var(--tp-ink-text);
+  border-right: 1px solid var(--tp-ink-border);
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
@@ -60,29 +63,25 @@ a {
 .sidebar__brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-family: var(--tp-font-heading);
   font-weight: 700;
   font-size: 16px;
-  padding: 0 8px 24px;
+  padding: 0 8px 28px;
 }
 
-.sidebar__logo {
-  display: inline-flex;
+.sidebar__brand-text {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--tp-yellow);
+  gap: 8px;
 }
 
 .sidebar__badge {
   font-size: 11px;
   font-weight: 600;
-  color: var(--tp-text-muted);
-  background: var(--tp-bg-soft);
-  border: 1px solid var(--tp-border);
+  color: var(--tp-ink-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--tp-ink-border);
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -95,24 +94,36 @@ a {
 }
 
 .sidebar__link {
-  padding: 10px 12px;
+  position: relative;
+  padding: 10px 12px 10px 16px;
   border-radius: 8px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tp-text-muted);
+  color: var(--tp-ink-text-muted);
   text-decoration: none;
   transition: background-color 150ms ease, color 150ms ease;
 }
 
 .sidebar__link:hover {
-  background: var(--tp-bg-soft);
-  color: var(--tp-text);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--tp-ink-text);
 }
 
 .sidebar__link--active {
-  background: var(--tp-yellow-tint);
-  color: var(--tp-text);
+  background: rgba(255, 162, 38, 0.14);
+  color: var(--tp-ink-text);
   font-weight: 600;
+}
+
+.sidebar__link--active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--tp-gradient-brand);
 }
 
 .sidebar__footer {
@@ -121,30 +132,69 @@ a {
   justify-content: space-between;
   gap: 8px;
   padding: 12px 8px 0;
-  border-top: 1px solid var(--tp-border);
+  border-top: 1px solid var(--tp-ink-border);
   margin-top: 12px;
 }
 
 .sidebar__user {
   font-size: 13px;
   font-weight: 600;
-  color: var(--tp-text-muted);
+  color: var(--tp-ink-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+
+.logo svg {
+  display: block;
+  flex-shrink: 0;
+  filter: drop-shadow(0 4px 10px rgba(255, 138, 20, 0.35));
+}
+
+.logo__word {
+  font-family: var(--tp-font-heading);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  color: var(--tp-text);
+}
+
+.logo--light .logo__word {
+  color: var(--tp-ink-text);
+}
+
 .auth-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 28px;
   padding: 24px;
+  overflow: hidden;
+}
+
+.auth-page__ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--tp-gradient-mesh);
+  background-color: var(--tp-bg-soft);
 }
 
 .auth-card {
   width: 100%;
   max-width: 380px;
+  box-shadow: var(--tp-shadow-elevated);
 }
 
 .auth-card form {
@@ -190,8 +240,9 @@ a {
 }
 
 .page-placeholder__icon {
-  font-size: 40px;
-  margin-bottom: 12px;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
 }
 
 .tp-muted {

@@ -1,54 +1,82 @@
 /* =============================================================================
-   TicketPortal Design Tokens — "Whitish & Banana Yellow"
+   TicketPortal Design Tokens — "Sunrise Gold"
    SINGLE SOURCE OF TRUTH for both apps/frontend (Angular) and apps/admin
    (React). Plain CSS custom properties — imported directly by both:
      Angular: added to the "styles" array in apps/frontend/project.json
      React:   `import '@ticketportal-mono/design-tokens/tokens.css'` in main.tsx
    Change a color here once, both apps update — never hardcode a hex value
    or redefine one of these variables locally in either app.
+
+   Every original token name is preserved so nothing downstream breaks —
+   only the values (and a handful of new, additive tokens for gradients,
+   glow shadows, and the ink/dark palette) changed.
    ============================================================================= */
 
 :root {
-  /* ---- Color: surfaces ------------------------------------------------- */
+  /* ---- Color: surfaces --------------------------------------------------- */
   --tp-bg: #ffffff;
-  --tp-bg-soft: #fffdf5;
+  --tp-bg-soft: #fbf8f1;
   --tp-surface: #ffffff;
-  --tp-border: #edeae0;
+  --tp-surface-alt: #f6f3ea;
+  --tp-border: #ece6d8;
 
-  /* ---- Color: brand / accent (banana yellow) ---------------------------- */
-  --tp-yellow: #ffe135;
-  --tp-yellow-dark: #f4c430;
-  --tp-yellow-tint: #fff6d6;
+  /* ---- Color: brand / accent (sunrise gold) ------------------------------ */
+  --tp-yellow: #ffc229;
+  --tp-yellow-dark: #ee8f0c;
+  --tp-yellow-tint: #fff2d4;
+  --tp-yellow-2: #ff7a1a; /* secondary gradient stop — deep amber */
 
-  /* ---- Color: text ------------------------------------------------------- */
-  --tp-text: #2b2b2b;
-  --tp-text-muted: #6b6b6b;
-  --tp-text-on-yellow: #2b2b2b; /* never white-on-yellow — fails contrast */
+  /* Gradients — the signature brand mark. Use for primary CTAs, the logo
+     badge, and hero accents. Never use as a full-page background (keep
+     large surfaces white/cream so the gradient stays a highlight). */
+  --tp-gradient-brand: linear-gradient(135deg, #ffd25e 0%, #ffa726 55%, #ff7a1a 100%);
+  --tp-gradient-brand-hover: linear-gradient(135deg, #ffc229 0%, #f2900d 55%, #e8690a 100%);
+  --tp-gradient-mesh: radial-gradient(circle at 15% 20%, rgba(255, 196, 64, 0.35), transparent 45%),
+    radial-gradient(circle at 85% 0%, rgba(255, 122, 26, 0.22), transparent 45%),
+    radial-gradient(circle at 50% 100%, rgba(255, 210, 94, 0.18), transparent 55%);
 
-  /* ---- Color: semantic --------------------------------------------------- */
-  --tp-success: #2e9e5b;
-  --tp-success-tint: #e7f6ed;
-  --tp-danger: #e5484d;
+  /* ---- Color: ink (dark surfaces — footer, hero panels, dark chrome) ---- */
+  --tp-ink: #13141d;
+  --tp-ink-soft: #1d1f2c;
+  --tp-ink-border: rgba(255, 255, 255, 0.09);
+  --tp-ink-text: #f3f1ea;
+  --tp-ink-text-muted: rgba(243, 241, 234, 0.62);
+
+  /* ---- Color: text -------------------------------------------------------- */
+  --tp-text: #1c1d26;
+  --tp-text-muted: #6b6c7a;
+  --tp-text-on-yellow: #23150a; /* never white-on-yellow — fails contrast */
+
+  /* ---- Color: semantic ----------------------------------------------------- */
+  --tp-success: #17a24f;
+  --tp-success-tint: #e7f8ee;
+  --tp-danger: #e13a3f;
   --tp-danger-tint: #fdecec;
-  --tp-warning: #f5a623;
-  --tp-warning-tint: #fef3e1;
-  --tp-info: #3b82f6;
-  --tp-info-tint: #eaf2fe;
+  --tp-warning: #ef9209;
+  --tp-warning-tint: #fef2e0;
+  --tp-info: #3b74f6;
+  --tp-info-tint: #eaf1fe;
 
-  /* ---- Typography --------------------------------------------------------- */
+  /* ---- Typography ---------------------------------------------------------- */
   --tp-font-heading: 'Poppins', 'Segoe UI', sans-serif;
   --tp-font-body: 'Inter', 'Segoe UI', sans-serif;
 
-  /* ---- Shape / elevation -------------------------------------------------- */
+  /* ---- Shape / elevation --------------------------------------------------- */
   --tp-radius-sm: 8px;
   --tp-radius-md: 14px;
   --tp-radius-lg: 20px;
-  --tp-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
-  --tp-shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.1);
+  --tp-radius-xl: 28px;
+  --tp-radius-pill: 999px;
 
-  /* ---- Motion --------------------------------------------------------------- */
-  --tp-transition-fast: 150ms ease;
-  --tp-transition: 200ms ease;
+  --tp-shadow-card: 0 1px 2px rgba(19, 20, 29, 0.04), 0 10px 24px rgba(19, 20, 29, 0.06);
+  --tp-shadow-elevated: 0 12px 20px rgba(19, 20, 29, 0.08), 0 28px 56px rgba(19, 20, 29, 0.14);
+  --tp-shadow-glow: 0 10px 24px rgba(255, 138, 20, 0.32), 0 2px 6px rgba(255, 138, 20, 0.22);
+  --tp-shadow-glow-lg: 0 22px 48px rgba(255, 138, 20, 0.38), 0 4px 12px rgba(255, 138, 20, 0.2);
+
+  /* ---- Motion ---------------------------------------------------------------- */
+  --tp-transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --tp-transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  --tp-transition-spring: 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ---- Spacing scale (4px base) ---------------------------------------- */
   --tp-space-1: 4px;

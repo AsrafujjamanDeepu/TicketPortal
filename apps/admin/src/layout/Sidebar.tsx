@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { Button } from '../components/Button';
+import { Logo } from '../components/Logo';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Analytics', end: true },
@@ -18,8 +19,10 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
-        <span className="sidebar__logo">🚌</span>
-        TicketPortal <span className="sidebar__badge">Admin</span>
+        <Logo size={30} tone="light" />
+        <span className="sidebar__brand-text">
+          TicketPortal <span className="sidebar__badge">Admin</span>
+        </span>
       </div>
 
       <nav className="sidebar__nav">

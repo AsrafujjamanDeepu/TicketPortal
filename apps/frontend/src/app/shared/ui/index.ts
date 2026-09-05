@@ -1,5 +1,6 @@
 export * from './button/tp-button.directive';
 export * from './card/tp-card.component';
+export * from './logo/tp-logo.component';
 export * from './status-pill/tp-status-pill.component';
 export * from './status-pill/status-tone';
 export * from './modal/tp-modal.component';

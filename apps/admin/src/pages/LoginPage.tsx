@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
+import { Logo } from '../components/Logo';
 import { useAuth } from '../lib/auth';
 import type { ApiError } from '@ticketportal-mono/models';
 
@@ -29,6 +30,10 @@ export function LoginPage() {
 
   return (
     <div className="auth-page">
+      <div className="auth-page__ambient" aria-hidden="true" />
+      <div className="auth-page__logo">
+        <Logo size={36} wordmark />
+      </div>
       <Card className="auth-card">
         <h2>Admin log in</h2>
         <p className="tp-muted">This account must have the "Admin" role — see Data/DbSeeder.cs on the backend.</p>

@@ -267,7 +267,11 @@ const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'Card', 'MobileBanking', 'Bank
           @if (booking(); as finalBooking) {
             @if (confirmResult(); as result) {
               <div class="tp-done">
-                <div class="tp-done__icon">🎟️</div>
+                <div class="tp-done__icon tp-icon-badge">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M5 12L10 17L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </div>
                 <h2>Sale complete</h2>
                 <p class="tp-muted">PNR <strong>{{ finalBooking.pnr }}</strong> — {{ result.ticketIds.length }} ticket(s) issued.</p>
                 <p>Total collected: {{ finalBooking.currency }} {{ finalBooking.grandTotal }} ({{ result.payment.method }})</p>
@@ -488,7 +492,9 @@ const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'Card', 'MobileBanking', 'Bank
       }
 
       .tp-done__icon {
-        font-size: 44px;
+        width: 60px;
+        height: 60px;
+        margin: 0 auto var(--tp-space-3);
       }
 
       .tp-warning-note {

@@ -19,6 +19,7 @@ import { LoadingService } from '../../core/services/loading.service';
     @if (loading.isLoading()) {
       <div class="tp-loading-bar"></div>
     }
+    <div class="tp-ambient" aria-hidden="true"></div>
     <tp-navbar />
     <main>
       <router-outlet />
@@ -31,10 +32,24 @@ import { LoadingService } from '../../core/services/loading.service';
       :host {
         display: block;
         min-height: 100vh;
+        position: relative;
       }
 
       main {
         min-height: calc(100vh - 200px);
+        position: relative;
+      }
+
+      /* Soft, decorative gradient mesh sitting behind the whole app. Fixed +
+         pointer-events:none so it never intercepts clicks or scrolls with
+         content — purely ambient warmth behind the white surfaces. */
+      .tp-ambient {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background: var(--tp-gradient-mesh);
+        background-color: var(--tp-bg);
       }
 
       .tp-loading-bar {
@@ -43,7 +58,7 @@ import { LoadingService } from '../../core/services/loading.service';
         left: 0;
         right: 0;
         height: 3px;
-        background: var(--tp-yellow);
+        background: var(--tp-gradient-brand);
         z-index: 3000;
         animation: tp-loading-sweep 1.1s ease-in-out infinite;
       }

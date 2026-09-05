@@ -16,7 +16,12 @@ import { Component, Input } from '@angular/core';
   standalone: true,
   template: `
     <div class="tp-empty">
-      <div class="tp-empty__icon">🍌</div>
+      <div class="tp-empty__icon tp-icon-badge">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" />
+          <path d="M20 20L15.5 15.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </div>
       <h4>{{ title }}</h4>
       @if (message) {
         <p class="tp-muted">{{ message }}</p>
@@ -37,7 +42,8 @@ import { Component, Input } from '@angular/core';
       }
 
       .tp-empty__icon {
-        font-size: 40px;
+        width: 56px;
+        height: 56px;
         margin-bottom: var(--tp-space-2);
       }
 
