@@ -15,11 +15,14 @@ namespace TicketPortal.Api.Controllers
     // must never be able to hand out Staff/Operator/Admin permissions to a caller who hasn't
     // already been let in the door by an existing Admin.
     //
-    // Two distinct jobs live here:
-    //   1. AssignRole  — change an EXISTING user's permission tier. For one-off fixes
+    // Three jobs live here:
+    //   1. GetUsers    — list every login account with its current role(s). Nothing else in
+    //      the API lists users at all, so this is also the only way an Admin can find a
+    //      userId to hand to AssignRole below instead of already having to know one.
+    //   2. AssignRole  — change an EXISTING user's permission tier. For one-off fixes
     //      (promoting someone, correcting a mistake) on an account that already exists,
     //      regardless of how it was created.
-    //   2. CreateStaff — the normal way a NEW Staff/Operator account comes into being. Creates
+    //   3. CreateStaff — the normal way a NEW Staff/Operator account comes into being. Creates
     //      the login and its StaffProfile together, in one step, so BusOperatorId is set
     //      correctly from the very first moment the account exists — never a two-step
     //      "create the login, then hope someone remembers to attach a StaffProfile later"
@@ -34,6 +37,43 @@ namespace TicketPortal.Api.Controllers
         UserManager<ApplicationUser> userManager,
         RoleManager<ApplicationRole> roleManager) : ControllerBase
     {
+        [HttpGet("users")]
+        public async Task<IActionResult> GetUsers()
+        {
+            if (!User.IsInRole("Admin")) return Forbid();
+
+            // .Include(StaffProfile) so BusOperatorId is available without an extra round trip
+            // per row — there is no paging here on purpose, this mirrors every other simple
+            // GetAll in the codebase (see BusOperatorsController) rather than inventing a
+            // one-off paging shape just for this endpoint.
+            var users = await userManager.Users
+                .Include(u => u.StaffProfile)
+                .OrderBy(u => u.UserName)
+                .ToListAsync();
+
+            var result = new List<AdminUserListItemDto>();
+            foreach (var user in users)
+            {
+                result.Add(new AdminUserListItemDto
+                {
+                    Id = user.Id,
+                    UserName = user.UserName ?? string.Empty,
+                    Email = user.Email,
+                    FullName = user.FullName,
+                    IsActive = user.IsActive,
+                    CreatedAtUtc = user.CreatedAtUtc,
+                    LastLoginAtUtc = user.LastLoginAtUtc,
+                    // One GetRolesAsync call per user — fine at admin-console scale, not a
+                    // hot customer-facing path, and keeps this readable over a hand-rolled
+                    // join against AspNetUserRoles.
+                    Roles = (await userManager.GetRolesAsync(user)).ToList(),
+                    BusOperatorId = user.StaffProfile?.BusOperatorId,
+                });
+            }
+
+            return Ok(result);
+        }
+
         [HttpPost("users/{userId}/roles")]
         public async Task<IActionResult> AssignRole(Guid userId, AssignRoleDto dto)
         {

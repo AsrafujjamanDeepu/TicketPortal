@@ -62,4 +62,24 @@ namespace TicketPortal.Api.DTO
         public string Role { get; set; } = string.Empty;
         public Guid? BusOperatorId { get; set; }
     }
+
+    // GET /api/admin/users — Admin-only. Nothing else in the API lists login accounts at all,
+    // which meant an Admin had no way to actually FIND a userId to pass into AssignRole above
+    // without going through Swagger/SQL by hand. Backs Piece 7's User & Role Management screen.
+    public class AdminUserListItemDto
+    {
+        public Guid Id { get; set; }
+        public string UserName { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+        public DateTime CreatedAtUtc { get; set; }
+        public DateTime? LastLoginAtUtc { get; set; }
+        public IReadOnlyCollection<string> Roles { get; set; } = Array.Empty<string>();
+
+        // Resolved from StaffProfile.BusOperatorId when this account has one — null for
+        // platform-wide Staff/Admin accounts or a Customer, same meaning as everywhere else
+        // this field shows up (see ClaimsPrincipalExtensions.GetBusOperatorIdAsync).
+        public Guid? BusOperatorId { get; set; }
+    }
 }

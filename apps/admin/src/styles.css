@@ -251,3 +251,113 @@ a {
 .tp-muted {
   color: var(--tp-text-muted);
 }
+
+/* --- Users & Roles page (also reusable for future admin screens) --- */
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-header p {
+  margin: 4px 0 0;
+  max-width: 560px;
+}
+
+.form-card {
+  margin-bottom: 20px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tp-text-muted);
+}
+
+.field input,
+.field select {
+  border: 1px solid var(--tp-border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: var(--tp-font-body);
+  color: var(--tp-text);
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--tp-yellow-dark);
+  box-shadow: 0 0 0 3px var(--tp-yellow-tint);
+}
+
+.error {
+  font-size: 13px;
+  color: var(--tp-danger);
+  margin: 0;
+  grid-column: 1 / -1;
+}
+
+.success {
+  font-size: 13px;
+  color: var(--tp-success);
+  margin: 0;
+  grid-column: 1 / -1;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tp-text-muted);
+  padding: 0 12px 10px;
+  border-bottom: 1px solid var(--tp-border);
+}
+
+.data-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--tp-border);
+  vertical-align: top;
+}
+
+.data-table__primary {
+  font-weight: 600;
+}
+
+.data-table__secondary {
+  font-size: 12px;
+}
+
+.role-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-cell select {
+  border: 1px solid var(--tp-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
