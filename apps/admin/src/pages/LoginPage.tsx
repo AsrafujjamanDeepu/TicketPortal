@@ -36,7 +36,6 @@ export function LoginPage() {
       </div>
       <Card className="auth-card">
         <h2>Admin log in</h2>
-        <p className="tp-muted">This account must have the "Admin" role — see Data/DbSeeder.cs on the backend.</p>
 
         <form onSubmit={handleSubmit}>
           <label>
