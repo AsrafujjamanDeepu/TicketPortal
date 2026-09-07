@@ -28,6 +28,7 @@ namespace TicketPortal.Api.Controllers
     {
         // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
         // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
+        [AllowAnonymous]
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -35,6 +36,10 @@ namespace TicketPortal.Api.Controllers
             return Ok(operators.Select(ToResponseDto));
         }
 
+        // Anonymous — the public trip search / seat-map header (loadTripHeaderContext's
+        // refresh/direct-link fallback) looks up the operator name/logo by id without a
+        // logged-in user, same reasoning as TerminalsController/TripsController above.
+        [AllowAnonymous]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {

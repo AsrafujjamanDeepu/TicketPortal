@@ -10,11 +10,12 @@ import { CheckoutStateService } from '../../services/checkout-state.service';
 import { TripDisplayService } from '../../services/trip-display.service';
 
 /**
- * Piece 2 (search & seat map) hasn't been built yet, so this screen is the checkout hand-off
- * point described in the guideline ("the seat-hold ID/token is what Piece 3's checkout flow
- * consumes"). It supports both the intended future hand-off — a `holdToken` query param, which
- * Piece 2's seat map can link to once it exists — and a manual paste field as a stand-in until
- * then, so this piece can be built and demoed end-to-end on its own.
+ * Piece 2's seat map now hands off here via a `holdToken` query param (see
+ * trip-seat-map.component.ts#holdSeats), so that's the normal way anyone lands on this screen.
+ * The manual paste field below is a fallback only — for a direct/bookmarked visit to this URL
+ * with no token — and is never where "Release Seats & Start Over" or an expired-hold's "Start
+ * Over" send the customer; both of those navigate back to /search instead so this screen
+ * doesn't dead-end on a box they never had to use in the first place.
  */
 @Component({
   selector: 'tp-checkout-start',
@@ -266,13 +267,21 @@ export class CheckoutStartComponent implements OnInit {
     if (hold) {
       this.api.post(`seatholds/${hold.id}/release`, {}).subscribe();
     }
-    this.startOver();
+    // "Start Over" means abandon this checkout attempt, full stop — not land on the leftover
+    // manual-token lookup card below (that box only exists as a fallback for a direct/bookmarked
+    // visit to this URL with no holdToken; it was never something a customer was meant to use
+    // day-to-day, and re-showing it here just looks like the button is broken). Release the hold
+    // server-side, clear local state, and send them back to search so they can pick fresh seats.
+    this.state.reset();
+    this.router.navigate(['/search']);
   }
 
   startOver(): void {
+    // Same reasoning as releaseAndStartOver — nothing to release here (the hold already
+    // expired server-side), but "Start Over" still shouldn't dead-end on the manual-token
+    // lookup card. Send the customer back to search to pick seats again.
     this.state.reset();
-    this.tokenInput.set('');
-    this.errorMessage.set(null);
+    this.router.navigate(['/search']);
   }
 
   continue(): void {

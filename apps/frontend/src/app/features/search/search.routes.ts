@@ -1,21 +1,18 @@
 import { Routes } from '@angular/router';
-import { authGuard } from '../../core/guards/auth.guard';
 
 /**
  * Piece 2 — Customer Portal: Search & Discovery.
  *
- * Every backend endpoint this feature calls (TerminalsController, TripsController,
- * SeatHoldsController) is [Authorize]'d with no anonymous override — there's no real
- * "browse without an account" mode to build here, including the home screen's terminal
- * picker. So the whole feature sits behind authGuard rather than rendering a page that can't
- * actually load anything until the first failed request bounces the user to /auth/login
- * anyway. Any authenticated role can search (not Customer-only) — the backend doesn't
- * restrict TripsController.Search by role either.
+ * Public — "anyone visiting the site can search and see trips" (business plan). The backend
+ * endpoints this feature reads from (TerminalsController.GetAll/GetById, TripsController
+ * GetAll/GetById/Search, BusOperatorsController.GetById) are all [AllowAnonymous] to match.
+ * The actual login requirement kicks in one step later, at SeatHoldsController.Create — see
+ * TripSeatMapComponent.holdSeats(), which checks auth before calling it and bounces an
+ * anonymous visitor to /auth/login with a returnUrl back to this trip instead.
  */
 export const SEARCH_ROUTES: Routes = [
   {
     path: '',
-    canActivate: [authGuard],
     children: [
       {
         path: '',

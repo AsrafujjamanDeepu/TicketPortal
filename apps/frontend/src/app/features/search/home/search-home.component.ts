@@ -103,7 +103,7 @@ function todayIso(): string {
 
       .tp-search-form {
         display: grid;
-        grid-template-columns: 1fr auto 1fr auto auto;
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto auto;
         gap: 14px;
         align-items: end;
       }
@@ -115,6 +115,7 @@ function todayIso(): string {
         font-size: 13px;
         font-weight: 600;
         color: var(--tp-text-muted);
+        min-width: 0;
       }
 
       .tp-field select,
@@ -126,6 +127,8 @@ function todayIso(): string {
         font-family: var(--tp-font-body);
         color: var(--tp-text);
         background: var(--tp-surface);
+        width: 100%;
+        min-width: 0;
       }
 
       .tp-field select:focus,

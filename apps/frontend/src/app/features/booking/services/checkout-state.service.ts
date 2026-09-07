@@ -9,10 +9,9 @@ import { Booking, Payment, SeatHold, SeatHoldItem, Trip } from '@ticketportal-mo
  * the customer back to checkout/start to re-resolve the hold by token, not resurrect stale
  * client state the server may have already expired.
  *
- * Piece 2 hasn't been built yet, so CheckoutStartComponent is the current hand-off point (via
- * a holdToken query param OR a manual paste field) — see that component for details. Once
- * Piece 2 ships its own seat map, it only needs to navigate here with
- * `/my-bookings/checkout/start?holdToken=...`; nothing else in this service changes.
+ * Piece 2's seat map is the normal hand-off point — it navigates to
+ * `/my-bookings/checkout/start?holdToken=...` after a successful hold; see that component and
+ * CheckoutStartComponent for details.
  */
 @Injectable({ providedIn: 'root' })
 export class CheckoutStateService {

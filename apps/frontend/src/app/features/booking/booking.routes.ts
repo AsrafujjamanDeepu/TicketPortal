@@ -11,8 +11,11 @@ import { checkoutBookingGuard, checkoutHoldGuard } from './guards/checkout.guard
  * for Piece 4-6's OPERATOR_ROUTES/COUNTER_ROUTES/FINANCE_ROUTES in app.routes.ts, just applied
  * one level down since this feature has its own internal structure to keep organized.
  *
- * Static paths are listed before the ':id' catch-all so 'profile'/'addresses'/etc. don't get
- * swallowed by it.
+ * Static paths are listed before the ':id' catch-all so 'profile'/'wallet'/etc. don't get
+ * swallowed by it. 'profile' stays a real route here (so it's a real page, directly linkable,
+ * reached via the navbar's "My Profile" dropdown item) even though it's not one of the
+ * AccountNavComponent tabs — see account-nav.component.ts. There's no separate 'addresses'
+ * route any more; that's now just fields on the profile page.
  */
 export const BOOKING_ROUTES: Routes = [
   {
@@ -53,11 +56,6 @@ export const BOOKING_ROUTES: Routes = [
         path: 'profile',
         loadComponent: () => import('./my-account/profile/profile.component').then((m) => m.ProfileComponent),
         title: 'Profile — TicketPortal',
-      },
-      {
-        path: 'addresses',
-        loadComponent: () => import('./my-account/addresses/addresses.component').then((m) => m.AddressesComponent),
-        title: 'Saved Addresses — TicketPortal',
       },
       {
         path: 'wallet',

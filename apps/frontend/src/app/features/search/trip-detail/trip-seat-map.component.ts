@@ -3,6 +3,8 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Trip, TripSearchResult, TripSeat } from '@ticketportal-mono/models';
 import { ApiService } from '../../../core/services/api.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { ToastService } from '../../../core/services/toast.service';
 import {
   TpButtonDirective,
   TpCardComponent,
@@ -16,11 +18,14 @@ interface FastNavState {
 }
 
 /**
- * Piece 2 — seat map + hold. Selecting seats here is purely local UI state; nothing is reserved
- * on the backend until "Hold Seats & Continue" calls SeatHoldsController.Create. On success we
- * hand off to Piece 3's checkout by holdToken alone (see booking/checkout/checkout-start.component.ts,
- * which looks the hold up again by that token) rather than passing the hold object through
- * router state, so a refresh mid-checkout still works.
+ * Piece 2 — seat map + hold. Anyone can browse this page and click seats; nothing is reserved
+ * on the backend, and no login is required, until "Hold Seats & Continue" calls
+ * SeatHoldsController.Create — see holdSeats() below, which checks auth first and sends an
+ * anonymous visitor to log in (returning to this exact trip) rather than letting the backend's
+ * 401 do it. On success we hand off to Piece 3's checkout by holdToken alone (see
+ * booking/checkout/checkout-start.component.ts, which looks the hold up again by that token)
+ * rather than passing the hold object through router state, so a refresh mid-checkout still
+ * works.
  *
  * If a couple of seats get taken by someone else between opening this page and clicking Hold,
  * the backend replies 409 (ErrorInterceptor already toasts the message) — we just refetch the
@@ -248,6 +253,8 @@ export class TripSeatMapComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
+  private readonly toast = inject(ToastService);
   private readonly searchApi = inject(SearchApiService);
 
   protected readonly loading = signal(true);
@@ -316,6 +323,16 @@ export class TripSeatMapComponent implements OnInit {
     const trip = this.trip();
     const seatIds = this.selectedSeatIds();
     if (!trip || seatIds.length === 0) return;
+
+    // Browsing/selecting seats is public; actually holding one is the "book" action, which
+    // requires an account. Catching this here (rather than letting the backend's 401 bounce
+    // through ErrorInterceptor) avoids a confusing "session expired" toast for someone who was
+    // never logged in, and sends them back to this exact trip after they log in.
+    if (!this.auth.isAuthenticated()) {
+      this.toast.info('Please log in to hold your seats and continue booking.');
+      this.router.navigate(['/auth/login'], { queryParams: { returnUrl: this.router.url } });
+      return;
+    }
 
     this.holding.set(true);
     this.searchApi.holdSeats({ tripId: trip.id, tripSeatIds: seatIds }).subscribe({

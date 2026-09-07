@@ -3,11 +3,15 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { MatTabsModule } from '@angular/material/tabs';
 
 /**
- * My Account's five sections are each their own route (so profile/addresses/
- * wallet are all directly linkable and survive a refresh), so this uses
- * Angular Material's router-aware `mat-tab-nav-bar` / `mat-tab-link` rather
- * than TpTabsComponent (which is index-based, for tabs that swap which
- * component renders in place rather than tabs that navigate).
+ * My Account's tabs are each their own route (so bookings/wallet/cancellations are all
+ * directly linkable and survive a refresh), so this uses Angular Material's router-aware
+ * `mat-tab-nav-bar` / `mat-tab-link` rather than TpTabsComponent (which is index-based, for
+ * tabs that swap which component renders in place rather than tabs that navigate).
+ *
+ * Profile is deliberately NOT one of these tabs — it's reached only via the navbar's account
+ * dropdown ("My Profile"), not sitting beside Bookings/Wallet/Cancellations. Addresses no
+ * longer has its own tab either — it's folded into the Profile page as plain fields (Address
+ * Line 1/2, City, District, Country) instead of a separate saved-addresses screen.
  *
  * This replaces a previous hand-rolled `<nav>` that set `overflow-x: auto`
  * without an explicit `overflow-y`. Per the CSS overflow spec, when only one
@@ -32,18 +36,6 @@ import { MatTabsModule } from '@angular/material/tabs';
         [active]="bookingsLink.isActive"
       >
         Bookings
-      </a>
-      <a mat-tab-link routerLink="/my-bookings/profile" routerLinkActive #profileLink="routerLinkActive" [active]="profileLink.isActive">
-        Profile
-      </a>
-      <a
-        mat-tab-link
-        routerLink="/my-bookings/addresses"
-        routerLinkActive
-        #addressesLink="routerLinkActive"
-        [active]="addressesLink.isActive"
-      >
-        Addresses
       </a>
       <a mat-tab-link routerLink="/my-bookings/wallet" routerLinkActive #walletLink="routerLinkActive" [active]="walletLink.isActive">
         Wallet

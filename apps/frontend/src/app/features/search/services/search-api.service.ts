@@ -29,9 +29,9 @@ export interface TripHeaderContext {
  *   - SeatHoldsController.Create  — "Hold Seats", which hands off to Piece 3's checkout via
  *     holdToken (see booking/checkout/checkout-start.component.ts)
  *
- * Every one of these is [Authorize]'d on the backend with no anonymous override, which is why
- * search.routes.ts guards this whole feature rather than pretending there's a logged-out
- * browsing mode.
+ * Every one of these except SeatHoldsController.Create is [AllowAnonymous] on the backend —
+ * browsing is public, only the actual hold requires a login (see
+ * trip-seat-map.component.ts#holdSeats for where that's enforced client-side too).
  */
 @Injectable({ providedIn: 'root' })
 export class SearchApiService {

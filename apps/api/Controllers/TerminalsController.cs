@@ -12,13 +12,14 @@ using Microsoft.EntityFrameworkCore;
 namespace TicketPortal.Api.Controllers
 {
     // Physical bus terminals ("Gabtoli", "Kalyanpur"...) — the origin/destination picker
-    // behind TripsController.Search. Read open to any logged-in user, writes Admin-only:
-    // shared platform data, not any one operator's to rename or deactivate.
+    // behind TripsController.Search. Read is public (anyone visiting the site can search),
+    // writes Admin-only: shared platform data, not any one operator's to rename or deactivate.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
     public class TerminalsController(AppDbContext db) : ControllerBase
     {
+        [AllowAnonymous]
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -26,6 +27,7 @@ namespace TicketPortal.Api.Controllers
             return Ok(items.Select(ToResponseDto));
         }
 
+        [AllowAnonymous]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {

@@ -12,14 +12,15 @@ namespace TicketPortal.Api.Controllers
 {
     // Master = Trip, Details = TripSeat (per-trip seat availability and pricing).
     // [Authorize] on the class means every action below requires a valid Bearer token except
-    // where explicitly overridden — there is no override here, so all six endpoints are protected.
+    // where explicitly overridden with [AllowAnonymous].
     //
-    // Read (GetAll/GetById/Search) stays open to any logged-in user — trips are what the
-    // "search a route, see available buses" feature (business plan section 4) is built on, so
-    // browsing them isn't operator-sensitive the way creating/editing one is. Writes below now
-    // go through the same operator-scoping pattern as BusesController: previously this
-    // controller had NO role/ownership check at all beyond [Authorize], meaning any logged-in
-    // customer could create or edit a Trip for any operator's Bus.
+    // Read (GetAll/GetById/Search) is now open to EVERYONE, logged in or not — "anyone visiting
+    // the site can search and see trips" (business plan section 4). Only the next step, actually
+    // holding a seat (SeatHoldsController.Create), requires login — that's the real "book"
+    // action. Browsing trips isn't operator-sensitive the way creating/editing one is. Writes
+    // below still go through the same operator-scoping pattern as BusesController: previously
+    // this controller had NO role/ownership check at all beyond [Authorize], meaning any
+    // logged-in customer could create or edit a Trip for any operator's Bus.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -27,6 +28,7 @@ namespace TicketPortal.Api.Controllers
     {
         // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
         // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
+        [AllowAnonymous]
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -34,6 +36,7 @@ namespace TicketPortal.Api.Controllers
             return Ok(trips.Select(ToResponseDto));
         }
 
+        [AllowAnonymous]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
@@ -47,6 +50,7 @@ namespace TicketPortal.Api.Controllers
         // DepartureTerminal/ArrivalTerminal (NOT BusRoute's origin/destination — see the class
         // comment on Trip for why those can differ, e.g. one operator boarding from Gabtoli and
         // another from Kalyanpur, even though both are "Dhaka").
+        [AllowAnonymous]
         [HttpGet("search")]
         public async Task<IActionResult> Search(
             [FromQuery] Guid fromTerminalId,
