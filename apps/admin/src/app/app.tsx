@@ -4,6 +4,7 @@ import { ProtectedRoute } from '../lib/ProtectedRoute';
 import { Shell } from '../layout/Shell';
 import { LoginPage } from '../pages/LoginPage';
 import { AnalyticsPage } from '../pages/AnalyticsPage';
+import { OperatorsPage } from '../pages/OperatorsPage';
 import { UsersPage } from '../pages/UsersPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AuditLogsPage } from '../pages/AuditLogsPage';
@@ -25,6 +26,7 @@ export function App() {
           }
         >
           <Route index element={<AnalyticsPage />} />
+          <Route path="operators" element={<OperatorsPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="audit-logs" element={<AuditLogsPage />} />

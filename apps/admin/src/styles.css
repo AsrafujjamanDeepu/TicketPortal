@@ -361,3 +361,38 @@ a {
   font-size: 13px;
 }
 
+/* --- Operators page: full-width form section + repeatable route rows --- */
+
+.form-grid__span-all {
+  grid-column: 1 / -1;
+}
+
+.form-grid__span-all .page-header {
+  margin-bottom: 12px;
+}
+
+.form-grid__span-all h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tp-text-muted);
+}
+
+.route-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.route-row select,
+.route-row input {
+  border: 1px solid var(--tp-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--tp-font-body);
+  color: var(--tp-text);
+}
+

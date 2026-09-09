@@ -5,6 +5,7 @@ import { Logo } from '../components/Logo';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Analytics', end: true },
+  { to: '/operators', label: 'Bus Operators' },
   { to: '/users', label: 'Users & Roles' },
   { to: '/settings', label: 'System Settings' },
   { to: '/audit-logs', label: 'Audit & Activity Logs' },
