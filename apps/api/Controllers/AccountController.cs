@@ -10,6 +10,8 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.WebUtilities;
+using TicketPortal.Api.Services;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -23,7 +25,9 @@ namespace TicketPortal.Api.Controllers
     public class AccountController(
         UserManager<ApplicationUser> userManager,
         IConfiguration configuration,
-        AppDbContext db) : ControllerBase
+        AppDbContext db,
+        IPasswordResetMessageSender passwordResetMessageSender,
+        ILogger<AccountController> logger) : ControllerBase
     {
         [HttpPost("register")]
         public async Task<IActionResult> Register(RegisterDto dto)
@@ -70,6 +74,13 @@ namespace TicketPortal.Api.Controllers
             if (user == null)
             {
                 return Unauthorized("Invalid username or password");
+            }
+
+            // Accounts are disabled (IsActive = false) rather than deleted. Login never looked at
+            // that flag, so a disabled account could still sign in.
+            if (!user.IsActive)
+            {
+                return Unauthorized("This account has been disabled. Please contact support.");
             }
 
             // Piece 4: checked BEFORE the password itself. Once options.Lockout.MaxFailedAccessAttempts
@@ -192,6 +203,76 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(result.Errors.Select(e => e.Description));
             }
 
+            return NoContent();
+        }
+
+        // A password-reset request is intentionally anonymous. It uses ASP.NET Identity's
+        // one-time, time-limited reset token rather than storing a recoverable password or
+        // inventing a second token scheme. Keep the success response generic to prevent email
+        // address enumeration.
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword(ForgotPasswordDto dto)
+        {
+            var user = await userManager.FindByEmailAsync(dto.Email.Trim());
+            if (user is not null && !string.IsNullOrWhiteSpace(user.Email))
+            {
+                var identityToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(identityToken));
+                var clientBaseUrl = configuration["PasswordReset:PublicAppUrl"]?.TrimEnd('/')
+                    ?? "http://localhost:4200";
+                var resetUrl = $"{clientBaseUrl}/auth/reset-password?email=" +
+                    $"{Uri.EscapeDataString(user.Email)}&token={Uri.EscapeDataString(encodedToken)}";
+
+                try
+                {
+                    await passwordResetMessageSender.SendAsync(user, resetUrl);
+                }
+                catch (Exception ex)
+                {
+                    // Do not turn a mail-delivery issue into an account-existence oracle. The
+                    // operational error is retained in the API log for the team to action.
+                    logger.LogError(ex, "Could not deliver password-reset instructions for user {UserId}", user.Id);
+                }
+            }
+
+            return Ok(new
+            {
+                message = "If an account uses that email address, password-reset instructions have been sent."
+            });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword(ResetPasswordDto dto)
+        {
+            var user = await userManager.FindByEmailAsync(dto.Email.Trim());
+            if (user is null)
+            {
+                return BadRequest(new { message = "This reset link is invalid or has expired." });
+            }
+
+            string identityToken;
+            try
+            {
+                identityToken = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(dto.Token));
+            }
+            catch (FormatException)
+            {
+                return BadRequest(new { message = "This reset link is invalid or has expired." });
+            }
+
+            var result = await userManager.ResetPasswordAsync(user, identityToken, dto.NewPassword);
+            if (!result.Succeeded)
+            {
+                return BadRequest(new
+                {
+                    message = "This reset link is invalid or has expired.",
+                    errors = result.Errors.Select(error => error.Description)
+                });
+            }
+
+            // A reset should also clear a lockout caused by forgotten credentials, otherwise a
+            // user can choose a valid new password but still remain locked out.
+            await userManager.ResetAccessFailedCountAsync(user);
             return NoContent();
         }
     }

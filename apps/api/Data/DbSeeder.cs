@@ -95,23 +95,112 @@ namespace TicketPortal.Api.Data
         public const string BootstrapAdminUserName = "admin";
         public const string BootstrapAdminPassword = "Admin@12345";
 
-        public static async Task SeedAdminUserAsync(UserManager<ApplicationUser> userManager)
+        // Idempotent, and (since the merge) self-healing. The old version returned as soon as a
+        // user named "admin" existed and never looked at that account again, so ANY stale state
+        // in a reused development database silently locked you out of the admin panel forever:
+        // a password changed while testing /api/account/change-password, five wrong attempts
+        // (Identity locks the account for 15 minutes even for the CORRECT password afterwards),
+        // an "admin" row created by another branch of the project, or an account that lost its
+        // "Admin" role. It also ignored a failed CreateAsync completely (e.g. the email already
+        // belonging to a different user), so nothing in the console explained why login failed.
+        //
+        // repairDevelopmentCredentials must only be true in the Development environment (see
+        // Program.cs). When true, an existing bootstrap admin is put back into the documented
+        // known-good state: unlocked, e-mail confirmed, in the Admin role, and using
+        // BootstrapAdminPassword. When false (Production), an existing admin is never touched
+        // beyond making sure it has the Admin role, so a real, rotated password is never reset.
+        public static async Task SeedAdminUserAsync(
+            UserManager<ApplicationUser> userManager,
+            ILogger? logger = null,
+            bool repairDevelopmentCredentials = false)
         {
-            if (await userManager.FindByNameAsync(BootstrapAdminUserName) != null) return;
+            const string adminEmail = "admin@ticketportal.local";
 
-            var admin = new ApplicationUser
-            {
-                Id = BootstrapAdminId,
-                UserName = BootstrapAdminUserName,
-                Email = "admin@ticketportal.local",
-                FullName = "Platform Admin",
-                EmailConfirmed = true,
-            };
+            var admin = await userManager.FindByNameAsync(BootstrapAdminUserName);
 
-            var result = await userManager.CreateAsync(admin, BootstrapAdminPassword);
-            if (result.Succeeded)
+            if (admin == null)
             {
-                await userManager.AddToRoleAsync(admin, "Admin");
+                admin = new ApplicationUser
+                {
+                    Id = BootstrapAdminId,
+                    UserName = BootstrapAdminUserName,
+                    Email = adminEmail,
+                    FullName = "Platform Admin",
+                    EmailConfirmed = true,
+                };
+
+                var created = await userManager.CreateAsync(admin, BootstrapAdminPassword);
+                if (!created.Succeeded)
+                {
+                    var reasons = string.Join("; ", created.Errors.Select(e => e.Description));
+                    var owner = await userManager.FindByEmailAsync(adminEmail);
+                    logger?.LogError(
+                        "Bootstrap admin '{UserName}' could NOT be created: {Reasons}. " +
+                        "{OwnerHint}",
+                        BootstrapAdminUserName,
+                        reasons,
+                        owner != null
+                            ? $"The e-mail {adminEmail} already belongs to the account '{owner.UserName}' - log in with that username, or delete that row / the whole development database and restart."
+                            : "Delete the local development database and restart so it is created from scratch.");
+                    return;
+                }
+
+                logger?.LogInformation(
+                    "Bootstrap admin created: username '{UserName}', password '{Password}' (development only).",
+                    BootstrapAdminUserName, BootstrapAdminPassword);
+            }
+            else if (repairDevelopmentCredentials)
+            {
+                var repairs = new List<string>();
+
+                if (!admin.EmailConfirmed || !admin.IsActive)
+                {
+                    admin.EmailConfirmed = true;
+                    admin.IsActive = true;
+                    var updated = await userManager.UpdateAsync(admin);
+                    if (updated.Succeeded) repairs.Add("confirmed e-mail / re-activated account");
+                }
+
+                if (await userManager.IsLockedOutAsync(admin) || admin.AccessFailedCount > 0)
+                {
+                    await userManager.SetLockoutEndDateAsync(admin, null);
+                    await userManager.ResetAccessFailedCountAsync(admin);
+                    repairs.Add("cleared login lockout");
+                }
+
+                if (!await userManager.CheckPasswordAsync(admin, BootstrapAdminPassword))
+                {
+                    var token = await userManager.GeneratePasswordResetTokenAsync(admin);
+                    var reset = await userManager.ResetPasswordAsync(admin, token, BootstrapAdminPassword);
+                    if (reset.Succeeded)
+                    {
+                        repairs.Add("reset password to the documented development password");
+                    }
+                    else
+                    {
+                        logger?.LogError(
+                            "Bootstrap admin password could not be reset: {Reasons}",
+                            string.Join("; ", reset.Errors.Select(e => e.Description)));
+                    }
+                }
+
+                if (repairs.Count > 0)
+                {
+                    logger?.LogWarning(
+                        "Bootstrap admin '{UserName}' was repaired ({Repairs}). Login: {UserName} / {Password}",
+                        BootstrapAdminUserName, string.Join(", ", repairs), BootstrapAdminUserName, BootstrapAdminPassword);
+                }
+            }
+
+            if (!await userManager.IsInRoleAsync(admin, "Admin"))
+            {
+                var roleResult = await userManager.AddToRoleAsync(admin, "Admin");
+                if (!roleResult.Succeeded)
+                {
+                    logger?.LogError(
+                        "Bootstrap admin could not be added to the Admin role: {Reasons}",
+                        string.Join("; ", roleResult.Errors.Select(e => e.Description)));
+                }
             }
         }
     }

@@ -87,10 +87,22 @@ namespace TicketPortal.Api.Services
             var gateway = PaymentGateway.None;
             if (paymentProviderId.HasValue)
             {
-                gateway = await _db.PaymentProviders
-                    .Where(p => p.Id == paymentProviderId.Value)
-                    .Select(p => p.Gateway)
-                    .FirstOrDefaultAsync();
+                var provider = await _db.PaymentProviders
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == paymentProviderId.Value && p.IsActive)
+                    ?? throw new InvalidOperationException("The selected payment provider is not available.");
+
+                var enabledMethod = await _db.PaymentMethodConfigurations.AnyAsync(c =>
+                    c.PaymentProviderId == provider.Id &&
+                    c.Method == method &&
+                    c.IsActive);
+
+                if (!enabledMethod)
+                {
+                    throw new InvalidOperationException("The selected payment method is not available from that provider.");
+                }
+
+                gateway = provider.Gateway;
             }
 
             var payment = new Payment

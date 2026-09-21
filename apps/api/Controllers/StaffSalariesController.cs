@@ -1,15 +1,7 @@
-// Piece 6 (People/HR & ERP Integrations) — operator scoping. 🟡 tier, same shape as
-// DriverLicensesController/StaffAttendancesController — but this is the one the plan calls out
-// "especially": compensation data was reachable by literally any logged-in customer before this.
-// Same two-part fix: customers blocked entirely; among Staff, an operator's own staff only
-// see/write salary records for their OWN operator's employees; platform Staff/Admin see
-// everything. StaffProfileId on Create is verified against that scope rather than trusted as-is.
-//
-// Amount/IsPaid/PaidAtUtc/PaymentReference stay directly editable here — this stays the same
-// 🟡 "scope the existing CRUD" shape as the rest of the piece, not a new service. A real payroll
-// workflow (e.g. require a real bank reference before flipping IsPaid, the way
-// OperatorPayoutsController's approve→process shape works in Piece 3) is real feature work and
-// out of scope here — flag as a follow-up if payroll disputes ever come up in practice.
+// Piece 6 (People/HR & ERP Integrations) — StaffSalary operator scoping.
+// StaffSalary has no BusOperatorId of its own — ownership is derived through
+// StaffProfileId -> StaffProfile.BusOperatorId, so every scoping check here is one join
+// away from the SalesCountersController pattern rather than a direct column compare.
 
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
@@ -34,16 +26,11 @@ namespace TicketPortal.Api.Controllers
                 return Ok(Array.Empty<StaffSalaryResponseDto>());
             }
 
+            var busOperatorId = await User.GetBusOperatorIdAsync(db);
             var query = db.StaffSalaries.AsQueryable();
-
-            if (!User.IsInRole("Admin"))
+            if (busOperatorId != null)
             {
-                var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (scopeOperatorId != null)
-                {
-                    query = query.Where(s => db.StaffProfiles.Any(sp =>
-                        sp.Id == s.StaffProfileId && sp.BusOperatorId == scopeOperatorId));
-                }
+                query = query.Where(x => x.StaffProfile.BusOperatorId == busOperatorId);
             }
 
             var items = await query.ToListAsync();
@@ -53,20 +40,52 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            var item = await db.StaffSalaries.FirstOrDefaultAsync(x => x.Id == id);
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+
+            var item = await db.StaffSalaries
+                .Include(x => x.StaffProfile)
+                .FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item.StaffProfileId)) return Forbid();
+
+            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (busOperatorId != null && item.StaffProfile.BusOperatorId != busOperatorId) return Forbid();
+
             return Ok(ToResponseDto(item));
+        }
+
+        // Confirms staffProfileId is a real StaffProfile and, for scoped callers, that it
+        // belongs to their own operator. Returns an error result to short-circuit on, or the
+        // resolved StaffProfile's BusOperatorId if everything checks out.
+        private async Task<(IActionResult? Error, Guid? OwnerOperatorId)> ValidateStaffProfileAsync(
+            Guid staffProfileId, Guid? callerBusOperatorId)
+        {
+            var profile = await db.StaffProfiles
+                .Where(p => p.Id == staffProfileId)
+                .Select(p => new { p.BusOperatorId })
+                .FirstOrDefaultAsync();
+
+            if (profile == null)
+            {
+                return (BadRequest(new { message = "StaffProfileId does not match a real StaffProfile." }), null);
+            }
+
+            if (callerBusOperatorId != null && profile.BusOperatorId != callerBusOperatorId)
+            {
+                return (BadRequest(new { message = "That StaffProfile belongs to a different operator." }), null);
+            }
+
+            return (null, profile.BusOperatorId);
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(StaffSalaryCreateDto dto)
         {
             if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-            if (!await CanAccessAsync(dto.StaffProfileId))
-            {
-                return BadRequest(new { message = "That staff member doesn't belong to your operator." });
-            }
+
+            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+
+            var (error, _) = await ValidateStaffProfileAsync(dto.StaffProfileId, busOperatorId);
+            if (error != null) return error;
 
             var item = new StaffSalary
             {
@@ -88,9 +107,15 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, StaffSalaryUpdateDto dto)
         {
-            var item = await db.StaffSalaries.FirstOrDefaultAsync(x => x.Id == id);
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+
+            var item = await db.StaffSalaries
+                .Include(x => x.StaffProfile)
+                .FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "StaffSalary not found." });
-            if (!await CanAccessAsync(item.StaffProfileId)) return Forbid();
+
+            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (busOperatorId != null && item.StaffProfile.BusOperatorId != busOperatorId) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -105,7 +130,9 @@ namespace TicketPortal.Api.Controllers
 
             db.Entry(item).Property(x => x.RowVersion).OriginalValue = dto.RowVersion;
 
-            // StaffProfileId deliberately never touched here — same reasoning as DriverLicense.
+            // StaffProfileId is never reassignable via a generic edit — see the DTO's header
+            // note — so there's nothing further to validate about ownership here beyond the
+            // Forbid() check above.
             item.PayPeriodStart = dto.PayPeriodStart;
             item.PayPeriodEnd = dto.PayPeriodEnd;
             item.Amount = dto.Amount;
@@ -134,9 +161,15 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            var item = await db.StaffSalaries.FirstOrDefaultAsync(x => x.Id == id);
+            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+
+            var item = await db.StaffSalaries
+                .Include(x => x.StaffProfile)
+                .FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item.StaffProfileId)) return Forbid();
+
+            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            if (busOperatorId != null && item.StaffProfile.BusOperatorId != busOperatorId) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -155,19 +188,6 @@ namespace TicketPortal.Api.Controllers
             }
 
             return NoContent();
-        }
-
-        // Same operator-scoping helper shape as DriverLicensesController — see its comment.
-        private async Task<bool> CanAccessAsync(Guid staffProfileId)
-        {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
-
-            var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (scopeOperatorId == null) return true;
-
-            return await db.StaffProfiles.AnyAsync(sp =>
-                sp.Id == staffProfileId && sp.BusOperatorId == scopeOperatorId);
         }
 
         private static StaffSalaryResponseDto ToResponseDto(StaffSalary x) => new()

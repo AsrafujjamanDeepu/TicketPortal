@@ -42,6 +42,28 @@ namespace TicketPortal.Api.DTO
         public string NewPassword { get; set; } = string.Empty;
     }
 
+    // POST /api/account/forgot-password. The response deliberately remains the same whether
+    // the email exists or not, so this endpoint cannot be used to enumerate customer accounts.
+    public class ForgotPasswordDto
+    {
+        [Required, EmailAddress]
+        public string Email { get; set; } = string.Empty;
+    }
+
+    // POST /api/account/reset-password. Token is the URL-safe, encoded Identity reset token
+    // supplied in the reset link; it is never an application password or a user id.
+    public class ResetPasswordDto
+    {
+        [Required, EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        public string Token { get; set; } = string.Empty;
+
+        [Required, MinLength(6)]
+        public string NewPassword { get; set; } = string.Empty;
+    }
+
     public class AuthResponseDto
     {
         // Paste this into Postman's Authorization tab as a Bearer token for every other endpoint.

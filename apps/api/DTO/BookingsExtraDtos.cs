@@ -114,26 +114,76 @@ namespace TicketPortal.Api.DTO
 
     // No Create/Update DTO for Ticket: tickets are issued only by PaymentConfirmationService
     // the moment an online payment is confirmed. TicketsController is read-only.
+    // =========================================================
+    // Ticket Response — includes related booking/trip/bus/passenger info
+    // =========================================================
     public class TicketResponseDto
     {
+        // ============ TICKET ============
         public Guid Id { get; set; }
-        public Guid BookingId { get; set; }
-        public Guid BookingPassengerId { get; set; }
-        public Guid TripId { get; set; }
-        public Guid TripSeatId { get; set; }
         public string TicketNumber { get; set; } = string.Empty;
         public string? ExternalTicketKey { get; set; }
-        public string SeatNumberSnapshot { get; set; } = string.Empty;
-        public string QrCodePayload { get; set; } = string.Empty;
         public decimal Fare { get; set; }
         public decimal DiscountAmount { get; set; }
         public decimal FinalFare { get; set; }
         public TicketStatus Status { get; set; } = TicketStatus.PendingPayment;
+        public string? QrCodePayload { get; set; }
+
+        // ============ ⭐ BOOKING ============
+        public Guid BookingId { get; set; }
+        public string? Pnr { get; set; }
+
+        // ============ ⭐ PASSENGER ============
+        public Guid BookingPassengerId { get; set; }
+        public string? PassengerName { get; set; }
+        public string? PassengerPhone { get; set; }
+        public Gender? PassengerGender { get; set; }
+        public int? PassengerAge { get; set; }
+
+        // ============ ⭐ SEAT ============
+        public Guid TripSeatId { get; set; }
+        public string SeatNumberSnapshot { get; set; } = string.Empty;
+        public string? SeatNumber { get; set; }
+
+        // ============ ⭐ TRIP ============
+        public Guid TripId { get; set; }
+        public string? TripCode { get; set; }
+        public DateTime? DepartureTimeUtc { get; set; }
+        public DateTime? ArrivalTimeUtc { get; set; }
+
+        // ============ ⭐ BUS ============
+        public Guid? BusId { get; set; }
+        public string? BusName { get; set; }
+        public string? BusBrand { get; set; }
+        public string? BusModel { get; set; }
+        public string? BusCoachNumber { get; set; }
+        public string? BusRegistrationNumber { get; set; }
+        public bool BusHasWifi { get; set; }
+        public bool BusHasToilet { get; set; }
+
+        // ============ ⭐ OPERATOR ============
+        public Guid? BusOperatorId { get; set; }
+        public string? BusOperatorName { get; set; }
+
+        // ============ ⭐ TERMINALS ============
+        public Guid? DepartureTerminalId { get; set; }
+        public string? DepartureTerminalName { get; set; }
+        public string? DepartureCity { get; set; }
+        public Guid? ArrivalTerminalId { get; set; }
+        public string? ArrivalTerminalName { get; set; }
+        public string? ArrivalCity { get; set; }
+
+        // ============ BOARDING / DROPPING ============
+        public string? BoardingTerminalName { get; set; }
+        public string? DroppingTerminalName { get; set; }
+
+        // ============ TIMESTAMPS ============
         public DateTime? IssuedAtUtc { get; set; }
         public DateTime? CheckedInAtUtc { get; set; }
         public DateTime? CancelledAtUtc { get; set; }
         public DateTime CreatedAtUtc { get; set; }
         public DateTime? UpdatedAtUtc { get; set; }
+
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 

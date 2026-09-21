@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiError, Booking, CouponRedeemRequest, CouponUsage, Payment, PaymentGatewayResult, PaymentInitiateRequest, PaymentMethod } from '@ticketportal-mono/models';
@@ -8,11 +8,30 @@ import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent } from '../../../../shared/ui';
 import { CheckoutStateService } from '../../services/checkout-state.service';
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'Card', label: 'Credit / Debit Card' },
-  { value: 'MobileBanking', label: 'Mobile Banking (bKash, Nagad…)' },
-  { value: 'BankTransfer', label: 'Bank Transfer' },
-  { value: 'Wallet', label: 'TicketPortal Wallet' },
+interface CheckoutPaymentMethod {
+  key: string;
+  method: PaymentMethod;
+  label: string;
+  providerId?: string;
+  feeLabel?: string;
+}
+
+interface CheckoutPaymentMethodResponse {
+  providerId: string;
+  providerName: string;
+  method: PaymentMethod;
+  displayName: string;
+  fixedFee: number | null;
+  percentageFee: number | null;
+}
+
+// A safe fallback keeps checkout usable for older databases that have not yet been seeded with
+// PaymentMethodConfiguration rows. A current database replaces this list with the API response.
+const FALLBACK_PAYMENT_METHODS: CheckoutPaymentMethod[] = [
+  { key: 'Card', method: 'Card', label: 'Credit / Debit Card' },
+  { key: 'MobileBanking', method: 'MobileBanking', label: 'Mobile Banking (bKash, Nagad…)' },
+  { key: 'BankTransfer', method: 'BankTransfer', label: 'Bank Transfer' },
+  { key: 'Wallet', method: 'Wallet', label: 'TicketPortal Wallet' },
 ];
 
 type PaymentOutcome = 'idle' | 'processing' | 'holdExpired' | 'failed';
@@ -76,10 +95,11 @@ type PaymentOutcome = 'idle' | 'processing' | 'holdExpired' | 'failed';
             <tp-card class="tp-method-card">
               <h3>Payment Method</h3>
               <div class="tp-method-options">
-                @for (m of methods; track m.value) {
-                  <label class="tp-method-option" [class.tp-method-option--selected]="selectedMethod() === m.value">
-                    <input type="radio" name="method" [value]="m.value" [checked]="selectedMethod() === m.value" (change)="selectedMethod.set(m.value)" />
-                    {{ m.label }}
+                @for (m of methods(); track m.key) {
+                  <label class="tp-method-option" [class.tp-method-option--selected]="selectedMethod()?.key === m.key">
+                    <input type="radio" name="method" [value]="m.key" [checked]="selectedMethod()?.key === m.key" (change)="selectMethod(m)" />
+                    <span>{{ m.label }}</span>
+                    @if (m.feeLabel) { <small>{{ m.feeLabel }}</small> }
                   </label>
                 }
               </div>
@@ -92,7 +112,7 @@ type PaymentOutcome = 'idle' | 'processing' | 'holdExpired' | 'failed';
 
             <div class="tp-payment-page__actions">
               <button tpButton variant="secondary" type="button" [disabled]="outcome() === 'processing'" (click)="backToPassengers()">Back</button>
-              <button tpButton variant="primary" type="button" [disabled]="outcome() === 'processing'" (click)="pay(b)">
+              <button tpButton variant="primary" type="button" [disabled]="outcome() === 'processing' || !selectedMethod()" (click)="pay(b)">
                 {{ outcome() === 'processing' ? 'Processing…' : 'Pay ' + (b.grandTotal | number: '1.2-2') + ' ' + b.currency }}
               </button>
             </div>
@@ -177,6 +197,11 @@ type PaymentOutcome = 'idle' | 'processing' | 'holdExpired' | 'failed';
         background: var(--tp-yellow-tint);
       }
 
+      .tp-method-option small {
+        margin-left: auto;
+        color: var(--tp-text-muted);
+      }
+
       .tp-demo-note {
         font-size: 12px;
         color: var(--tp-text-muted);
@@ -192,22 +217,48 @@ type PaymentOutcome = 'idle' | 'processing' | 'holdExpired' | 'failed';
     `,
   ],
 })
-export class PaymentComponent {
+export class PaymentComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
   private readonly router = inject(Router);
   private readonly state = inject(CheckoutStateService);
 
-  protected readonly methods = PAYMENT_METHODS;
+  protected readonly methods = signal<CheckoutPaymentMethod[]>(FALLBACK_PAYMENT_METHODS);
   protected readonly booking = computed(() => this.state.booking());
 
   protected readonly couponCode = signal('');
   protected readonly applyingCoupon = signal(false);
   protected readonly couponApplied = signal(false);
 
-  protected readonly selectedMethod = signal<PaymentMethod>('Card');
+  protected readonly selectedMethod = signal<CheckoutPaymentMethod | null>(FALLBACK_PAYMENT_METHODS[0]);
   protected readonly outcome = signal<PaymentOutcome>('idle');
   protected readonly failureMessage = signal('Something went wrong while processing payment. Please try again.');
+
+  ngOnInit(): void {
+    this.api.get<CheckoutPaymentMethodResponse[]>('payments/methods').subscribe({
+      next: (items) => {
+        const methods = items.map((item) => ({
+          key: `${item.providerId}:${item.method}`,
+          method: item.method,
+          label: item.displayName || item.providerName,
+          providerId: item.providerId,
+          feeLabel: this.feeLabel(item),
+        }));
+
+        if (methods.length > 0) {
+          this.methods.set(methods);
+          this.selectedMethod.set(methods[0]);
+        }
+      },
+      // Retain the original hard-coded choices as a backwards-compatible fallback if an older
+      // API/database does not expose configured checkout methods yet.
+      error: () => undefined,
+    });
+  }
+
+  protected selectMethod(method: CheckoutPaymentMethod): void {
+    this.selectedMethod.set(method);
+  }
 
   applyCoupon(booking: Booking): void {
     const code = this.couponCode().trim();
@@ -236,7 +287,8 @@ export class PaymentComponent {
 
   pay(booking: Booking): void {
     const hold = this.state.hold();
-    if (!hold) {
+    const method = this.selectedMethod();
+    if (!hold || !method) {
       this.outcome.set('holdExpired');
       return;
     }
@@ -246,7 +298,8 @@ export class PaymentComponent {
     const initiateRequest: PaymentInitiateRequest = {
       bookingId: booking.id,
       holdToken: hold.holdToken,
-      method: this.selectedMethod(),
+      method: method.method,
+      paymentProviderId: method.providerId,
     };
 
     this.api.post<Payment>('payments/initiate', initiateRequest).subscribe({
@@ -298,5 +351,11 @@ export class PaymentComponent {
   backToMyBookings(): void {
     this.state.reset();
     this.router.navigate(['/my-bookings']);
+  }
+
+  private feeLabel(method: CheckoutPaymentMethodResponse): string | undefined {
+    if (method.percentageFee) return `Fee ${method.percentageFee}%`;
+    if (method.fixedFee) return `Fee ${method.fixedFee}`;
+    return undefined;
   }
 }

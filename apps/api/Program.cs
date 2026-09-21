@@ -11,6 +11,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 
@@ -88,6 +89,35 @@ builder.Services.AddAuthentication(options =>
                 )
             )
     };
+
+    // A token's signature stays valid until it expires, even after the account it was issued
+    // for is gone. Typical case in development: the local database is dropped/re-created
+    // (fresh seed = fresh user ids) while the browser still holds yesterday's token. The API
+    // then "authenticated" a user that no longer exists, and the first write that stored that
+    // user id (e.g. POST /api/seatholds -> FK_SeatHolds_AspNetUsers_HeldByUserId) failed with
+    // a confusing "referenced records may no longer exist". Also closes the gap where a
+    // deactivated account (IsActive = false) kept working until its token expired.
+    // Failing here returns a plain 401, which both front-ends already turn into "log in again".
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var userIdClaim = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(userIdClaim, out var userId))
+            {
+                context.Fail("The token does not carry a valid user id.");
+                return;
+            }
+
+            var userManager = context.HttpContext.RequestServices
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByIdAsync(userId.ToString());
+            if (user is null || !user.IsActive)
+            {
+                context.Fail("The account for this token no longer exists or has been disabled.");
+            }
+        }
+    };
 });
 
 
@@ -154,6 +184,7 @@ builder.Services.AddScoped<InvoicePaymentService>();
 // The only writer of CouponUsage — validates a coupon's own rules before redemption. See
 // Services/CouponRedemptionService.cs.
 builder.Services.AddScoped<CouponRedemptionService>();
+builder.Services.AddScoped<IPasswordResetMessageSender, PasswordResetMessageSender>();
 
 builder.Services.AddHostedService<SeatHoldExpirySweepService>();
 // Piece 3: finds payments that succeeded but whose booking/tickets never got finalized, and
@@ -318,7 +349,13 @@ using (var scope = app.Services.CreateScope())
         // Piece 1: real roles + a bootstrap Admin account. Must run in this order — the Admin
         // user's role assignment below depends on the "Admin" role already existing.
         await DbSeeder.SeedRolesAsync(roleManager);
-        await DbSeeder.SeedAdminUserAsync(userManager);
+        // Development: also repairs a stale/locked/re-passworded "admin" row left in a reused
+        // local database (see DbSeeder.SeedAdminUserAsync). Never true in Production, so a
+        // real admin's rotated password is never reset.
+        await DbSeeder.SeedAdminUserAsync(
+            userManager,
+            startupLogger,
+            repairDevelopmentCredentials: app.Environment.IsDevelopment());
 
         // Rich demo dataset (operators, fleets, staff, trips, bookings, the finance cycle,
         // marketing, integrations, etc.) so the whole app can be clicked through end-to-end.

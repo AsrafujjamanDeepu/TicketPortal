@@ -37,6 +37,9 @@ import { MatTabsModule } from '@angular/material/tabs';
       >
         Bookings
       </a>
+      <a mat-tab-link routerLink="/my-bookings/tickets" routerLinkActive #ticketsLink="routerLinkActive" [active]="ticketsLink.isActive">
+        Tickets
+      </a>
       <a mat-tab-link routerLink="/my-bookings/wallet" routerLinkActive #walletLink="routerLinkActive" [active]="walletLink.isActive">
         Wallet
       </a>
@@ -48,6 +51,9 @@ import { MatTabsModule } from '@angular/material/tabs';
         [active]="cancellationsLink.isActive"
       >
         Cancellations &amp; Refunds
+      </a>
+      <a mat-tab-link routerLink="/my-bookings/complaints" routerLinkActive #complaintsLink="routerLinkActive" [active]="complaintsLink.isActive">
+        Complaints
       </a>
     </nav>
   `,

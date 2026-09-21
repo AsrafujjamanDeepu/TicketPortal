@@ -38,6 +38,8 @@ import { TpLogoComponent } from '../../../shared/ui/logo/tp-logo.component';
                 <input type="password" formControlName="password" autocomplete="current-password" />
               </label>
 
+              <a class="tp-forgot-link" routerLink="/auth/forgot-password">Forgot your password?</a>
+
               <button tpButton variant="primary" type="submit" [disabled]="form.invalid || submitting()" style="width: 100%">
                 {{ submitting() ? 'Logging in…' : 'Log in' }}
               </button>
@@ -166,6 +168,14 @@ import { TpLogoComponent } from '../../../shared/ui/logo/tp-logo.component';
         color: var(--tp-text-muted);
         margin-top: var(--tp-space-5);
         margin-bottom: 0;
+      }
+
+      .tp-forgot-link {
+        align-self: flex-end;
+        margin-top: calc(var(--tp-space-3) * -1);
+        color: var(--tp-yellow-dark);
+        font-size: 13px;
+        font-weight: 600;
       }
 
       .tp-auth-card__switch a {

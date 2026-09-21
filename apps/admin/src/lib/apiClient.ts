@@ -57,13 +57,34 @@ export async function apiFetch<T>(
   }
 
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-  const response = await fetch(`${BASE_URL}/${cleanPath}`, {
-    method: options.method ?? 'GET',
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/${cleanPath}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch {
+    // fetch() only rejects when no HTTP response arrived at all: API not running, wrong
+    // VITE_API_BASE_URL/port, CORS origin not allowed, or the browser rejecting the
+    // untrusted https://localhost development certificate. Say so, instead of the useless
+    // browser text "Failed to fetch".
+    const apiError: ApiError = {
+      status: 0,
+      message:
+        `Cannot reach the API at ${BASE_URL}. Check that the API is running ` +
+        '(npx nx run api:serve), that VITE_API_BASE_URL points at it, and that the browser ' +
+        'trusts the development certificate (run: dotnet dev-certs https --trust).',
+    };
+    throw apiError;
+  }
 
-  if (response.status === 401) {
+  // A 401 on a request that carries a session means the token expired or was revoked, so
+  // drop the session and go back to the login page. A 401 on a request made WITHOUT a
+  // session (skipAuth - i.e. the login call itself) just means "wrong username or password":
+  // redirecting there used to hard-reload the login page before the error message could be
+  // shown, so a failed login looked like the form silently doing nothing.
+  if (response.status === 401 && !options.skipAuth) {
     clearSession();
     window.location.href = '/login';
   }

@@ -1,11 +1,17 @@
-import { PagePlaceholder } from '../components/PagePlaceholder';
+import { ConsoleShortcuts } from '../components/ConsoleShortcuts';
 
-// Backend: ActivityLogsController, AuditLogsController, NotificationLogsController.
+// Backend: ActivityLogsController, AuditLogsController, LoginHistoriesController, NotificationLogsController.
 export function AuditLogsPage() {
   return (
-    <PagePlaceholder
+    <ConsoleShortcuts
       title="Audit & Activity Logs"
-      message="A searchable/filterable log viewer (who did what, when) plus notification delivery logs go here."
+      message="Who did what and when, sign-in history, and notification delivery."
+      links={[
+        { label: 'Audit logs', resource: 'AuditLogs' },
+        { label: 'Activity logs', resource: 'ActivityLogs' },
+        { label: 'Login history', hint: 'Successful and failed sign-ins', resource: 'LoginHistories' },
+        { label: 'Notification logs', resource: 'NotificationLogs' },
+      ]}
     />
   );
 }

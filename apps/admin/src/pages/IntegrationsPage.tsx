@@ -1,13 +1,24 @@
-import { PagePlaceholder } from '../components/PagePlaceholder';
+import { ConsoleShortcuts } from '../components/ConsoleShortcuts';
 
 // Backend: OperatorIntegrationsController, OperatorIntegrationEndpointsController,
-// IntegrationSyncLogsController, IntegrationWebhookLogsController.
-// This is a health/status board for ExternalApiManaged operators, not a CRUD form.
+// IntegrationSyncLogsController, IntegrationWebhookLogsController, External*MappingsController.
+// Concept §3.2: API-connected operators sell only online through TicketPortal, which calls the
+// operator's own API to sync and check booking status.
 export function IntegrationsPage() {
   return (
-    <PagePlaceholder
+    <ConsoleShortcuts
       title="Integration Monitoring"
-      message="Sync log status (Succeeded/Failed/Retrying) and webhook event logs for API-connected operators go here."
+      message="API-connected operators: connection settings, sync results and webhook events."
+      links={[
+        { label: 'Operator integrations', hint: 'Base URL, auth type, timeouts', resource: 'OperatorIntegrations' },
+        { label: 'Integration endpoints', resource: 'OperatorIntegrationEndpoints' },
+        { label: 'Sync logs', hint: 'Succeeded / Failed / Retrying', resource: 'IntegrationSyncLogs' },
+        { label: 'Webhook logs', resource: 'IntegrationWebhookLogs' },
+        { label: 'External trip mappings', resource: 'ExternalTripMappings' },
+        { label: 'External booking mappings', resource: 'ExternalBookingMappings' },
+        { label: 'External route mappings', resource: 'ExternalRouteMappings' },
+        { label: 'External seat mappings', resource: 'ExternalSeatMappings' },
+      ]}
     />
   );
 }

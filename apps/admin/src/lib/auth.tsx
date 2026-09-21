@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { AuthResponse, LoginRequest } from '@ticketportal-mono/models';
+import type { ApiError, AuthResponse, LoginRequest } from '@ticketportal-mono/models';
 import { apiFetch, clearSession, getStoredSession, storeSession } from './apiClient';
 
 interface CurrentUser {
@@ -42,6 +42,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           body: request,
           skipAuth: true,
         });
+        // ProtectedRoute bounces every non-Admin back to /login with no explanation, which
+        // looks exactly like "login does nothing". Refuse here instead, with a reason.
+        if (!response.roles?.includes('Admin')) {
+          const notAdmin: ApiError = {
+            status: 403,
+            message:
+              'This account is signed in correctly but is not a platform Admin. ' +
+              'Customers, operators and staff use the main portal (http://localhost:4200).',
+          };
+          throw notAdmin;
+        }
         storeSession(response);
         setCurrentUser(toCurrentUser(getStoredSession()));
       },

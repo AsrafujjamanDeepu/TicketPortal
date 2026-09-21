@@ -11,6 +11,7 @@ import {
   TpEmptyStateComponent,
   TpSpinnerComponent,
 } from '../../../shared/ui';
+import { BusSeatLayoutComponent } from '../../../shared/bus-seat-layout/bus-seat-layout.component';
 import { SearchApiService } from '../services/search-api.service';
 
 interface FastNavState {
@@ -41,6 +42,7 @@ interface FastNavState {
     TpCardComponent,
     TpEmptyStateComponent,
     TpSpinnerComponent,
+    BusSeatLayoutComponent,
   ],
   template: `
     <div class="tp-page tp-seat-map-page">
@@ -71,55 +73,49 @@ interface FastNavState {
           <span class="tp-muted tp-trip-code">Trip {{ trip()!.tripCode }}</span>
         </tp-card>
 
-        <tp-card>
-          <div class="tp-seat-legend">
-            <span class="tp-legend-item"><span class="tp-seat-swatch tp-seat-swatch--available"></span>Available</span>
-            <span class="tp-legend-item"><span class="tp-seat-swatch tp-seat-swatch--selected"></span>Selected</span>
-            <span class="tp-legend-item"><span class="tp-seat-swatch tp-seat-swatch--taken"></span>Unavailable</span>
-          </div>
+        <div class="tp-seat-layout">
+          <tp-card class="tp-bus-card">
+            <tp-bus-seat-layout
+              [seats]="trip()!.tripSeats"
+              [selectedIds]="selectedSeatIds()"
+              [currency]="trip()!.currency"
+              (toggle)="toggleSeatById($event)"
+            />
+          </tp-card>
 
-          <div class="tp-seat-grid">
-            @for (seat of trip()!.tripSeats; track seat.id) {
-              <button
-                type="button"
-                class="tp-seat"
-                [class.tp-seat--selected]="isSelected(seat)"
-                [class.tp-seat--taken]="seat.status !== 'Available' && !isSelected(seat)"
-                [disabled]="seat.status !== 'Available' && !isSelected(seat)"
-                (click)="toggleSeat(seat)"
-                [title]="seat.seatType + ' · ' + trip()!.currency + ' ' + seat.fare"
-              >
-                {{ seat.seatNumber }}
-              </button>
-            }
-          </div>
-        </tp-card>
-
-        <tp-card class="tp-seat-summary">
-          <div>
-            <p class="tp-muted">Selected seats</p>
-            <p class="tp-seat-summary__seats">
+          <aside class="tp-seat-aside">
+            <tp-card class="tp-seat-summary">
+              <h3>Your seats</h3>
               @if (selectedSeatIds().length === 0) {
-                None yet
+                <p class="tp-muted">Tap a seat on the bus to select it.</p>
               } @else {
-                {{ selectedSeatNumbers().join(', ') }}
+                <ul class="tp-seat-summary__list">
+                  @for (seat of selectedSeats(); track seat.id) {
+                    <li>
+                      <span>Seat <strong>{{ seat.seatNumber }}</strong></span>
+                      <span>{{ trip()!.currency }} {{ seat.fare }}</span>
+                    </li>
+                  }
+                </ul>
               }
-            </p>
-          </div>
-          <div class="tp-seat-summary__total">
-            <p class="tp-muted">Total fare</p>
-            <p class="tp-seat-summary__amount">{{ trip()!.currency }} {{ selectedFareTotal() }}</p>
-          </div>
-          <button
-            tpButton
-            variant="primary"
-            size="lg"
-            [disabled]="selectedSeatIds().length === 0 || holding()"
-            (click)="holdSeats()"
-          >
-            {{ holding() ? 'Holding…' : 'Hold Seats & Continue' }}
-          </button>
-        </tp-card>
+              <div class="tp-seat-summary__total">
+                <span class="tp-muted">Total fare</span>
+                <span class="tp-seat-summary__amount">{{ trip()!.currency }} {{ selectedFareTotal() }}</span>
+              </div>
+              <button
+                tpButton
+                variant="primary"
+                size="lg"
+                class="tp-seat-summary__cta"
+                [disabled]="selectedSeatIds().length === 0 || holding()"
+                (click)="holdSeats()"
+              >
+                {{ holding() ? 'Holding…' : 'Hold Seats & Continue' }}
+              </button>
+              <p class="tp-muted tp-seat-summary__note">Your seats are held for a few minutes while you complete payment.</p>
+            </tp-card>
+          </aside>
+        </div>
       }
     </div>
   `,
@@ -155,96 +151,73 @@ interface FastNavState {
         font-size: 13px;
       }
 
-      .tp-seat-legend {
-        display: flex;
-        gap: 20px;
-        margin-bottom: 18px;
-        font-size: 13px;
-        color: var(--tp-text-muted);
+      .tp-seat-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 18px;
+        align-items: start;
       }
 
-      .tp-legend-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .tp-seat-swatch {
-        width: 14px;
-        height: 14px;
-        border-radius: 4px;
-        display: inline-block;
-        border: 1px solid var(--tp-border);
-      }
-
-      .tp-seat-swatch--available {
-        background: var(--tp-surface);
-      }
-
-      .tp-seat-swatch--selected {
-        background: var(--tp-yellow);
-        border-color: var(--tp-yellow-dark);
-      }
-
-      .tp-seat-swatch--taken {
-        background: var(--tp-surface-alt);
-      }
-
-      .tp-seat-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-      }
-
-      .tp-seat {
-        width: 56px;
-        height: 44px;
-        border-radius: 8px;
-        border: 1px solid var(--tp-border);
-        background: var(--tp-surface);
-        color: var(--tp-text);
-        font-weight: 600;
-        font-size: 13px;
-        cursor: pointer;
-        transition: transform var(--tp-transition-fast);
-      }
-
-      .tp-seat:hover:not(:disabled) {
-        border-color: var(--tp-yellow-dark);
-        transform: translateY(-1px);
-      }
-
-      .tp-seat--selected {
-        background: var(--tp-yellow);
-        border-color: var(--tp-yellow-dark);
-        color: var(--tp-text-on-yellow);
-      }
-
-      .tp-seat--taken {
-        background: var(--tp-surface-alt);
-        color: var(--tp-text-muted);
-        cursor: not-allowed;
-        text-decoration: line-through;
-      }
-
-      .tp-seat-summary {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 20px;
-        flex-wrap: wrap;
+      .tp-seat-aside {
         position: sticky;
-        bottom: 16px;
-        box-shadow: var(--tp-shadow-elevated);
+        top: 90px;
       }
 
-      .tp-seat-summary__seats {
-        font-weight: 600;
+      .tp-seat-summary h3 {
+        margin: 0 0 12px;
+        font-family: var(--tp-font-heading);
+      }
+
+      .tp-seat-summary p {
+        margin: 0;
+      }
+
+      .tp-seat-summary__list {
+        list-style: none;
+        margin: 0 0 12px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .tp-seat-summary__list li {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .tp-seat-summary__total {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 0;
+        border-top: 1px dashed var(--tp-border);
       }
 
       .tp-seat-summary__amount {
         font-weight: 700;
         font-size: 20px;
+      }
+
+      .tp-seat-summary__cta {
+        width: 100%;
+      }
+
+      .tp-seat-summary__note {
+        margin-top: 10px !important;
+        font-size: 12px;
+      }
+
+      @media (max-width: 860px) {
+        .tp-seat-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .tp-seat-aside {
+          position: static;
+        }
       }
     `,
   ],
@@ -276,12 +249,12 @@ export class TripSeatMapComponent implements OnInit {
     );
   });
 
-  protected readonly selectedSeatNumbers = computed(() => {
+  protected readonly selectedSeats = computed(() => {
     const trip = this.trip();
-    if (!trip) return [] as string[];
+    if (!trip) return [] as TripSeat[];
     return this.selectedSeatIds()
-      .map((id) => trip.tripSeats.find((s) => s.id === id)?.seatNumber)
-      .filter((n): n is string => !!n);
+      .map((id) => trip.tripSeats.find((s) => s.id === id))
+      .filter((seat): seat is TripSeat => !!seat);
   });
 
   ngOnInit(): void {
@@ -310,6 +283,11 @@ export class TripSeatMapComponent implements OnInit {
 
   isSelected(seat: TripSeat): boolean {
     return this.selectedSeatIds().includes(seat.id);
+  }
+
+  toggleSeatById(seatId: string): void {
+    const seat = this.trip()?.tripSeats.find((s) => s.id === seatId);
+    if (seat) this.toggleSeat(seat);
   }
 
   toggleSeat(seat: TripSeat): void {

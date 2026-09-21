@@ -66,6 +66,15 @@ namespace TicketPortal.Api.Services
                 throw new InvalidOperationException($"Trip {tripId} does not exist.");
             }
 
+            // HeldByUserId is a foreign key to AspNetUsers. A signed-in browser can present a token
+            // for a user that no longer exists (e.g. the dev database was re-created), which used
+            // to surface only as the generic "referenced records" error below. Say what is wrong.
+            if (heldByUserId.HasValue && !await _db.Users.AnyAsync(u => u.Id == heldByUserId.Value))
+            {
+                throw new InvalidOperationException(
+                    "Your login belongs to an account that no longer exists. Please log out and log in again.");
+            }
+
             var now = DateTime.UtcNow;
 
             // Create the hold "envelope" first — the actual timer (3/5 minutes, from holdMinutes).

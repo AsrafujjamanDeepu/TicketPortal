@@ -32,6 +32,12 @@ export const SEARCH_ROUTES: Routes = [
           import('./trip-detail/trip-seat-map.component').then((m) => m.TripSeatMapComponent),
         title: 'Select Seats — TicketPortal',
       },
+      {
+        path: 'verify-ticket',
+        loadComponent: () =>
+          import('./ticket-verify/ticket-verify.component').then((m) => m.TicketVerifyComponent),
+        title: 'Verify Ticket — TicketPortal',
+      },
     ],
   },
 ];

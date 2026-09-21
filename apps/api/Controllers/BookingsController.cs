@@ -73,18 +73,26 @@ namespace TicketPortal.Api.Controllers
             return Ok(bookings.Select(ToResponseDto));
         }
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(Guid id)
-        {
-            var booking = await db.Bookings.Include(b => b.Passengers).FirstOrDefaultAsync(b => b.Id == id);
-            if (booking == null) return NotFound();
 
-            if (!await CanAccessBookingAsync(booking)) return Forbid();
 
-            return Ok(ToResponseDto(booking));
-        }
+              [HttpGet("{id}")]
+              public async Task<IActionResult> GetById(Guid id)
+              {
+                var booking = await db.Bookings
+                    .Include(b => b.Passengers)
+                    .Include(b => b.SeatHold)          // 👈 ADD THIS
+                    .FirstOrDefaultAsync(b => b.Id == id);
 
-        [HttpPost]
+                if (booking == null) return NotFound();
+
+                if (!await CanAccessBookingAsync(booking)) return Forbid();
+
+                return Ok(ToResponseDto(booking));
+              }
+
+
+
+    [HttpPost]
         public async Task<IActionResult> Create(BookingCreateDto dto)
         {
             // =========================================================

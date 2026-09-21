@@ -29,7 +29,15 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
 
       const apiError = normalizeError(err);
 
-      if (apiError.status === 401) {
+      // A 401 from the sign-in/sign-up calls themselves means "wrong credentials" or "account
+      // disabled", not "your session ran out": show the server's message and stay on the page.
+      // (Every failed login used to say "Your session has expired" and bounce to /auth/login
+      // with returnUrl=/auth/login.)
+      const isCredentialCall = /\/account\/(login|register|forgot-password|reset-password)(\?|$)/i.test(req.url);
+
+      if (apiError.status === 401 && isCredentialCall) {
+        toast.error(apiError.message);
+      } else if (apiError.status === 401) {
         authService.logout();
         toast.error('Your session has expired. Please log in again.');
         router.navigate(['/auth/login'], { queryParams: { returnUrl: router.url } });

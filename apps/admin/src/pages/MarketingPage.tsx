@@ -1,12 +1,16 @@
-import { PagePlaceholder } from '../components/PagePlaceholder';
+import { ConsoleShortcuts } from '../components/ConsoleShortcuts';
 
-// Backend: CouponsController, OffersController, PromoBannersController,
-// ReviewsController (moderation).
 export function MarketingPage() {
   return (
-    <PagePlaceholder
+    <ConsoleShortcuts
       title="Marketing"
-      message="Coupons, offers, promo banners, and review moderation go here."
+      message="Coupons, offers and promotional banners."
+      links={[
+        { label: 'Coupons', resource: 'Coupons' },
+        { label: 'Coupon usages', resource: 'CouponUsages' },
+        { label: 'Offers', resource: 'Offers' },
+        { label: 'Promo banners', resource: 'PromoBanners' },
+      ]}
     />
   );
 }

@@ -26,6 +26,8 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
           @if (!auth.isAuthenticated() || auth.hasRole('Customer')) {
             <a routerLink="/search" routerLinkActive="tp-navbar__link--active">Search Trips</a>
           }
+          <a routerLink="/buses" routerLinkActive="tp-navbar__link--active">Browse Buses</a>
+          <a routerLink="/search/verify-ticket" routerLinkActive="tp-navbar__link--active">Verify Ticket</a>
           @if (auth.hasRole('Customer')) {
             <a routerLink="/my-bookings" routerLinkActive="tp-navbar__link--active">My Bookings</a>
           }

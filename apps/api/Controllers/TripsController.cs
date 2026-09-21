@@ -26,31 +26,66 @@ namespace TicketPortal.Api.Controllers
     [ApiController]
     public class TripsController(AppDbContext db, IWebHostEnvironment env) : ControllerBase
     {
-        // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
-        // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
-        [AllowAnonymous]
-        [HttpGet]
-        public async Task<IActionResult> GetAll()
-        {
-            var trips = await db.Trips.Include(t => t.TripSeats).ToListAsync();
-            return Ok(trips.Select(ToResponseDto));
-        }
+    // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
+    // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
 
-        [AllowAnonymous]
+
+    [AllowAnonymous]
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
+    {
+      var trips = await db.Trips
+          .Include(t => t.TripSeats)
+              .ThenInclude(ts => ts.Seat)
+          .Include(t => t.Bus)
+          .Include(t => t.BusOperator)
+          .Include(t => t.BusRoute)
+          .Include(t => t.DepartureTerminal)
+          .Include(t => t.ArrivalTerminal)
+          .ToListAsync();
+
+      return Ok(trips.Select(ToResponseDto));
+    }
+
+
+
+
+
+
+
+
+    [AllowAnonymous]
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
-        {
-            var trip = await db.Trips.Include(t => t.TripSeats).FirstOrDefaultAsync(t => t.Id == id);
-            return trip == null ? NotFound() : Ok(ToResponseDto(trip));
-        }
+    {
+      var trip = await db.Trips
+          .Include(t => t.TripSeats)
+              .ThenInclude(ts => ts.Seat)
+          .Include(t => t.Bus)
+          .Include(t => t.BusOperator)
+          .Include(t => t.BusRoute)
+          .Include(t => t.DepartureTerminal)
+          .Include(t => t.ArrivalTerminal)
+          .FirstOrDefaultAsync(t => t.Id == id);
 
-        // The core of the business plan: "client will search route like 'Dhaka to Chittagong'
-        // and will see available buses and their seats" — this was the single most
-        // customer-visible thing missing from the backend. Matches on the Trip's own actual
-        // DepartureTerminal/ArrivalTerminal (NOT BusRoute's origin/destination — see the class
-        // comment on Trip for why those can differ, e.g. one operator boarding from Gabtoli and
-        // another from Kalyanpur, even though both are "Dhaka").
-        [AllowAnonymous]
+         return trip == null ? NotFound() : Ok(ToResponseDto(trip));
+     }
+
+
+
+
+
+    // The core of the business plan: "client will search route like 'Dhaka to Chittagong'
+    // and will see available buses and their seats" — this was the single most
+    // customer-visible thing missing from the backend. Matches on the Trip's own actual
+    // DepartureTerminal/ArrivalTerminal (NOT BusRoute's origin/destination — see the class
+    // comment on Trip for why those can differ, e.g. one operator boarding from Gabtoli and
+    // another from Kalyanpur, even though both are "Dhaka").
+
+
+
+
+    [AllowAnonymous]
         [HttpGet("search")]
         public async Task<IActionResult> Search(
             [FromQuery] Guid fromTerminalId,
@@ -1126,65 +1161,88 @@ namespace TicketPortal.Api.Controllers
             });
         }
 
-        private static TripResponseDto ToResponseDto(Trip trip)
-        {
-            return new TripResponseDto
-            {
-                Id = trip.Id,
 
-                BusOperatorId = trip.BusOperatorId,
-                BusRouteId = trip.BusRouteId,
-                BusId = trip.BusId,
 
-                DepartureTerminalId = trip.DepartureTerminalId,
-                ArrivalTerminalId = trip.ArrivalTerminalId,
 
-                TripCode = trip.TripCode,
+    private static TripResponseDto ToResponseDto(Trip trip)
+    {
+      return new TripResponseDto
+      {
+        Id = trip.Id,
 
-                DepartureTimeUtc = trip.DepartureTimeUtc,
+        // ============ IDs ============
+        BusOperatorId = trip.BusOperatorId,
+        BusRouteId = trip.BusRouteId,
+        BusId = trip.BusId,
+        DepartureTerminalId = trip.DepartureTerminalId,
+        ArrivalTerminalId = trip.ArrivalTerminalId,
 
-                ArrivalTimeUtc = trip.ArrivalTimeUtc,
+        // ============ ⭐ BUS OPERATOR INFO ============
+        BusOperatorName = trip.BusOperator?.Name,
+        BusOperatorLogoUrl = trip.BusOperator?.LogoUrl,
 
-                BaseFare = trip.BaseFare,
+        // ============ ⭐ BUS INFO ============
+        BusBrand = trip.Bus?.Brand,
+        BusModel = trip.Bus?.Model,
+        BusType = trip.Bus?.BusType,
+        BusCoachNumber = trip.Bus?.CoachNumber,
+        BusRegistrationNumber = trip.Bus?.RegistrationNumber,
+        BusHasWifi = trip.Bus?.HasWifi ?? false,
+        BusHasToilet = trip.Bus?.HasToilet ?? false,
 
-                Currency = trip.Currency,
-                IsWheelchairAccessible = trip.IsWheelchairAccessible,
+        // ============ ⭐ ROUTE INFO ============
+        BusRouteName = trip.BusRoute?.Name,
+        BusRouteCode = trip.BusRoute?.RouteCode,
 
-                Status = trip.Status,
-                CreatedAtUtc = trip.CreatedAtUtc,
-                UpdatedAtUtc = trip.UpdatedAtUtc,
-                DeletedAtUtc = trip.DeletedAtUtc,
+        // ============ ⭐ TERMINAL INFO ============
+        DepartureTerminalName = trip.DepartureTerminal?.Name,
+        DepartureCity = trip.DepartureTerminal?.City,
+        ArrivalTerminalName = trip.ArrivalTerminal?.Name,
+        ArrivalCity = trip.ArrivalTerminal?.City,
 
-                DelayReason = trip.DelayReason,
+        // ============ TRIP ============
+        TripCode = trip.TripCode,
+        DepartureTimeUtc = trip.DepartureTimeUtc,
+        ArrivalTimeUtc = trip.ArrivalTimeUtc,
+        BaseFare = trip.BaseFare,
+        Currency = trip.Currency,
+        IsWheelchairAccessible = trip.IsWheelchairAccessible,
+        Status = trip.Status,
+        CreatedAtUtc = trip.CreatedAtUtc,
+        UpdatedAtUtc = trip.UpdatedAtUtc,
+        DeletedAtUtc = trip.DeletedAtUtc,
+        DelayReason = trip.DelayReason,
+        CoverImageUrl = trip.CoverImageUrl,
 
-                CoverImageUrl = trip.CoverImageUrl,
+        // ============ ⭐ SEATS with layout info ============
+        TripSeats = trip.TripSeats
+              .Select(s => new TripSeatResponseDto
+              {
+                Id = s.Id,
+                SeatId = s.SeatId,
+                SeatNumber = s.SeatNumber,
+                SeatType = s.SeatType,
+                Fare = s.Fare,
+                Status = s.Status,
 
-                TripSeats = trip.TripSeats
-                    .Select(s => new TripSeatResponseDto
-                    {
-                        Id = s.Id,
+                // ⭐ NEW
+                RowNumber = s.Seat?.RowNumber ?? 0,
+                ColumnNumber = s.Seat?.ColumnNumber ?? 0,
+                DeckLevel = s.Seat?.DeckLevel ?? 1,
+                IsWindow = s.Seat?.IsWindow ?? false,
+                ExtraFare = s.Seat?.ExtraFare
+              })
+              .ToList(),
 
-                        SeatId = s.SeatId,
+        RowVersion = trip.RowVersion
+      };
+    }
 
-                        SeatNumber = s.SeatNumber,
-
-                        SeatType = s.SeatType,
-
-                        Fare = s.Fare,
-
-                        Status = s.Status
-                    })
-                    .ToList(),
-
-                RowVersion = trip.RowVersion
-            };
-        }
-
-        // Flatter mapper for search results — see the TripSearchResultDto comment in
-        // DTO/TripDtos.cs for why this doesn't just reuse ToResponseDto above. Reads
-        // TripSeat.Status live rather than any cached count, so it can never drift from what
-        // SeatHoldService/PaymentConfirmationService are doing to the same rows.
-        private static TripSearchResultDto ToSearchResultDto(Trip trip)
+    // Flatter mapper for search results — see the TripSearchResultDto comment in
+    // DTO/TripDtos.cs for why this doesn't just reuse ToResponseDto above. Reads
+    // TripSeat.Status live rather than any cached count, so it can never drift from what
+    // SeatHoldService/PaymentConfirmationService are doing to the same rows.
+    private static TripSearchResultDto ToSearchResultDto(Trip trip)
         {
             var availableSeats = trip.TripSeats.Where(s => s.Status == TripSeatStatus.Available).ToList();
 

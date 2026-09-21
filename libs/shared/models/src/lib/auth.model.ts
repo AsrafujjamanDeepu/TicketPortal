@@ -22,6 +22,18 @@ export interface ChangePasswordRequest {
   newPassword: string;
 }
 
+// Mirrors DTO/AuthDtos.cs. These two public requests deliberately do not require a session:
+// recovery happens precisely when the customer cannot log in.
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  email: string;
+  token: string;
+  newPassword: string;
+}
+
 // Mirrors DTO/AuthDtos.cs -> AuthResponseDto. `expiresAtUtc` comes back as
 // an ISO string over JSON — convert to a Date only where you actually need
 // to do date math (AuthService does this once, on login).

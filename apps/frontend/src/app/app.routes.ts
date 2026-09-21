@@ -22,6 +22,12 @@ export const appRoutes: Routes = [
     loadChildren: () => import('./features/search/search.routes').then((m) => m.SEARCH_ROUTES),
   },
 
+  // Public bus discovery (browse coaches with upcoming trips; from the teammate's angular-app).
+  {
+    path: 'buses',
+    loadChildren: () => import('./features/browse/browse.routes').then((m) => m.BROWSE_ROUTES),
+  },
+
   // Piece 3 — Customer Portal: Checkout, Payment & My Account (Customer only).
   {
     path: 'my-bookings',

@@ -8,6 +8,14 @@ export interface TripSeat {
   seatType: SeatType;
   fare: number;
   status: TripSeatStatus;
+  // Physical position on the bus (TripSeatResponseDto, copied from the Seat row). Optional because
+  // older responses and seats created without a layout report 0/absent - the seat map then
+  // falls back to reading the position out of the seat number ("4B" = row 4, column B).
+  rowNumber?: number;
+  columnNumber?: number;
+  deckLevel?: number;
+  isWindow?: boolean;
+  extraFare?: number | null;
 }
 
 // Mirrors DTO/TripDtos.cs -> TripResponseDto. Used for the trip-details screen

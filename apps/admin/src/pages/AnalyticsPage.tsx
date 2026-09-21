@@ -1,16 +1,20 @@
-import { PagePlaceholder } from '../components/PagePlaceholder';
+import { ConsoleShortcuts } from '../components/ConsoleShortcuts';
 
-// Home/landing page. Replace with: headline KPIs (bookings today, revenue,
-// active operators, top routes), booking-trend chart, revenue by channel
-// (online vs counter — see BookingResponseDto.saleChannel), operator
-// performance leaderboard. Pull aggregate figures from Bookings/Payments/
-// Trips via apiFetch — there's no dedicated analytics endpoint yet, so
-// you're aggregating client-side or asking the backend team for one.
+// The management console's dashboard aggregates live API data (bookings, payments, trips,
+// operators) - nothing on it is hard-coded.
 export function AnalyticsPage() {
   return (
-    <PagePlaceholder
+    <ConsoleShortcuts
       title="Analytics Dashboard"
-      message="Headline KPIs, booking trends, revenue by channel, and operator leaderboard go here."
+      message="Live platform figures and the money flow: online sales, counter sales, commission, settlements."
+      links={[
+        { label: 'Live dashboard', hint: 'Bookings, revenue and operator charts from the API', href: '/admin' },
+        { label: 'Bookings', hint: 'Online vs counter (sale channel)', resource: 'Bookings' },
+        { label: 'Payments', hint: 'Gateway and cash collection records', resource: 'Payments' },
+        { label: 'Platform ledger', hint: 'Every platform money movement', resource: 'PlatformLedgers' },
+        { label: 'Operator settlements', hint: 'Who owes whom, per period', resource: 'OperatorSettlements' },
+        { label: 'Operator payouts', hint: 'Payments made to operators', resource: 'OperatorPayouts' },
+      ]}
     />
   );
 }

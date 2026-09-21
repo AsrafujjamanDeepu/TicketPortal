@@ -1,7 +1,16 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
-import { AppRole, AuthResponse, ChangePasswordRequest, CurrentUser, LoginRequest, RegisterRequest } from '@ticketportal-mono/models';
+import {
+  AppRole,
+  AuthResponse,
+  ChangePasswordRequest,
+  CurrentUser,
+  ForgotPasswordRequest,
+  LoginRequest,
+  RegisterRequest,
+  ResetPasswordRequest,
+} from '@ticketportal-mono/models';
 
 const STORAGE_KEY = 'tp_auth';
 
@@ -46,6 +55,16 @@ export class AuthService {
   /** POST /api/account/change-password. Available to any authenticated user, any role — the target user is always "whoever the bearer token belongs to" (see AccountController). */
   changePassword(request: ChangePasswordRequest): Observable<void> {
     return this.api.post<void>('account/change-password', request);
+  }
+
+  /** Starts a password recovery request. The API always gives the same response to protect account privacy. */
+  forgotPassword(request: ForgotPasswordRequest): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>('account/forgot-password', request);
+  }
+
+  /** Completes password recovery with the one-time token in the reset link. */
+  resetPassword(request: ResetPasswordRequest): Observable<void> {
+    return this.api.post<void>('account/reset-password', request);
   }
 
   getToken(): string | null {

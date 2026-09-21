@@ -28,6 +28,7 @@ import { FleetService } from '../../services/fleet.service';
 import { NetworkService } from '../../services/network.service';
 import { OperatorContextService } from '../../services/operator-context.service';
 import { TripsService } from '../../services/trips.service';
+import { toDateTimeLocalValue } from '../../../../core/utils/utc';
 
 const TRIP_STATUSES: TripStatus[] = ['Scheduled', 'Boarding', 'Departed', 'Running', 'Arrived', 'Completed', 'Delayed', 'Cancelled'];
 
@@ -207,8 +208,8 @@ export class TripsSchedulingComponent implements OnInit {
             departureTerminalId: trip.departureTerminalId,
             arrivalTerminalId: trip.arrivalTerminalId,
             tripCode: trip.tripCode,
-            departureTimeUtc: trip.departureTimeUtc.slice(0, 16),
-            arrivalTimeUtc: trip.arrivalTimeUtc.slice(0, 16),
+            departureTimeUtc: toDateTimeLocalValue(trip.departureTimeUtc),
+            arrivalTimeUtc: toDateTimeLocalValue(trip.arrivalTimeUtc),
             baseFare: trip.baseFare,
             currency: trip.currency,
             isWheelchairAccessible: trip.isWheelchairAccessible,

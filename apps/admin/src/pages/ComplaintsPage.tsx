@@ -1,7 +1,16 @@
-import { PagePlaceholder } from '../components/PagePlaceholder';
+import { ConsoleShortcuts } from '../components/ConsoleShortcuts';
 
-// Backend: ComplaintsController. Cross-operator oversight view — the
-// counter-desk complaint intake itself lives in Piece 5 (apps/frontend).
 export function ComplaintsPage() {
-  return <PagePlaceholder title="Complaints" message="Cross-operator complaints oversight and escalation go here." />;
+  return (
+    <ConsoleShortcuts
+      title="Complaints"
+      message="Customer complaints, reviews and cancellation requests."
+      links={[
+        { label: 'Complaints', resource: 'Complaints' },
+        { label: 'Reviews', resource: 'Reviews' },
+        { label: 'Cancellation requests', resource: 'CancellationRequests' },
+        { label: 'Refunds', resource: 'Refunds' },
+      ]}
+    />
+  );
 }

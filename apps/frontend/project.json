@@ -23,6 +23,7 @@
           "zone.js"
         ],
         "inlineStyleLanguage": "scss",
+        "allowedCommonJsDependencies": ["qrcode", "dijkstrajs", "canvg", "raf", "rgbcolor", "core-js", "html2canvas", "dompurify"],
         "assets": [
           {
             "glob": "**/*",

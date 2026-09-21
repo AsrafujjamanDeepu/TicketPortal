@@ -37,6 +37,10 @@ export function Sidebar() {
             {item.label}
           </NavLink>
         ))}
+        {/* Plain <a>: the management console is a separate document with its own stylesheet. */}
+        <a className="sidebar__link sidebar__link--console" href="/admin">
+          Management Console
+        </a>
       </nav>
 
       <div className="sidebar__footer">

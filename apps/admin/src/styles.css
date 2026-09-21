@@ -396,3 +396,30 @@ a {
   color: var(--tp-text);
 }
 
+
+/* --- Section landing pages that hand off to the management console (ConsoleShortcuts) --- */
+
+.console-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.console-shortcuts__item {
+  text-decoration: none;
+  color: inherit;
+}
+
+.console-shortcuts__item .tp-card,
+.console-shortcuts__item > div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.console-shortcuts__item:hover .tp-card,
+.console-shortcuts__item:hover > div {
+  transform: translateY(-2px);
+}

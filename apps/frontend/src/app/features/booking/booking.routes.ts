@@ -68,6 +68,26 @@ export const BOOKING_ROUTES: Routes = [
         title: 'Cancellations & Refunds — TicketPortal',
       },
       {
+        path: 'tickets',
+        loadComponent: () => import('./my-account/tickets/tickets.component').then((m) => m.MyTicketsComponent),
+        title: 'My Tickets — TicketPortal',
+      },
+      {
+        path: 'tickets/:ticketId',
+        loadComponent: () => import('./my-account/tickets/ticket-detail.component').then((m) => m.TicketDetailComponent),
+        title: 'Ticket — TicketPortal',
+      },
+      {
+        path: 'complaints',
+        loadComponent: () => import('./my-account/complaints/complaints.component').then((m) => m.MyComplaintsComponent),
+        title: 'My Complaints — TicketPortal',
+      },
+      {
+        path: 'complaints/new',
+        loadComponent: () => import('./my-account/complaints/complaint-new.component').then((m) => m.ComplaintNewComponent),
+        title: 'Report a Problem — TicketPortal',
+      },
+      {
         // Catch-all MUST stay last — a booking id would otherwise shadow every static path above.
         path: ':id',
         loadComponent: () => import('./my-account/booking-detail/booking-detail.component').then((m) => m.BookingDetailComponent),

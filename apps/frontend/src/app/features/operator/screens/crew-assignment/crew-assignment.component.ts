@@ -6,6 +6,7 @@ import { TpButtonDirective, TpCardComponent, TpModalComponent, TpTableColumn, Tp
 import { CrewService } from '../../services/crew.service';
 import { OperatorContextService } from '../../services/operator-context.service';
 import { TripsService } from '../../services/trips.service';
+import { toDateTimeLocalValue } from '../../../../core/utils/utc';
 
 const CREW_ROLES: CrewRole[] = ['Driver', 'AssistantDriver', 'Supervisor', 'Helper'];
 
@@ -80,7 +81,7 @@ export class CrewAssignmentComponent implements OnInit {
   }
 
   openAssignModal(): void {
-    this.assignForm.reset({ staffProfileId: '', role: 'Driver', assignedAtUtc: new Date().toISOString().slice(0, 16) });
+    this.assignForm.reset({ staffProfileId: '', role: 'Driver', assignedAtUtc: toDateTimeLocalValue(new Date().toISOString()) });
     this.assignModalOpen.set(true);
   }
 
