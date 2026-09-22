@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Diagnostics;
@@ -27,6 +28,7 @@ namespace TicketPortal.Api.Controllers
         IConfiguration configuration,
         AppDbContext db,
         IPasswordResetMessageSender passwordResetMessageSender,
+        ICurrentActorService currentActor,
         ILogger<AccountController> logger) : ControllerBase
     {
         [HttpPost("register")]
@@ -206,7 +208,48 @@ namespace TicketPortal.Api.Controllers
             return NoContent();
         }
 
-        // A password-reset request is intentionally anonymous. It uses ASP.NET Identity's
+        // RBAC Amendment v3 task 7 — see SessionInfoDto's doc comment. Resolved fresh on every
+        // call via CurrentActorService, so a role change or counter-assignment revocation is
+        // reflected the very next time the client asks, without waiting for the JWT to expire.
+        [HttpGet("me")]
+        [Authorize]
+        public async Task<IActionResult> Me()
+        {
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.Type == Authorization.ActorType.Anonymous) return Unauthorized();
+
+            var user = await userManager.FindByIdAsync(actor.UserId.ToString());
+            if (user == null) return Unauthorized();
+
+            string? busOperatorName = null;
+            if (actor.BusOperatorId != null)
+            {
+                busOperatorName = await db.BusOperators
+                    .Where(o => o.Id == actor.BusOperatorId)
+                    .Select(o => o.Name)
+                    .FirstOrDefaultAsync();
+            }
+
+            var assignedCounters = actor.AssignedCounterIds.Count == 0
+                ? Array.Empty<SessionCounterDto>()
+                : await db.SalesCounters
+                    .Where(c => actor.AssignedCounterIds.Contains(c.Id))
+                    .Select(c => new SessionCounterDto { Id = c.Id, CounterName = c.CounterName })
+                    .ToArrayAsync();
+
+            return Ok(new SessionInfoDto
+            {
+                UserId = actor.UserId,
+                UserName = user.UserName ?? string.Empty,
+                FullName = user.FullName,
+                ActorType = actor.Type.ToString(),
+                JobRole = actor.JobRole?.ToString(),
+                BusOperatorId = actor.BusOperatorId,
+                BusOperatorName = busOperatorName,
+                AssignedCounters = assignedCounters,
+                Permissions = actor.Permissions,
+            });
+        } It uses ASP.NET Identity's
         // one-time, time-limited reset token rather than storing a recoverable password or
         // inventing a second token scheme. Keep the success response generic to prevent email
         // address enumeration.

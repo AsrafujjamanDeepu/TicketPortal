@@ -467,7 +467,23 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
-    public class StaffProfileResponseDto
+    // RBAC Amendment v3, task 5: "provide a limited 'my profile' DTO for permitted contact
+    // fields only". Deliberately excludes EmployeeCode, Role, IsActive, TotalTripsCompleted —
+    // anyone can update their own contact details without holding Staff.Manage, but only
+    // Staff.Manage (via the full StaffProfileUpdateDto above) can change job-affecting fields,
+    // and even then never on your OWN profile (see StaffProfilesController.Update's
+    // self-promotion guard).
+    public class StaffProfileMyProfileUpdateDto
+    {
+        [StringLength(30)]
+        public string? NationalIdNumber { get; set; }
+
+        [StringLength(250)]
+        public string? Address { get; set; }
+
+        // Required — optimistic-concurrency token, echo back what GET returned.
+        public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+    }
     {
         public Guid Id { get; set; }
         public Guid UserId { get; set; }

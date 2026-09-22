@@ -478,7 +478,11 @@ namespace TicketPortal.Api.Data
             // Platform staff - not attached to any single operator.
             await AddStaffAsync(db, userManager, ctx, "nusrat.finance", "nusrat.finance@ticketportal.local", "Nusrat Jahan", null, "PLT-EMP-001", StaffRole.Finance, "1990-1000234", new DateOnly(2022, 3, 14));
             await AddStaffAsync(db, userManager, ctx, "tanvir.ops", "tanvir.ops@ticketportal.local", "Tanvir Ahmed", null, "PLT-EMP-002", StaffRole.Manager, "1988-2000456", new DateOnly(2021, 7, 1));
-            await AddStaffAsync(db, userManager, ctx, "rezaul.support", "rezaul.support@ticketportal.local", "Rezaul Karim", null, "PLT-EMP-003", StaffRole.Manager, "1992-3000789", new DateOnly(2023, 1, 10));
+            // RBAC Amendment v3: this persona was previously seeded as StaffRole.Manager,
+            // which quietly granted it Manager's fleet/trip/cancellation-approval permissions
+            // — Platform Support should only ever get PermissionMatrix's narrower Support set
+            // (booking lookup + complaints). See ModelEnums.StaffRole.Support.
+            await AddStaffAsync(db, userManager, ctx, "rezaul.support", "rezaul.support@ticketportal.local", "Rezaul Karim", null, "PLT-EMP-003", StaffRole.Support, "1992-3000789", new DateOnly(2023, 1, 10));
 
             // Green Line
             await AddStaffAsync(db, userManager, ctx, "abdul.karim.gl", "abdul.karim@greenline.com.bd", "Abdul Karim", ctx.GreenLine.Id, "GL-EMP-001", StaffRole.Manager, "1985-4000111", new DateOnly(2018, 5, 20));
@@ -567,6 +571,18 @@ namespace TicketPortal.Api.Data
             ctx.Counters["GL-Kalyanpur"] = glCounter2;
             ctx.Counters["ENA-Gabtoli"] = enaCounter1;
             ctx.Counters["SHO-Kalyanpur"] = shoCounter1;
+
+            // RBAC Amendment v3 task 4: without an assignment row, CurrentActor.CanUseCounter
+            // denies EVERY counter for a CounterStaff actor — these four rows are what let the
+            // demo's four counter clerks actually sell, each restricted to their own named
+            // counter (the exact case AUTH_TEST_CASES.md's "Green Line CounterStaff at Gabtoli
+            // must not be able to sell from Kalyanpur" scenario exercises).
+            db.StaffSalesCounterAssignments.AddRange(
+                new StaffSalesCounterAssignment { StaffProfileId = ctx.Staff["selina.counter.gl"].Id, SalesCounterId = glCounter1.Id, IsActive = true },
+                new StaffSalesCounterAssignment { StaffProfileId = ctx.Staff["farida.counter.gl"].Id, SalesCounterId = glCounter2.Id, IsActive = true },
+                new StaffSalesCounterAssignment { StaffProfileId = ctx.Staff["nasima.counter.ena"].Id, SalesCounterId = enaCounter1.Id, IsActive = true },
+                new StaffSalesCounterAssignment { StaffProfileId = ctx.Staff["rina.counter.sho"].Id, SalesCounterId = shoCounter1.Id, IsActive = true });
+            await db.SaveChangesAsync();
         }
 
         // ================================================================================

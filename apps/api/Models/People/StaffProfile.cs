@@ -40,5 +40,6 @@ namespace TicketPortal.Api.Models.People
         public ICollection<TripCrew> TripCrewAssignments { get; set; } = new List<TripCrew>();
         public ICollection<StaffAttendance> AttendanceRecords { get; set; } = new List<StaffAttendance>();
         public ICollection<StaffSalary> SalaryRecords { get; set; } = new List<StaffSalary>();
+        public ICollection<StaffSalesCounterAssignment> CounterAssignments { get; set; } = new List<StaffSalesCounterAssignment>();
     }
 }

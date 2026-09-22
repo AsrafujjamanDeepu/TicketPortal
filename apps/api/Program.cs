@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Identity;
 using TicketPortal.Api.Services;
@@ -50,6 +51,33 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
 
+
+// ============================================================
+// 2a. Fail fast on a missing/placeholder/short JWT signing key
+// ============================================================
+// RBAC Amendment v3 / Chunk 1 task 2: appsettings.json no longer ships a working key (see its
+// JWT section). Development gets a real, non-secret one from appsettings.Development.json, so
+// it's exempt here — everywhere else (Production, any shared/staging environment, or a grader
+// running with ASPNETCORE_ENVIRONMENT unset to something other than Development) must supply a
+// real key via user-secrets or the JWT__SigningKey environment variable, or the API refuses to
+// start at all rather than silently issue tokens nobody can trust.
+if (!builder.Environment.IsDevelopment())
+{
+    var signingKey = builder.Configuration["JWT:SigningKey"];
+    var looksLikeAPlaceholder = string.IsNullOrWhiteSpace(signingKey)
+        || signingKey.Length < 32
+        || signingKey.Contains("ReplaceThisWith", StringComparison.OrdinalIgnoreCase)
+        || signingKey.Contains("Development-Only", StringComparison.OrdinalIgnoreCase);
+
+    if (looksLikeAPlaceholder)
+    {
+        throw new InvalidOperationException(
+            "JWT:SigningKey is missing, a placeholder, or shorter than 32 characters. Set a real " +
+            "value via 'dotnet user-secrets set \"JWT:SigningKey\" \"...\"' or the JWT__SigningKey " +
+            "environment variable before starting the API outside Development. See " +
+            "SETUP_AND_DEMO_GUIDE.md, \"First-time secrets setup\".");
+    }
+}
 
 // ============================================================
 // 3. JWT Authentication
@@ -163,6 +191,8 @@ builder.Services.AddCors(options =>
 // 5. Application Services
 // ============================================================
 
+// RBAC Amendment v3, Chunk 2 P0 task 2 — one resolved actor + permission set per request.
+builder.Services.AddScoped<ICurrentActorService, CurrentActorService>();
 builder.Services.AddScoped<SeatHoldService>();
 builder.Services.AddScoped<FinanceLedgerService>();
 builder.Services.AddScoped<CustomerWalletService>();

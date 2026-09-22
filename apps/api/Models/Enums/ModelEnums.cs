@@ -262,7 +262,13 @@ namespace TicketPortal.Api.Models.Enums
         Driver = 7,
         Supervisor = 8,
         Helper = 9,
-        Finance = 10
+        Finance = 10,
+
+        // RBAC Amendment v3: platform-side customer/booking support. Previously this persona
+        // had no enum value of its own and demo data mislabeled it as Manager, which quietly
+        // granted it Manager's fleet/trip/cancellation-approval permissions — see
+        // DemoDataSeeder's rezaul.support fix and PermissionMatrix.PlatformScope.
+        Support = 11
     }
 
     // A staff member's role specifically WHILE assigned to one trip (see TripCrew).

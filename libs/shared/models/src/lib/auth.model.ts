@@ -53,3 +53,27 @@ export interface CurrentUser {
   roles: AppRole[];
   expiresAtUtc: string;
 }
+
+// RBAC Amendment v3 task 7. Mirrors DTO/AuthDtos.cs -> SessionCounterDto.
+export interface SessionCounter {
+  id: string;
+  counterName: string;
+}
+
+// RBAC Amendment v3 task 7. Mirrors DTO/AuthDtos.cs -> SessionInfoDto exactly. Fetched from
+// GET /api/account/me — the database-resolved, always-current answer to "what can this
+// session actually do right now". The JWT's `roles` claim above only ever says Admin/Staff/
+// Customer, which is NOT enough to tell a CounterStaff clerk apart from an Operator Manager;
+// role.guard.ts and the counter/finance/operator shells check `permissions` from THIS object,
+// not `CurrentUser.roles`, for anything finer-grained than "logged in as Staff at all".
+export interface SessionInfo {
+  userId: string;
+  userName: string;
+  fullName: string;
+  actorType: 'Admin' | 'Staff' | 'UnprovisionedStaff' | 'Customer' | 'Anonymous';
+  jobRole: string | null;
+  busOperatorId: string | null;
+  busOperatorName: string | null;
+  assignedCounters: SessionCounter[];
+  permissions: string[];
+}

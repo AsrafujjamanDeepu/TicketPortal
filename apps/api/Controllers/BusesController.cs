@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -14,14 +15,19 @@ namespace TicketPortal.Api.Controllers
     // and several of them point their comments back here instead of repeating explanations.
     //
     // Read stays open to any logged-in user (buses show up in search results/booking screens
-    // regardless of who's looking). Writes are operator-scoped: platform Admin/Staff can touch
-    // any Bus, an operator's own staff only their own operator's buses, and everyone else is
-    // refused. Previously this controller had NO role/ownership check at all — any logged-in
-    // customer could create or edit a Bus under any operator's BusOperatorId.
+    // regardless of who's looking). Writes need BOTH: (a) Fleet.Manage — a job-role capability
+    // resolved by CurrentActorService, which is what stops a CounterStaff member of an
+    // operator from touching the fleet even though they work for that operator — and (b) the
+    // existing operator-scoping via CanManageOperatorAsync, which is what stops an operator's
+    // own fleet manager from touching a DIFFERENT operator's buses. Platform Admin/Staff clear
+    // both automatically. Previously this controller had no (a) at all — any Staff account
+    // scoped to an operator, regardless of job, could create/edit/delete that operator's buses
+    // (RBAC Amendment v3 evidence). This is the "reference" fix every other Owner-scope
+    // controller in Chunk 2 follows the same two-step shape of.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class BusesController(AppDbContext db, IWebHostEnvironment env) : ControllerBase
+    public class BusesController(AppDbContext db, IWebHostEnvironment env, ICurrentActorService currentActor) : ControllerBase
     {
         // IMPORTANT: .ToListAsync() runs FIRST, materializing real Bus entities from the database.
         // ToResponseDto() then runs as plain in-memory LINQ-to-Objects. Putting ToResponseDto
@@ -55,8 +61,19 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> Create(BusCreateDto dto)
         {
             // ----------------------------------------
-            // 1. Authorization — operator scoping
+            // 1. Authorization — job-role capability, then operator scoping
             // ----------------------------------------
+            // RBAC Amendment v3: CanManageOperatorAsync alone only proves "this account
+            // belongs to this operator" — it does NOT prove the account's JOB is fleet
+            // management. Without this line, a CounterStaff member of the operator could
+            // create/edit/delete buses, which is exactly the gap the amendment's evidence
+            // caught (see PermissionMatrix.OperatorScope: CounterStaff has no Fleet.Manage).
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FleetManage))
+            {
+                return Forbid();
+            }
+
             if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId))
             {
                 return Forbid();
@@ -118,9 +135,16 @@ namespace TicketPortal.Api.Controllers
             }
 
             // ----------------------------------------
-            // 1a. Authorization — operator scoping, checked against both the Bus's current
-            // operator and dto.BusOperatorId (in case of an attempted reassignment)
+            // 1a. Authorization — job-role capability (RBAC Amendment v3 — see Create above),
+            // then operator scoping, checked against both the Bus's current operator and
+            // dto.BusOperatorId (in case of an attempted reassignment)
             // ----------------------------------------
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FleetManage))
+            {
+                return Forbid();
+            }
+
             if (!await User.CanManageOperatorAsync(db, bus.BusOperatorId) || !await User.CanManageOperatorAsync(db, dto.BusOperatorId))
             {
                 return Forbid();
@@ -258,6 +282,10 @@ namespace TicketPortal.Api.Controllers
                 .FirstOrDefaultAsync(b => b.Id == id);
             if (bus == null) return NotFound();
 
+            // RBAC Amendment v3 — see Create above.
+            var deleteActor = await currentActor.ResolveAsync(User);
+            if (!deleteActor.HasPermission(Permissions.FleetManage)) return Forbid();
+
             if (!await User.CanManageOperatorAsync(db, bus.BusOperatorId)) return Forbid();
 
             var hasTrips = await db.Trips.AnyAsync(t => t.BusId == id);
@@ -322,6 +350,11 @@ namespace TicketPortal.Api.Controllers
         {
             var bus = await db.Buses.Include(b => b.Images).FirstOrDefaultAsync(b => b.Id == id);
             if (bus == null) return NotFound();
+
+            // RBAC Amendment v3 — see Create above.
+            var imageActor = await currentActor.ResolveAsync(User);
+            if (!imageActor.HasPermission(Permissions.FleetManage)) return Forbid();
+
             if (!await User.CanManageOperatorAsync(db, bus.BusOperatorId)) return Forbid();
 
             var validationError = TicketPortal.Api.Extensions.FileUploadValidation.Validate(file);

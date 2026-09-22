@@ -121,6 +121,8 @@ namespace TicketPortal.Api.Data
         public DbSet<SalesCounter> SalesCounters => Set<SalesCounter>();
         public DbSet<StaffAttendance> StaffAttendances => Set<StaffAttendance>();
         public DbSet<StaffProfile> StaffProfiles => Set<StaffProfile>();
+        // RBAC Amendment v3 task 4: which counter(s) a CounterStaff member may sell from.
+        public DbSet<StaffSalesCounterAssignment> StaffSalesCounterAssignments => Set<StaffSalesCounterAssignment>();
         public DbSet<StaffSalary> StaffSalaries => Set<StaffSalary>();
 
         // --- Scheduling & trips ---
@@ -490,6 +492,14 @@ namespace TicketPortal.Api.Data
             modelBuilder.Entity<ExternalSeatMapping>().HasIndex(m => new { m.OperatorIntegrationId, m.TripSeatId }).IsUnique();
             modelBuilder.Entity<ExternalBookingMapping>().HasIndex(m => new { m.OperatorIntegrationId, m.ExternalBookingKey }).IsUnique();
             modelBuilder.Entity<ExternalBookingMapping>().HasIndex(m => new { m.OperatorIntegrationId, m.BookingId }).IsUnique();
+
+            // RBAC Amendment v3 task 4: CurrentActorService loads "this staff member's active
+            // counter assignments" on every request that needs it — both directions get an
+            // index. Uniqueness of "no duplicate active (StaffProfileId, SalesCounterId) row"
+            // is enforced in StaffCounterAssignmentsController, not here (see
+            // StaffSalesCounterAssignment's doc comment for why).
+            modelBuilder.Entity<StaffSalesCounterAssignment>().HasIndex(a => new { a.StaffProfileId, a.IsActive });
+            modelBuilder.Entity<StaffSalesCounterAssignment>().HasIndex(a => new { a.SalesCounterId, a.IsActive });
         }
 
         // Goes through every decimal field on every table and tells the database to store it as

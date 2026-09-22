@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, of, tap } from 'rxjs';
 import { ApiService } from './api.service';
 import {
   AppRole,
@@ -10,6 +10,7 @@ import {
   LoginRequest,
   RegisterRequest,
   ResetPasswordRequest,
+  SessionInfo,
 } from '@ticketportal-mono/models';
 
 const STORAGE_KEY = 'tp_auth';
@@ -35,6 +36,14 @@ export class AuthService {
     return !!user && new Date(user.expiresAtUtc).getTime() > Date.now();
   });
 
+  // RBAC Amendment v3 task 7. The JWT's `roles` claim (Admin/Staff/Customer) is only ever
+  // half the story — capabilities is the database-resolved GET /api/account/me payload
+  // (job role, operator scope, assigned counters, the flat permission list) that
+  // role.guard.ts and the shells check for anything finer-grained than "logged in as Staff
+  // at all". Null until ensureCapabilities() has resolved at least once for this session.
+  private readonly _capabilities = signal<SessionInfo | null>(null);
+  readonly capabilities = this._capabilities.asReadonly();
+
   /** POST /api/account/register. Every self-signup account lands in the "Customer" role. */
   register(request: RegisterRequest): Observable<string> {
     return this.api.post<string>('account/register', request);
@@ -50,6 +59,35 @@ export class AuthService {
   logout(): void {
     localStorage.removeItem(STORAGE_KEY);
     this._currentUser.set(null);
+    this._capabilities.set(null);
+  }
+
+  /**
+   * Loads (or returns the already-loaded) capability payload for the current session.
+   * Cached in-memory for the life of the signed-in session — call again after any action
+   * that could change it server-side (a role/counter-assignment edit) if you need it fresh
+   * sooner than the next full page load.
+   */
+  ensureCapabilities(): Observable<SessionInfo> {
+    const cached = this._capabilities();
+    if (cached) return of(cached);
+    return this.api.get<SessionInfo>('account/me').pipe(
+      tap((info) => this._capabilities.set(info)),
+    );
+  }
+
+  /**
+   * True if the current session holds EVERY one of the given permissions (see
+   * Authorization/Permissions.cs on the backend for the exact string catalogue). Admin
+   * always passes, same as CurrentActor.HasPermission on the backend. Returns false —
+   * fail closed — if capabilities haven't been loaded yet; callers that need a definitive
+   * answer should route through ensureCapabilities() first (role.guard.ts does this).
+   */
+  hasPermission(...permissions: string[]): boolean {
+    const info = this._capabilities();
+    if (!info) return false;
+    if (info.actorType === 'Admin') return true;
+    return permissions.every((permission) => info.permissions.includes(permission));
   }
 
   /** POST /api/account/change-password. Available to any authenticated user, any role — the target user is always "whoever the bearer token belongs to" (see AccountController). */
@@ -96,6 +134,9 @@ export class AuthService {
       roles: response.roles,
       expiresAtUtc: response.expiresAtUtc,
     });
+    // A fresh login means a fresh session — drop any capabilities cached for whoever was
+    // signed in before, so the next ensureCapabilities() call re-resolves for THIS user.
+    this._capabilities.set(null);
   }
 
   private restoreSession(): CurrentUser | null {

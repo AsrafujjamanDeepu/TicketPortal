@@ -19,6 +19,17 @@ import { CounterShellComponent } from './counter-shell.component';
  *                    + RefundsController)
  *  - staff     : HR mini-module — profiles/attendance/salary
  *  - complaints: complaints intake/status board
+ *
+ * RBAC Amendment v3 task 7: each child now also carries the `permissions` a
+ * CounterStaff/Supervisor/Operator-Finance account does or doesn't hold (see
+ * PermissionMatrix.cs), so someone who can't actually USE a screen gets
+ * redirected client-side instead of loading a screen whose every API call
+ * then 403s. 'agents' and 'complaints' are deliberately left without an
+ * added permission — the fixed RBAC Amendment v3 catalogue has no
+ * Agent.*/Complaints.* permission granted to any operator-scoped job role
+ * yet (see AUTHORIZATION_DECISIONS.md), so gating them here would incorrectly
+ * lock every operator's staff out of screens they currently rely on. This is
+ * an acknowledged Chunk 2 gap, not a decision that they're meant to be open.
  */
 export const COUNTER_ROUTES: Routes = [
   {
@@ -32,11 +43,15 @@ export const COUNTER_ROUTES: Routes = [
       {
         path: 'walk-in',
         loadComponent: () => import('./walk-in-booking/walk-in-booking.component').then((m) => m.WalkInBookingComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Counter.Sell'] },
         title: 'Walk-in Booking — Counter Desk',
       },
       {
         path: 'setup',
         loadComponent: () => import('./counter-setup/counter-setup.component').then((m) => m.CounterSetupComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Counter.Configure'] },
         title: 'Counter Setup — Counter Desk',
       },
       {
@@ -48,11 +63,15 @@ export const COUNTER_ROUTES: Routes = [
         path: 'cancellations',
         loadComponent: () =>
           import('./cancellations-refunds/cancellations-refunds.component').then((m) => m.CancellationsRefundsComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Counter.Cancel'] },
         title: 'Cancellations & Refunds — Counter Desk',
       },
       {
         path: 'staff',
         loadComponent: () => import('./staff-hr/staff-hr.component').then((m) => m.StaffHrComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Staff.Read'] },
         title: 'Staff HR — Counter Desk',
       },
       {

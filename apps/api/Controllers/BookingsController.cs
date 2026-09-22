@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -36,7 +37,7 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class BookingsController(AppDbContext db, IWebHostEnvironment env) : ControllerBase
+    public class BookingsController(AppDbContext db, IWebHostEnvironment env, ICurrentActorService currentActor) : ControllerBase
     {
         // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
         // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
@@ -175,25 +176,37 @@ namespace TicketPortal.Api.Controllers
             var taxAmount = await ResolveTaxAsync(subTotal);
 
             // =========================================================
-            // 4. Counter sale (concept doc §3.1/§6.2): only reachable by Staff/Operator/Admin
-            // for the counter's own operator — a Customer can never set SalesCounterId on their
-            // own booking and self-declare a cash sale that skips the online payment flow.
-            // Counter sales also only make sense for a PlatformManaged operator: an
+            // 4. Counter sale (concept doc §3.1/§6.2): only reachable by Staff/Admin for the
+            // counter's own operator — a Customer can never set SalesCounterId on their own
+            // booking and self-declare a cash sale that skips the online payment flow. Counter
+            // sales also only make sense for a PlatformManaged operator: an
             // ExternalApiManaged/Hybrid operator's own ERP is the source of truth for their
             // counter sales (see BusOperator.InventoryMode) — we have no visibility into those
             // at all, so we must not record one.
+            //
+            // RBAC Amendment v3 task 4: the old check only proved "this Staff account belongs
+            // to the trip's operator" — ANY of that operator's staff, including a CounterStaff
+            // clerk assigned to a completely different physical counter, could complete a sale
+            // against dto.SalesCounterId. Counter.Sell (a job-role capability — CounterStaff,
+            // Operator Manager/BusOwner, and platform staff/Admin all have it; Supervisor/
+            // Finance do not) is checked first, and THEN, only for a CounterStaff actor
+            // specifically, the sale is rejected unless they hold an active
+            // StaffSalesCounterAssignment for this exact counter. An Operator Manager/BusOwner
+            // of the same operator is deliberately NOT counter-restricted — they may sell from
+            // any of their own operator's counters (see CurrentActor.CanUseCounter).
             // =========================================================
             var isCounterSale = dto.SalesCounterId.HasValue;
             Models.People.SalesCounter? salesCounter = null;
 
             if (isCounterSale)
             {
-                if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+                var actor = await currentActor.ResolveAsync(User);
+                if (!actor.HasPermission(Permissions.CounterSell))
                 {
                     return Forbid();
                 }
 
-                if (!await User.CanManageOperatorAsync(db, trip.BusOperatorId))
+                if (!actor.CanManageOperator(trip.BusOperatorId))
                 {
                     return Forbid();
                 }
@@ -207,6 +220,11 @@ namespace TicketPortal.Api.Controllers
                 if (salesCounter.BusOperatorId != trip.BusOperatorId)
                 {
                     return BadRequest(new { message = "This SalesCounter belongs to a different operator than the Trip." });
+                }
+
+                if (!actor.CanUseCounter(salesCounter.Id, salesCounter.BusOperatorId))
+                {
+                    return Forbid();
                 }
 
                 if (trip.InventoryMode != OperatorInventoryMode.PlatformManaged)

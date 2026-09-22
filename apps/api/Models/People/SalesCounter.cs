@@ -37,5 +37,6 @@ namespace TicketPortal.Api.Models.People
         // Every cash-counter sale made here — the cash itself stays with the operator, but we
         // still record the sale so we can bill them our per-ticket ERP commission.
         public ICollection<Booking> Bookings { get; set; } = new List<Booking>();
+        public ICollection<StaffSalesCounterAssignment> StaffAssignments { get; set; } = new List<StaffSalesCounterAssignment>();
     }
 }

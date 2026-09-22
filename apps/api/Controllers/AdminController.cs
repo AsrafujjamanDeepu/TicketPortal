@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Identity;
@@ -79,6 +80,18 @@ namespace TicketPortal.Api.Controllers
         {
             if (!User.IsInRole("Admin")) return Forbid();
 
+            // RBAC Amendment v3, task 5: "Operator" is retired as a login role — no demo
+            // account uses it, and Staff (plus the correct StaffProfile.Role job title) is the
+            // only login role an operator's own employee should ever be assigned.
+            if (dto.Role == "Operator")
+            {
+                return BadRequest(new
+                {
+                    message = "The 'Operator' identity role is retired. Assign 'Staff' and set the " +
+                               "correct StaffProfile job role (Manager/CounterStaff/etc.) instead."
+                });
+            }
+
             if (!await roleManager.RoleExistsAsync(dto.Role))
             {
                 var validRoles = await roleManager.Roles.Select(r => r.Name).ToListAsync();
@@ -121,12 +134,27 @@ namespace TicketPortal.Api.Controllers
         {
             if (!User.IsInRole("Admin")) return Forbid();
 
-            if (dto.Role is not ("Staff" or "Operator" or "Admin"))
+            // "Operator" is retired (see AssignRole above) — Staff is the only login role for
+            // an operator's own employee now, distinguished by StaffProfile.BusOperatorId /
+            // .Role, not by a separate Identity role.
+            if (dto.Role is not ("Staff" or "Admin"))
             {
                 return BadRequest(new
                 {
-                    message = "Role must be one of: Staff, Operator, Admin. " +
+                    message = "Role must be 'Staff' or 'Admin'. " +
                                "Use POST /api/account/register for Customer accounts."
+                });
+            }
+
+            // RBAC Amendment v3: StaffRole.Admin/SuperAdmin must never be assignable to a new
+            // StaffProfile — those two values are reserved for a future deliberate migration
+            // and must never be read as implying the Identity Admin role (see PermissionMatrix).
+            if (PermissionMatrix.RetiredJobRoles.Contains(dto.JobRole))
+            {
+                return BadRequest(new
+                {
+                    message = $"JobRole '{dto.JobRole}' is retired for new staff. " +
+                               "Use the Identity Role field to grant platform Admin access instead."
                 });
             }
 
@@ -143,13 +171,29 @@ namespace TicketPortal.Api.Controllers
                 FullName = dto.FullName,
             };
 
+            // RBAC Amendment v3, task 5: the login account and its StaffProfile must be
+            // created atomically — previously a StaffProfile save failure (e.g. a duplicate
+            // EmployeeCode) left a fully working login with a role but NO StaffProfile at all,
+            // which CurrentActorService now treats as UnprovisionedStaff (denied everywhere),
+            // but which used to fall through the old broad IsInRole("Staff") checks as if it
+            // were unscoped platform staff. A DB transaction around the whole operation means
+            // a StaffProfile failure rolls back the user creation and role assignment too,
+            // instead of leaving that half-created account behind.
+            await using var transaction = await db.Database.BeginTransactionAsync();
+
             var createResult = await userManager.CreateAsync(user, dto.Password);
             if (!createResult.Succeeded)
             {
+                await transaction.RollbackAsync();
                 return BadRequest(createResult.Errors.Select(e => e.Description));
             }
 
-            await userManager.AddToRoleAsync(user, dto.Role);
+            var roleResult = await userManager.AddToRoleAsync(user, dto.Role);
+            if (!roleResult.Succeeded)
+            {
+                await transaction.RollbackAsync();
+                return BadRequest(roleResult.Errors.Select(e => e.Description));
+            }
 
             var profile = new StaffProfile
             {
@@ -163,15 +207,13 @@ namespace TicketPortal.Api.Controllers
             try
             {
                 await db.SaveChangesAsync();
+                await transaction.CommitAsync();
             }
             catch (DbUpdateException ex)
             {
-                // The login account already exists at this point even if the StaffProfile save
-                // fails (e.g. a duplicate EmployeeCode) — that's an acceptable trade-off here:
-                // an Admin can retry CreateStaff-equivalent cleanup via AssignRole/StaffProfilesController
-                // rather than this leaving an unusable half-created mess with no login at all.
+                await transaction.RollbackAsync();
                 var error = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                return Conflict(new { message = "User was created, but the StaffProfile could not be saved.", details = error });
+                return Conflict(new { message = "Could not create staff account — no login or StaffProfile was saved.", details = error });
             }
 
             return StatusCode(201, new CreateStaffAccountResponseDto

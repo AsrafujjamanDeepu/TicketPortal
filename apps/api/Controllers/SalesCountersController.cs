@@ -4,10 +4,15 @@
 // optional but, when set, must belong to the SAME operator as the counter itself — otherwise a
 // counter could point at another operator's branch, which makes no sense and isn't caught by any
 // FK constraint (OperatorBranch and SalesCounter don't share a composite key).
+//
+// RBAC Amendment v3: reads require Counter.Read; creating/editing/deleting a counter
+// (configuration, not selling from it) requires Counter.Configure. A CounterStaff member has
+// Read + Sell + Cancel but NOT Configure — this is what stops a counter clerk from renaming
+// their own counter or standing up a new one (see PermissionMatrix.OperatorScope).
 
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
-using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,21 +23,21 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class SalesCountersController(AppDbContext db) : ControllerBase
+    public class SalesCountersController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CounterRead))
             {
                 return Ok(Array.Empty<SalesCounterResponseDto>());
             }
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
             var query = db.SalesCounters.AsQueryable();
-            if (busOperatorId != null)
+            if (actor.BusOperatorId != null)
             {
-                query = query.Where(x => x.BusOperatorId == busOperatorId);
+                query = query.Where(x => x.BusOperatorId == actor.BusOperatorId);
             }
 
             var items = await query.ToListAsync();
@@ -42,13 +47,13 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CounterRead)) return Forbid();
 
             var item = await db.SalesCounters.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (busOperatorId != null && item.BusOperatorId != busOperatorId) return Forbid();
+            if (!actor.CanManageOperator(item.BusOperatorId)) return Forbid();
 
             return Ok(ToResponseDto(item));
         }
@@ -79,16 +84,15 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(SalesCounterCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CounterConfigure)) return Forbid();
 
             // Scoped (operator's own staff): the counter always belongs to THEIR operator —
             // whatever the client sent in BusOperatorId is ignored outright.
             Guid targetOperatorId;
-            if (busOperatorId != null)
+            if (actor.BusOperatorId != null)
             {
-                targetOperatorId = busOperatorId.Value;
+                targetOperatorId = actor.BusOperatorId.Value;
             }
             else
             {
@@ -123,13 +127,13 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, SalesCounterUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CounterConfigure)) return Forbid();
 
             var item = await db.SalesCounters.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "SalesCounter not found." });
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (busOperatorId != null && item.BusOperatorId != busOperatorId) return Forbid();
+            if (!actor.CanManageOperator(item.BusOperatorId)) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -147,7 +151,7 @@ namespace TicketPortal.Api.Controllers
             // Scoped staff can edit their own counter's details but can never move it to another
             // operator. Only unscoped Admin/Staff can reassign BusOperatorId.
             Guid targetOperatorId;
-            if (busOperatorId == null)
+            if (actor.BusOperatorId == null)
             {
                 if (!await db.BusOperators.AnyAsync(o => o.Id == dto.BusOperatorId))
                 {
@@ -158,7 +162,7 @@ namespace TicketPortal.Api.Controllers
             }
             else
             {
-                targetOperatorId = busOperatorId.Value;
+                targetOperatorId = actor.BusOperatorId.Value;
             }
 
             var branchError = await ValidateBranchAsync(dto.OperatorBranchId, targetOperatorId);
@@ -193,13 +197,13 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CounterConfigure)) return Forbid();
 
             var item = await db.SalesCounters.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (busOperatorId != null && item.BusOperatorId != busOperatorId) return Forbid();
+            if (!actor.CanManageOperator(item.BusOperatorId)) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();

@@ -7,6 +7,21 @@ import { roleGuard } from '../../core/guards/role.guard';
  * only 'Staff' is checked here, same convention noted in role.guard.ts —
  * Admin uses the separate React admin app and Operator has its own Angular
  * panel (Piece 4), so in practice only Staff reaches this module.
+ *
+ * RBAC Amendment v3 task 7: 'commissions' and 'config' are gated on
+ * Finance.Configure, which PermissionMatrix.cs grants to nobody but Admin
+ * (both Platform Finance and Operator Finance are explicitly read-only on
+ * commission/tax/provider rules per the matrix) — so both Platform and
+ * Operator Finance staff are correctly turned away from those two screens
+ * now, where previously any Staff account could open them. The read-only
+ * screens (wallets/settlements/invoices/payouts) are deliberately left
+ * without an added permission: whether a session can read is
+ * Finance.ReadPlatform OR Finance.ReadOwnOperator depending on whether it's
+ * platform- or operator-scoped, and this guard only expresses "must hold
+ * ALL listed permissions" — it can't express that OR cleanly. The actual
+ * security boundary for those screens is enforced server-side by whichever
+ * finance controller backs them (Chunk 7's job per RBAC Amendment v3's
+ * chunk-ownership table), not by this route guard.
  */
 export const FINANCE_ROUTES: Routes = [
   {
@@ -19,6 +34,8 @@ export const FINANCE_ROUTES: Routes = [
       {
         path: 'commissions',
         loadComponent: () => import('./commission-rules/commission-rules.component').then((m) => m.CommissionRulesComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Finance.Configure'] },
         title: 'Commission Rules — Finance',
       },
       {
@@ -50,6 +67,8 @@ export const FINANCE_ROUTES: Routes = [
       {
         path: 'config',
         loadComponent: () => import('./system-config/system-config.component').then((m) => m.SystemConfigComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Finance.Configure'] },
         title: 'System Config — Finance',
       },
     ],

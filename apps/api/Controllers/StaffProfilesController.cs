@@ -14,10 +14,26 @@
 // being is AdminController.CreateStaff (Piece 1), which creates the login AND this profile
 // together. This controller covers everything else — attaching a profile to an existing login,
 // and every read/update/delete afterwards.
+//
+// RBAC Amendment v3 rewrote the authorization here. Three separate gaps existed:
+//   1. Read/write required only "some kind of Staff account for this operator" — StaffRead/
+//      StaffManage permission is now checked, so a CounterStaff or Supervisor (neither of
+//      which have Staff.Manage) can no longer create/edit/delete staff records at all.
+//   2. Any accessible caller — including the profile's OWNER — could set Role and IsActive
+//      through the general Update endpoint, i.e. a CounterStaff could PUT their own profile
+//      with Role=Manager and self-promote. Update now refuses to change Role/IsActive on the
+//      caller's OWN profile, full stop, regardless of what permission they hold. A separate
+//      limited endpoint (UpdateMyProfile) lets anyone fix their own contact details without
+//      touching job-affecting fields at all.
+//   3. Nothing stopped an Operator Manager from creating/editing a PEER Manager-tier profile
+//      of their own operator. Non-Admin operator-scoped callers are now restricted to
+//      lower-ranked job roles (PermissionMatrix.OperatorManagerAssignableJobRoles) on both the
+//      target's CURRENT and NEW Role — Manager/Operator/BusOwner/Admin/SuperAdmin tier changes
+//      stay Platform-Admin-only.
 
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
-using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,25 +44,21 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class StaffProfilesController(AppDbContext db) : ControllerBase
+    public class StaffProfilesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.StaffRead))
             {
                 return Ok(Array.Empty<StaffProfileResponseDto>());
             }
 
             var query = db.StaffProfiles.AsQueryable();
-
-            if (!User.IsInRole("Admin"))
+            if (actor.BusOperatorId != null)
             {
-                var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (scopeOperatorId != null)
-                {
-                    query = query.Where(sp => sp.BusOperatorId == scopeOperatorId);
-                }
+                query = query.Where(sp => sp.BusOperatorId == actor.BusOperatorId);
             }
 
             var items = await query.ToListAsync();
@@ -56,30 +68,47 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.StaffRead)) return Forbid();
+
             var item = await db.StaffProfiles.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!actor.CanManageOperator(EffectiveOperatorId(item))) return Forbid();
+
             return Ok(ToResponseDto(item));
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(StaffProfileCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.StaffManage)) return Forbid();
+
+            if (PermissionMatrix.RetiredJobRoles.Contains(dto.Role))
+            {
+                return BadRequest(new { message = $"Role '{dto.Role}' is retired for new StaffProfile data." });
+            }
 
             var busOperatorId = dto.BusOperatorId;
-            if (!User.IsInRole("Admin"))
+            if (!actor.IsAdmin)
             {
-                var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (scopeOperatorId != null)
+                if (actor.BusOperatorId != null)
                 {
-                    if (dto.BusOperatorId != scopeOperatorId)
+                    if (dto.BusOperatorId != actor.BusOperatorId)
                     {
                         return BadRequest(new { message = "You can only create staff profiles for your own operator." });
                     }
-                    busOperatorId = scopeOperatorId;
+                    busOperatorId = actor.BusOperatorId;
+
+                    // Operator-scoped, non-Admin: may only create "lower-ranked" job roles —
+                    // see file header point 3.
+                    if (!PermissionMatrix.OperatorManagerAssignableJobRoles.Contains(dto.Role))
+                    {
+                        return Forbid();
+                    }
                 }
-                // else: platform Staff — allowed to set any BusOperatorId, including null.
+                // else: platform Staff with Staff.Manage — allowed to set any BusOperatorId
+                // and any (non-retired) job role.
             }
 
             var item = new StaffProfile
@@ -113,9 +142,41 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, StaffProfileUpdateDto dto)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.StaffManage)) return Forbid();
+
             var item = await db.StaffProfiles.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "StaffProfile not found." });
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!actor.CanManageOperator(EffectiveOperatorId(item))) return Forbid();
+
+            // Self-promotion guard (file header point 2): no one edits their own Role or
+            // IsActive through this endpoint, no matter what permission they hold — including
+            // an Admin's own StaffProfile, if they happen to have one. Everything else about
+            // your own profile (EmployeeCode, dates, trip count) is still editable here by
+            // someone else with Staff.Manage; use UpdateMyProfile below for your own contact
+            // details without needing Staff.Manage at all.
+            if (item.UserId == actor.UserId && (dto.Role != item.Role || dto.IsActive != item.IsActive))
+            {
+                return Forbid();
+            }
+
+            if (PermissionMatrix.RetiredJobRoles.Contains(dto.Role))
+            {
+                return BadRequest(new { message = $"Role '{dto.Role}' is retired for StaffProfile data." });
+            }
+
+            // Non-Admin, operator-scoped: can't touch a peer/higher-tier profile, and can't
+            // promote a lower-ranked one INTO Manager/Operator/BusOwner tier — file header
+            // point 3.
+            if (!actor.IsAdmin && actor.BusOperatorId != null)
+            {
+                var targetIsLowerRanked = PermissionMatrix.OperatorManagerAssignableJobRoles.Contains(item.Role);
+                var newRoleIsLowerRanked = PermissionMatrix.OperatorManagerAssignableJobRoles.Contains(dto.Role);
+                if (!targetIsLowerRanked || !newRoleIsLowerRanked)
+                {
+                    return Forbid();
+                }
+            }
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -157,12 +218,67 @@ namespace TicketPortal.Api.Controllers
             return Ok(ToResponseDto(item));
         }
 
+        // RBAC Amendment v3, task 5: everyone — regardless of Staff.Manage — may keep their own
+        // contact details current. Only NationalIdNumber/Address are touched; Role, IsActive,
+        // EmployeeCode, and TotalTripsCompleted are not on StaffProfileMyProfileUpdateDto at
+        // all, so there's no field here a caller could even attempt to self-promote through.
+        [HttpPut("{id}/my-profile")]
+        public async Task<IActionResult> UpdateMyProfile(Guid id, StaffProfileMyProfileUpdateDto dto)
+        {
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.Type != ActorType.Staff) return Forbid();
+
+            var item = await db.StaffProfiles.FirstOrDefaultAsync(x => x.Id == id);
+            if (item == null) return NotFound(new { message = "StaffProfile not found." });
+            if (item.UserId != actor.UserId) return Forbid();
+
+            if (dto.RowVersion == null || dto.RowVersion.Length == 0)
+                return BadRequest(new { message = "RowVersion is required." });
+
+            if (!item.RowVersion.SequenceEqual(dto.RowVersion))
+            {
+                return Conflict(new
+                {
+                    message = "This StaffProfile was changed by another request. Please GET the latest data and try again."
+                });
+            }
+
+            db.Entry(item).Property(x => x.RowVersion).OriginalValue = dto.RowVersion;
+
+            item.NationalIdNumber = dto.NationalIdNumber;
+            item.Address = dto.Address;
+            item.UpdatedAtUtc = DateTime.UtcNow;
+
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Conflict(new { message = "This StaffProfile was already modified or deleted by another request." });
+            }
+
+            return Ok(ToResponseDto(item));
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.StaffManage)) return Forbid();
+
             var item = await db.StaffProfiles.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!actor.CanManageOperator(EffectiveOperatorId(item))) return Forbid();
+
+            // No self-deactivation-via-delete either — same reasoning as the Update guard.
+            if (item.UserId == actor.UserId) return Forbid();
+
+            if (!actor.IsAdmin && actor.BusOperatorId != null &&
+                !PermissionMatrix.OperatorManagerAssignableJobRoles.Contains(item.Role))
+            {
+                return Forbid();
+            }
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -183,17 +299,13 @@ namespace TicketPortal.Api.Controllers
             return NoContent();
         }
 
-        // Same operator-scoping pattern as the rest of this bucket, applied directly to the
-        // entity's own BusOperatorId rather than through a join — see DriverLicensesController
-        // for the joined-entity version of this same helper shape.
-        private async Task<bool> CanAccessAsync(StaffProfile item)
-        {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
-
-            var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-            return scopeOperatorId == null || item.BusOperatorId == scopeOperatorId;
-        }
+        // CanManageOperator expects a non-null Guid for a scoped resource; a platform-staff
+        // StaffProfile (BusOperatorId == null) is only ever reachable by another platform-wide
+        // actor or Admin (both already pass CanManageOperator's BusOperatorId == null branch),
+        // so mapping null -> Guid.Empty here is safe: it can never match a real, non-null
+        // caller BusOperatorId and therefore never grants operator-scoped staff access to a
+        // platform profile they shouldn't see.
+        private static Guid EffectiveOperatorId(StaffProfile item) => item.BusOperatorId ?? Guid.Empty;
 
         private static StaffProfileResponseDto ToResponseDto(StaffProfile x) => new()
         {
