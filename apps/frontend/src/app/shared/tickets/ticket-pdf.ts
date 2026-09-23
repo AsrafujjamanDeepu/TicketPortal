@@ -1,4 +1,4 @@
-import { parseUtc } from '../../../../core/utils/utc';
+import { parseUtc } from '../../core/utils/utc';
 import { TicketView, ticketRoute } from './ticket.types';
 
 function formatWhen(iso: string | null): string {

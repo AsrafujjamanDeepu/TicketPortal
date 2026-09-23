@@ -6,7 +6,7 @@ import { ApiService } from '../../../../core/services/api.service';
 import { parseUtc } from '../../../../core/utils/utc';
 import { TpCardComponent, TpEmptyStateComponent, TpSpinnerComponent, TpStatusPillComponent, TpTabsComponent } from '../../../../shared/ui';
 import { AccountNavComponent } from '../account-nav/account-nav.component';
-import { TicketView, ticketRoute } from './ticket.types';
+import { TicketView, ticketRoute } from '../../../../shared/tickets/ticket.types';
 
 @Component({
   selector: 'tp-my-tickets',
