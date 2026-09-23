@@ -67,6 +67,26 @@ original backend only whitelisted 4200, which would have silently broken
 every request from the admin app with a CORS error. If you change either
 app's dev port, update this list too.
 
+## Backend automated tests (Chunk 10)
+
+`apps/api.tests` is a new sibling Nx app (`TicketPortal.Api.Tests.csproj`) with an
+xUnit suite covering seat-hold concurrency/expiry, trip-state gating, ticket check-in
+idempotency, finance-ledger and settlement formulas, and a sample of the RBAC
+denied-case matrix -- all as real HTTP calls against the real app (`WebApplicationFactory
+<Program>`) plus a fresh LocalDB database per test run.
+
+```bash
+npx nx run api.tests:restore   # first time only
+npx nx run api.tests:test
+```
+
+Needs a reachable SQL Server LocalDB instance -- see `apps/api.tests/README.md` for
+details, and `docs/FINAL_TEST_MATRIX.md` for exactly what is and isn't covered yet
+(including an upfront disclosure that this suite has not been build-verified).
+`docs/RBAC_MIGRATION_GAP_REPORT.md` and `docs/SECURITY_CHECKLIST.md` cover a significant
+authorization gap this pass found across ~42 controllers -- read that before assuming
+the RBAC work from earlier chunks is finished.
+
 ## Backend history
 
 The backend was pulled in with `git subtree add --squash`, not a plain

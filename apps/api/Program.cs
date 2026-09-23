@@ -554,3 +554,9 @@ app.MapControllers();
 // ============================================================
 
 app.Run();
+
+// Chunk 10 P0 task 2: top-level statements generate an internal Program class, which
+// Microsoft.AspNetCore.Mvc.Testing's WebApplicationFactory<TEntryPoint> cannot reference from
+// a separate test assembly. This partial declaration is the standard, additive fix — it does
+// not change anything about how the app starts, only what the test project is allowed to see.
+public partial class Program { }

@@ -44,11 +44,26 @@ namespace TicketPortal.Api.Controllers
     // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
 
 
+    // Chunk 10 security checklist item 3: this endpoint is [AllowAnonymous] and, until now,
+    // returned every Trip ever created — with every TripSeat and Seat eagerly included — in
+    // one response. On a live deployment that only grows, so this is an unauthenticated,
+    // unbounded read of the entire schedule. This does NOT switch the endpoint to
+    // [Authorize] (Search/GetById are deliberately public per the concept doc, and some
+    // caller may already depend on this one being public too) — it only bounds how much any
+    // single anonymous call can pull back. Real "browse upcoming trips" traffic should go
+    // through Search (which already takes a route/date filter); this cap is a safety net for
+    // GetAll specifically, not a replacement for pagination in the UI. Configurable via
+    // Trips:MaxAnonymousListSize so a deployment can tune it without a code change; default
+    // chosen generously above today's demo-data volume so this is a no-op change in that demo.
     [AllowAnonymous]
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
+      var maxResults = Math.Clamp(configuration.GetValue("Trips:MaxAnonymousListSize", 500), 1, 2000);
+
       var trips = await db.Trips
+          .OrderByDescending(t => t.DepartureTimeUtc)
+          .Take(maxResults)
           .Include(t => t.TripSeats)
               .ThenInclude(ts => ts.Seat)
           .Include(t => t.Bus)
@@ -491,14 +506,16 @@ namespace TicketPortal.Api.Controllers
             }
             catch (DbUpdateException ex)
             {
+                // Chunk 10 security checklist item 3: raw exception text (including the
+                // driver's inner-exception message, which can echo back column names, table
+                // names, or constraint definitions) must never reach an unauthenticated or
+                // low-privilege caller in a non-Development environment. Development keeps
+                // the detail because that's the whole point of running it locally.
                 return Conflict(new
                 {
                     message = "Could not create this Trip.",
-
-                    detail = ex.InnerException?.Message,
-
-                    innerDetail =
-                        ex.InnerException?.InnerException?.Message
+                    detail = env.IsDevelopment() ? ex.InnerException?.Message : null,
+                    innerDetail = env.IsDevelopment() ? ex.InnerException?.InnerException?.Message : null
                 });
             }
 
@@ -1032,15 +1049,13 @@ namespace TicketPortal.Api.Controllers
             {
                 await transaction.RollbackAsync();
 
+                // Chunk 10 security checklist item 3 — see the identical fix in Create() above.
                 return Conflict(new
                 {
                     message = "Could not save this Trip update. If seats on this Trip are " +
                                "already Held or Booked, release/cancel them first.",
-
-                    detail = ex.InnerException?.Message,
-
-                    innerDetail =
-                        ex.InnerException?.InnerException?.Message
+                    detail = env.IsDevelopment() ? ex.InnerException?.Message : null,
+                    innerDetail = env.IsDevelopment() ? ex.InnerException?.InnerException?.Message : null
                 });
             }
             catch (Exception ex)
@@ -1049,10 +1064,8 @@ namespace TicketPortal.Api.Controllers
 
                 return StatusCode(500, new
                 {
-                    message =
-                        "An unexpected error occurred while updating the Trip.",
-
-                    detail = ex.Message
+                    message = "An unexpected error occurred while updating the Trip.",
+                    detail = env.IsDevelopment() ? ex.Message : null
                 });
             }
 
