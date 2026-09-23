@@ -278,7 +278,12 @@ const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'Card', 'MobileBanking', 'Bank
                 @if (result.ledgerWarning) {
                   <p class="tp-warning-note">{{ result.ledgerWarning }}</p>
                 }
-                <button tpButton variant="primary" (click)="newSale()">Start Next Sale</button>
+                <div class="tp-done__actions">
+                  <a [routerLink]="['../receipt']" [queryParams]="{ ids: result.ticketIds.join(',') }">
+                    <button tpButton variant="secondary" type="button">Print Tickets</button>
+                  </a>
+                  <button tpButton variant="primary" (click)="newSale()">Start Next Sale</button>
+                </div>
               </div>
             }
           }
@@ -495,6 +500,12 @@ const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'Card', 'MobileBanking', 'Bank
         width: 60px;
         height: 60px;
         margin: 0 auto var(--tp-space-3);
+      }
+
+      .tp-done__actions {
+        display: flex;
+        gap: var(--tp-space-3);
+        margin-top: var(--tp-space-2);
       }
 
       .tp-warning-note {

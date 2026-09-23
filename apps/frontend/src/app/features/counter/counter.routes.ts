@@ -6,11 +6,17 @@ import { CounterShellComponent } from './counter-shell.component';
 /**
  * Piece 5 — Counter & Agent Operations Panel. One guarded shell route
  * (Staff/Operator/Admin — 'Staff' per role.guard.ts's note that Counter
- * doesn't get a role of its own) with seven child screens underneath it:
+ * doesn't get a role of its own) with nine child screens underneath it:
  *
+ *  - dashboard : default landing (Chunk 6) — today's tickets, cash-sales
+ *                total, pending cancellations/complaints, one tap into
+ *                'New walk-in' — backed by GET 'salescounters/dashboard'
  *  - walk-in   : search -> seat map -> passenger details -> one-click cash
  *                confirm via POST 'payments/counter-sale/confirm' (NOT the
- *                online initiate/confirm pair)
+ *                online initiate/confirm pair); "Sale complete" links into
+ *                receipt below
+ *  - receipt   : printable one-ticket-per-seat receipt (Chunk 6) — reuses
+ *                the shared ticket/QR card also used by My Bookings
  *  - setup     : sales counter CRUD (SalesCountersController)
  *  - agents    : agent roster CRUD (AgentsController) — see
  *                agent-bookings.component.ts for the booking-attribution
@@ -41,13 +47,27 @@ export const COUNTER_ROUTES: Routes = [
     data: { roles: ['Staff'] },
     title: 'Counter Desk — TicketPortal',
     children: [
-      { path: '', redirectTo: 'walk-in', pathMatch: 'full' },
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./dashboard/dashboard.component').then((m) => m.DashboardComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Counter.Read'] },
+        title: 'Dashboard — Counter Desk',
+      },
       {
         path: 'walk-in',
         loadComponent: () => import('./walk-in-booking/walk-in-booking.component').then((m) => m.WalkInBookingComponent),
         canActivate: [roleGuard],
         data: { permissions: ['Counter.Sell'] },
         title: 'Walk-in Booking — Counter Desk',
+      },
+      {
+        path: 'receipt',
+        loadComponent: () => import('./receipt/counter-receipt.component').then((m) => m.CounterReceiptComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Counter.Sell'] },
+        title: 'Print Receipt — Counter Desk',
       },
       {
         path: 'setup',

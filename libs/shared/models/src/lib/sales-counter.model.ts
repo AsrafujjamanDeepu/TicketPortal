@@ -36,3 +36,24 @@ export interface SalesCounter {
   updatedAtUtc: string | null;
   rowVersion: string;
 }
+
+// Mirrors DTO/PeopleDtos.cs -> CounterDashboardResponseDto/CounterDashboardCounterSummaryDto.
+// GET /api/salescounters/dashboard — see dashboard.service.ts. "date" is a plain
+// yyyy-MM-dd Bangladesh local calendar day, not a UTC day.
+export interface CounterDashboardCounterSummary {
+  counterId: string;
+  counterName: string;
+  counterCode: string;
+  ticketsSoldToday: number;
+  cashSalesTotal: number;
+}
+
+export interface CounterDashboard {
+  date: string;
+  ticketsSoldToday: number;
+  cashSalesTotal: number;
+  currency: string;
+  pendingCancellations: number;
+  openComplaints: number;
+  counters: CounterDashboardCounterSummary[];
+}
