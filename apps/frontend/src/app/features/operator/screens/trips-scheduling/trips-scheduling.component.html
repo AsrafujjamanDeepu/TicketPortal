@@ -33,7 +33,8 @@
         <button tpButton variant="secondary" size="sm" (click)="changeStatus(trip, 'Arrived')">Mark arrived</button>
         <button tpButton variant="secondary" size="sm" (click)="changeStatus(trip, 'Completed')">Mark completed</button>
         <button tpButton variant="secondary" size="sm" (click)="changeStatus(trip, 'Delayed')">Report delay…</button>
-        <button tpButton variant="danger" size="sm" (click)="changeStatus(trip, 'Cancelled')">Cancel trip</button>
+        <button tpButton variant="secondary" size="sm" (click)="openManifestModal(trip)">Manifest</button>
+        <button tpButton variant="danger" size="sm" (click)="openCancelModal(trip)">Cancel trip…</button>
       </div>
 
       <label class="tp-trips__cover-upload">
@@ -129,11 +130,15 @@
       <label>
         Status
         <select formControlName="status">
-          @for (s of tripStatuses; track s) {
+          @for (s of editableTripStatuses; track s) {
             <option [value]="s">{{ s }}</option>
           }
         </select>
       </label>
+      <p class="tp-form-grid__span2 tp-muted tp-hint">
+        To cancel this trip, use the "Cancel trip…" button on the trip's card instead — cancelling refunds its
+        confirmed bookings and releases its active seat holds, which this form can't do.
+      </p>
       <label>
         Delay reason
         <input type="text" formControlName="delayReason" />
@@ -224,4 +229,66 @@
     <button tpButton variant="secondary" (click)="closeScheduleModal()">Cancel</button>
     <button tpButton variant="primary" [disabled]="scheduleForm.invalid" (click)="saveSchedule()">Save</button>
   </div>
+</tp-modal>
+
+<!-- Chunk 5: cancel-trip confirmation — shows what the cancellation will actually do
+     (bookings refunded, holds released) before the operator commits to it. -->
+<tp-modal [open]="cancelModalOpen()" title="Cancel trip" (closed)="closeCancelModal()">
+  @if (cancellingTrip(); as trip) {
+    @if (cancelPreview(); as preview) {
+      @if (!preview.canCancel) {
+        <p class="tp-muted">
+          {{ trip.tripCode }} is currently <strong>{{ preview.currentStatus }}</strong> and can no longer be
+          cancelled from here (only Scheduled, Boarding, or Delayed trips can be).
+        </p>
+      } @else {
+        <p>
+          Cancelling <strong>{{ trip.tripCode }}</strong> will:
+        </p>
+        <ul>
+          <li>
+            Refund <strong>{{ preview.bookingsToRefundCount }}</strong> booking(s) in full — no cancellation fee —
+            totalling <strong>{{ formatMoney(preview.totalRefundAmount, preview.currency) }}</strong>
+            ({{ preview.onlineBookingsCount }} online, {{ preview.counterBookingsCount }} counter-sale)
+          </li>
+          <li>Release <strong>{{ preview.activeSeatHoldsToRelease }}</strong> active seat hold(s)</li>
+        </ul>
+        <label>
+          Reason for cancelling (required, shown on the trip's history and every refund)
+          <textarea
+            rows="2"
+            placeholder="e.g. Bus broke down, route flooded, driver unavailable…"
+            [value]="cancelReason()"
+            (input)="onCancelReasonInput($any($event.target).value)"
+          ></textarea>
+        </label>
+      }
+    } @else {
+      <p class="tp-muted">Checking what this cancellation will affect…</p>
+    }
+  }
+  <div modal-footer>
+    <button tpButton variant="secondary" (click)="closeCancelModal()">Back</button>
+    <button
+      tpButton
+      variant="danger"
+      [disabled]="cancelReason().trim().length < 3 || cancelling() || !cancelPreview()?.canCancel"
+      (click)="confirmCancelTrip()"
+    >
+      {{ cancelling() ? 'Cancelling…' : 'Confirm cancellation' }}
+    </button>
+  </div>
+</tp-modal>
+
+<!-- Chunk 5: passenger manifest — the driver/conductor's boarding list for one trip. -->
+<tp-modal [open]="manifestModalOpen()" title="Passenger manifest" (closed)="closeManifestModal()">
+  @if (manifest(); as m) {
+    <div class="tp-trips__header">
+      <h4>{{ m.tripCode }} <tp-status-pill [status]="m.status" /></h4>
+      <span class="tp-muted">{{ m.checkedInCount }} / {{ m.totalPassengers }} checked in</span>
+    </div>
+    <tp-table [columns]="manifestColumns" [rows]="manifestRows()" emptyTitle="No passengers on this trip" />
+  } @else {
+    <p class="tp-muted">Loading manifest…</p>
+  }
 </tp-modal>

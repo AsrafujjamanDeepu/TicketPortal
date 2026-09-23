@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -25,7 +26,12 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class TripsController(AppDbContext db, IWebHostEnvironment env, IConfiguration configuration) : ControllerBase
+    public class TripsController(
+        AppDbContext db,
+        IWebHostEnvironment env,
+        IConfiguration configuration,
+        ICurrentActorService currentActor,
+        TripCancellationService tripCancellationService) : ControllerBase
     {
         // Chunk 3 task 1 (shared with BookingBusesController and SeatHoldService): how long
         // before a still-Scheduled departure sales close. Defaults to zero minutes, i.e. the
@@ -558,6 +564,58 @@ namespace TicketPortal.Api.Controllers
                 return Forbid();
             }
 
+            // RBAC Amendment v3 / Chunk 2 task 6 names Trips as one of the controllers whose
+            // business paths must stop granting access on bare operator-scoping alone — the
+            // same gap BusesController.Create had before its fix (see that controller's own
+            // comment on this exact two-step shape): CanManageOperatorAsync above only proves
+            // this account belongs to the trip's operator, not that its JOB is trip management,
+            // so without this a CounterStaff member could edit/cancel-via-status-edit another
+            // job's trips. Checked after the (cheaper) operator-scope check above so a
+            // cross-operator caller still gets a scope-shaped Forbid rather than a permission
+            // one — same ordering BusesController uses.
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.TripsManage))
+            {
+                return Forbid();
+            }
+
+
+            // =========================================================
+            // 1b. Status-transition validation (Chunk 5 P0 task 5). Two rules:
+            //   - A plain Update can never SET Status to Cancelled — cancelling a trip has real
+            //     side effects (refund every Confirmed booking, release every active hold; see
+            //     TripCancellationService) that this generic edit endpoint has no business
+            //     doing quietly as a side effect of, say, someone just fixing a typo in
+            //     TripCode. Route through POST /api/trips/{id}/cancel instead.
+            //   - Every OTHER status change must be a real move on the TripStatusTransitionRules
+            //     table — before this, Update accepted any dto.Status value with no ordering
+            //     check at all (e.g. Scheduled straight to Arrived, or Completed back to
+            //     Scheduled).
+            // =========================================================
+
+            if (dto.Status != previousStatus)
+            {
+                if (dto.Status == TripStatus.Cancelled)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Cancelling a trip refunds its Confirmed bookings and releases its active " +
+                                  "seat holds — that can't happen as a side effect of a plain field edit. " +
+                                  $"Use POST /api/trips/{id}/cancel instead of setting Status to Cancelled here."
+                    });
+                }
+
+                if (!TripStatusTransitionRules.IsAllowed(previousStatus, dto.Status))
+                {
+                    return BadRequest(new
+                    {
+                        message = $"A trip cannot move from {previousStatus} to {dto.Status}.",
+                        currentStatus = previousStatus,
+                        requestedStatus = dto.Status
+                    });
+                }
+            }
+
 
             // =========================================================
             // 2. Validate RowVersion
@@ -1023,6 +1081,152 @@ namespace TicketPortal.Api.Controllers
 
             return Ok(ToResponseDto(updatedTrip));
         }
+        // Chunk 5 P0 task 1: read-only, no side effects — what the Angular "Cancel trip"
+        // dialog calls first so it can show "N bookings will be refunded" (and how much,
+        // split online vs counter) before the operator actually confirms. Same authorization
+        // shape as Cancel itself below, since seeing this number IS seeing operator-sensitive
+        // financial exposure, not public trip info.
+        [HttpGet("{id}/cancel-preview")]
+        public async Task<IActionResult> CancelPreview(Guid id)
+        {
+            var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == id);
+            if (trip == null) return NotFound(new { message = "Trip not found." });
+
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.TripsCancel)) return Forbid();
+            if (!actor.CanManageOperator(trip.BusOperatorId)) return Forbid();
+
+            var affectedBookings = await db.Bookings
+                .Where(b => b.TripId == id
+                    && (b.Status == BookingStatus.Confirmed || b.Status == BookingStatus.PartiallyCancelled))
+                .Select(b => new { b.MoneyCollectedBy, b.GrandTotal, b.Currency })
+                .ToListAsync();
+
+            var activeHoldCount = await db.SeatHolds
+                .CountAsync(h => h.TripId == id && h.Status == SeatHoldStatus.Active);
+
+            return Ok(new TripCancelPreviewDto
+            {
+                TripId = id,
+                CurrentStatus = trip.Status,
+                CanCancel = TripStatusTransitionRules.CanCancel(trip.Status),
+                BookingsToRefundCount = affectedBookings.Count,
+                OnlineBookingsCount = affectedBookings.Count(b => b.MoneyCollectedBy == MoneyCollectedBy.Platform),
+                CounterBookingsCount = affectedBookings.Count(b => b.MoneyCollectedBy == MoneyCollectedBy.Operator),
+                TotalRefundAmount = affectedBookings.Sum(b => b.GrandTotal),
+                Currency = affectedBookings.FirstOrDefault()?.Currency ?? trip.Currency,
+                ActiveSeatHoldsToRelease = activeHoldCount,
+            });
+        }
+
+        // Chunk 5 P0 task 1 — the concept's "cancelled trip -> customers refunded" promise
+        // (concept doc §5/§6), finally wired up as one operation instead of the plain status
+        // edit Update() above now refuses (see step 1b there). Delegates every real step —
+        // status/history, hold release, per-booking full refund — to TripCancellationService;
+        // this action is authorization, input validation, and turning that service's result
+        // (or its exceptions) into an HTTP response.
+        [HttpPost("{id}/cancel")]
+        public async Task<IActionResult> Cancel(Guid id, TripCancelDto dto)
+        {
+            var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == id);
+            if (trip == null) return NotFound(new { message = "Trip not found." });
+
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.TripsCancel)) return Forbid();
+            if (!actor.CanManageOperator(trip.BusOperatorId)) return Forbid();
+
+            if (dto == null || string.IsNullOrWhiteSpace(dto.Reason))
+            {
+                return BadRequest(new { message = "A cancellation reason is required." });
+            }
+
+            try
+            {
+                var result = await tripCancellationService.CancelTripAsync(id, GetCurrentUserId(), dto.Reason);
+
+                var responseDto = new TripCancelResultDto
+                {
+                    TripId = result.TripId,
+                    ReleasedHoldCount = result.ReleasedHoldCount,
+                    BookingsRefunded = result.BookingsRefunded,
+                    BookingsNeedingAttention = result.BookingsNeedingAttention,
+                    Bookings = result.Bookings.Select(b => new TripCancelledBookingOutcomeDto
+                    {
+                        BookingId = b.BookingId,
+                        RefundId = b.RefundId,
+                        Outcome = b.Outcome,
+                        Detail = b.Detail,
+                    }).ToList(),
+                };
+
+                return Ok(new
+                {
+                    message = $"Trip cancelled. {result.BookingsRefunded} booking(s) refunded" +
+                              (result.BookingsNeedingAttention > 0
+                                  ? $", {result.BookingsNeedingAttention} needing manual follow-up"
+                                  : "") +
+                              $", {result.ReleasedHoldCount} active seat hold(s) released.",
+                    result = responseDto,
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Someone else's request already moved this trip out of a cancellable status
+                // between CancelPreview and this call, or it was already Cancelled — a
+                // conflict with the current state, not a validation failure on the request body.
+                return Conflict(new { message = ex.Message });
+            }
+        }
+
+        // Chunk 5 P0 task 2 — operator-scoped passenger manifest for the driver/conductor
+        // (concept: an operator needs to know who's actually on board). Every ticket on the
+        // trip is included, WITH its real status, rather than silently dropping
+        // cancelled/refunded ones — a printed manifest that just shows an empty seat with no
+        // explanation is less useful than one that shows "cancelled" for it.
+        [HttpGet("{id}/manifest")]
+        public async Task<IActionResult> Manifest(Guid id)
+        {
+            var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == id);
+            if (trip == null) return NotFound(new { message = "Trip not found." });
+
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.ManifestRead)) return Forbid();
+            if (!actor.CanManageOperator(trip.BusOperatorId)) return Forbid();
+
+            var tickets = await db.Tickets
+                .Where(t => t.TripId == id)
+                .Include(t => t.BookingPassenger)
+                .Include(t => t.Booking).ThenInclude(b => b.BoardingTerminal)
+                .Include(t => t.Booking).ThenInclude(b => b.DroppingTerminal)
+                .OrderBy(t => t.SeatNumberSnapshot)
+                .ToListAsync();
+
+            var passengers = tickets.Select(t => new TripManifestEntryDto
+            {
+                TicketId = t.Id,
+                TicketNumber = t.TicketNumber,
+                SeatNumber = t.SeatNumberSnapshot,
+                PassengerName = t.BookingPassenger.FullName,
+                PassengerPhone = t.BookingPassenger.Phone,
+                Status = t.Status,
+                CheckedInAtUtc = t.CheckedInAtUtc,
+                Pnr = t.Booking.Pnr,
+                BoardingTerminalName = t.Booking.BoardingTerminal.Name,
+                DroppingTerminalName = t.Booking.DroppingTerminal.Name,
+            }).ToList();
+
+            return Ok(new TripManifestResponseDto
+            {
+                TripId = trip.Id,
+                TripCode = trip.TripCode,
+                DepartureTimeUtc = trip.DepartureTimeUtc,
+                Status = trip.Status,
+                TotalPassengers = passengers.Count,
+                CheckedInCount = passengers.Count(p => p.Status is TicketStatus.CheckedIn or TicketStatus.Used),
+                Passengers = passengers,
+            });
+        }
+
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
@@ -1036,27 +1240,46 @@ namespace TicketPortal.Api.Controllers
 
             if (hasBookings)
             {
-                // Don't cascade-delete: Bookings are real customer purchases. Soft-delete + cancel
-                // the trip instead — every existing Booking, and the customer who holds it, is
-                // completely untouched; the trip just stops showing up in "browse trips" listings.
-                var previousStatus = trip.Status;
-                trip.Status = TripStatus.Cancelled;
-                trip.MarkDeleted();
-
-                // Same trail as Update's status-change write above — only logged when this
-                // actually flips the status (a Trip that was already Cancelled and is being
-                // deleted again shouldn't get a second identical "changed to Cancelled" entry).
-                if (previousStatus != TripStatus.Cancelled)
+                // Don't cascade-delete: Bookings are real customer purchases. Soft-delete +
+                // cancel the trip instead — the trip just stops showing up in "browse trips"
+                // listings.
+                //
+                // This is the SECOND (and last) place in the codebase that ever sets
+                // Trip.Status = Cancelled directly — Update's own direct-edit path was closed
+                // off in step 1b above and routed through TripCancellationService instead;
+                // before this change, THIS path still bypassed it entirely, silently skipping
+                // every Confirmed booking's refund and every active seat hold's release while
+                // still telling the caller "every existing Booking is untouched" (true for the
+                // Booking ROW, not for whether its customer ever got their money back).
+                //
+                // Only routed through the real cascade when the trip is actually in a
+                // cancellable (pre-departure) status — for a trip that's already Cancelled, or
+                // one that's Completed/Departed/Running/Arrived, refunding makes no business
+                // sense (nothing to refund, or the bus already ran), so those still take the
+                // plain soft-delete path exactly as before this change.
+                if (trip.Status != TripStatus.Cancelled && TripStatusTransitionRules.CanCancel(trip.Status))
                 {
+                    // Same AppDbContext as `trip` above (both injected once per request), so
+                    // this mutates that same tracked instance — no re-fetch needed afterward.
+                    await tripCancellationService.CancelTripAsync(
+                        id, GetCurrentUserId(), "Trip deleted by operator while it still had bookings.");
+                }
+                else if (trip.Status != TripStatus.Cancelled)
+                {
+                    var previousStatus = trip.Status;
+                    trip.Status = TripStatus.Cancelled;
+
                     db.TripStatusHistories.Add(new TripStatusHistory
                     {
                         TripId = trip.Id,
                         ChangedByUserId = GetCurrentUserId(),
                         Status = TripStatus.Cancelled,
                         ChangedAtUtc = DateTime.UtcNow,
-                        Remarks = "Trip soft-deleted after Bookings were made against it.",
+                        Remarks = $"Trip soft-deleted after Bookings were made against it (was {previousStatus}; already run, nothing to refund).",
                     });
                 }
+
+                trip.MarkDeleted();
 
                 try
                 {

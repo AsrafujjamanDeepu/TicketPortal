@@ -292,6 +292,64 @@ namespace TicketPortal.Api.Services
                     .SetProperty(ts => ts.BookingId, (Guid?)null));
         }
 
+        // Chunk 5's trip-cancel cascade needs this trip-scoped sibling to
+        // ExpireOverdueHoldsAsync below — that one only reaches holds whose OWN timer has run
+        // out; this one reaches EVERY still-Active hold on ONE trip regardless of its timer,
+        // because once a trip is Cancelled its seats are never going to be sold, held, or paid
+        // for again. Mirrors that method's same three-part shape (free the seats, close out
+        // the holds, un-stick any Draft/PendingPayment Booking that was waiting on one of
+        // them) so a cancelled trip can never be left with a seat that still reads Held, or a
+        // booking stuck forever at PendingPayment for a trip that will now never run. Unlike
+        // ExpireOverdueHoldsAsync, the affected bookings are set to Cancelled rather than
+        // Expired — nothing "timed out" here, the trip itself was called off.
+        public async Task<int> ReleaseActiveHoldsForTripAsync(Guid tripId, string? reason = null)
+        {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
+            var activeHoldIds = await _db.SeatHolds
+                .Where(h => h.TripId == tripId && h.Status == SeatHoldStatus.Active)
+                .Select(h => h.Id)
+                .ToListAsync();
+
+            if (activeHoldIds.Count == 0)
+            {
+                await transaction.CommitAsync();
+                return 0;
+            }
+
+            await _db.TripSeats
+                .Where(ts => ts.CurrentSeatHoldId != null && activeHoldIds.Contains(ts.CurrentSeatHoldId.Value))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(ts => ts.Status, TripSeatStatus.Available)
+                    .SetProperty(ts => ts.CurrentSeatHoldId, (Guid?)null));
+
+            await _db.SeatHolds
+                .Where(h => activeHoldIds.Contains(h.Id))
+                .ExecuteUpdateAsync(setters => setters
+                    // Cancelled, not Released — Released is specifically "the customer backed
+                    // out on their own"; this is an admin/system action closing out the hold
+                    // because the trip itself was called off, which is exactly what
+                    // SeatHoldStatus.Cancelled's own doc comment describes. (First real use of
+                    // that status value — nothing else in the codebase sets it yet.)
+                    .SetProperty(h => h.Status, SeatHoldStatus.Cancelled));
+
+            var cancellationReason = string.IsNullOrWhiteSpace(reason)
+                ? "Trip was cancelled by the operator."
+                : reason;
+
+            await _db.Bookings
+                .Where(b => b.SeatHoldId != null
+                    && activeHoldIds.Contains(b.SeatHoldId.Value)
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(b => b.Status, BookingStatus.Cancelled)
+                    .SetProperty(b => b.CancelledAtUtc, DateTime.UtcNow)
+                    .SetProperty(b => b.CancellationReason, cancellationReason));
+
+            await transaction.CommitAsync();
+            return activeHoldIds.Count;
+        }
+
         // This is the automatic "clean-up" job that makes the 3/5 minute timer actually mean
         // something. Meant to be called on a schedule (e.g. every 30 seconds) by a background
         // worker. It finds every hold whose time ran out without a completed payment, and puts

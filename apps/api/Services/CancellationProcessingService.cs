@@ -44,8 +44,20 @@ namespace TicketPortal.Api.Services
         // Customer-initiated (or staff, on the customer's behalf) — ties the request to the
         // trip's real CancellationPolicy and computes the refund percentage/fee from how close
         // to departure this is, rather than trusting whatever amount the client sends.
+        //
+        // operatorInitiated (Chunk 5, TripCancellationService): the trip itself is being
+        // called off by the operator, not the customer backing out — so (a) the usual
+        // "already departed" guard is skipped, because a Delayed trip being cancelled can
+        // easily already be past its original DepartureTimeUtc, and that's exactly the case
+        // this path exists to still allow refunding; and (b) the refund is always the full
+        // outstanding fare with the CancellationPolicy's percentage/fee tiers never consulted
+        // — a customer should never be charged a cancellation fee for a trip THEY didn't
+        // cancel. Everything else (duplicate-request guard, ticket/booking status guard,
+        // "what's still outstanding" base-amount calculation, CancellationRequest shape) is
+        // shared as-is with the customer-initiated path below, so the two can never drift
+        // apart on anything except price.
         public async Task<CancellationRequest> RequestAsync(
-            Guid bookingId, Guid? ticketId, Guid? requestedByUserId, string reason)
+            Guid bookingId, Guid? ticketId, Guid? requestedByUserId, string reason, bool operatorInitiated = false)
         {
             var booking = await _db.Bookings
                 .Include(b => b.Tickets)
@@ -87,22 +99,11 @@ namespace TicketPortal.Api.Services
             var trip = await _db.Trips.FirstOrDefaultAsync(t => t.Id == booking.TripId)
                 ?? throw new InvalidOperationException($"Trip for booking {bookingId} no longer exists.");
 
-            if (trip.DepartureTimeUtc <= DateTime.UtcNow)
+            if (!operatorInitiated && trip.DepartureTimeUtc <= DateTime.UtcNow)
             {
                 throw new InvalidOperationException(
                     "This trip has already departed; it can no longer be cancelled.");
             }
-
-            var policy = await ResolveCancellationPolicyAsync(trip);
-            var hoursBeforeDeparture = (trip.DepartureTimeUtc - DateTime.UtcNow).TotalHours;
-
-            // Pick the tightest-fitting tier (closest to departure that still qualifies), the
-            // same way a "cancel within 24h = X%, within 72h = Y%" ladder is meant to be read.
-            var rule = policy?.Rules
-                .Where(r => hoursBeforeDeparture >= r.MinHoursBeforeDeparture
-                    && (r.MaxHoursBeforeDeparture == null || hoursBeforeDeparture <= r.MaxHoursBeforeDeparture))
-                .OrderByDescending(r => r.MinHoursBeforeDeparture)
-                .FirstOrDefault();
 
             // For a whole-booking request, the refundable base is what's actually still
             // outstanding — the fare of tickets not already Cancelled/Refunded — not the
@@ -118,13 +119,35 @@ namespace TicketPortal.Api.Services
                     .Where(t => t.Status is not (TicketStatus.Cancelled or TicketStatus.Refunded))
                     .Sum(t => t.FinalFare);
 
-            // No policy configured at all, or no rule covers this window, both fall back to a
-            // 0% refund rather than blocking the request outright — staff can still override
-            // the amount at Approve time (e.g. a goodwill exception), so this only affects the
-            // default a customer sees, never the final say.
-            var requestedRefundAmount = rule == null
-                ? 0m
-                : Math.Max(0m, baseAmount * (rule.RefundPercentage / 100m) - rule.FixedCancellationFee);
+            decimal requestedRefundAmount;
+            if (operatorInitiated)
+            {
+                // The operator failed to run the trip at all — this is not the customer paying
+                // to back out, so the CancellationPolicy's percentage/fee ladder never applies.
+                // Full refund of whatever is still outstanding, no fee deducted.
+                requestedRefundAmount = baseAmount;
+            }
+            else
+            {
+                var policy = await ResolveCancellationPolicyAsync(trip);
+                var hoursBeforeDeparture = (trip.DepartureTimeUtc - DateTime.UtcNow).TotalHours;
+
+                // Pick the tightest-fitting tier (closest to departure that still qualifies), the
+                // same way a "cancel within 24h = X%, within 72h = Y%" ladder is meant to be read.
+                var rule = policy?.Rules
+                    .Where(r => hoursBeforeDeparture >= r.MinHoursBeforeDeparture
+                        && (r.MaxHoursBeforeDeparture == null || hoursBeforeDeparture <= r.MaxHoursBeforeDeparture))
+                    .OrderByDescending(r => r.MinHoursBeforeDeparture)
+                    .FirstOrDefault();
+
+                // No policy configured at all, or no rule covers this window, both fall back to
+                // a 0% refund rather than blocking the request outright — staff can still
+                // override the amount at Approve time (e.g. a goodwill exception), so this only
+                // affects the default a customer sees, never the final say.
+                requestedRefundAmount = rule == null
+                    ? 0m
+                    : Math.Max(0m, baseAmount * (rule.RefundPercentage / 100m) - rule.FixedCancellationFee);
+            }
 
             var cancellationRequest = new CancellationRequest
             {

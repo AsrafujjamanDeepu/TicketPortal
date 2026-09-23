@@ -196,4 +196,92 @@ namespace TicketPortal.Api.DTO
 
     public string? CoverImageUrl { get; set; }
   }
+
+  // =========================================================
+  // Trip — Cancel (Chunk 5)
+  // =========================================================
+  // What the operator's "Cancel trip" dialog sends. Reason is required — TripCancellationService
+  // writes it onto both the TripStatusHistory row and every refund/cancellation record it creates
+  // (concept: whoever looks at a cancelled trip later should be able to see WHY, not just that it happened).
+  public class TripCancelDto
+  {
+    [Required, MinLength(3), MaxLength(250)]
+    public string Reason { get; set; } = string.Empty;
+  }
+
+  // =========================================================
+  // Trip — Cancel Preview (Chunk 5)
+  // =========================================================
+  // GET-only, no side effects — what the Angular cancel dialog calls first so it can show
+  // "N bookings will be refunded" (and how much) before the operator actually confirms.
+  public class TripCancelPreviewDto
+  {
+    public Guid TripId { get; set; }
+    public TripStatus CurrentStatus { get; set; }
+    public bool CanCancel { get; set; }
+
+    public int BookingsToRefundCount { get; set; }
+    public int OnlineBookingsCount { get; set; }
+    public int CounterBookingsCount { get; set; }
+    public decimal TotalRefundAmount { get; set; }
+    public string Currency { get; set; } = "BDT";
+
+    public int ActiveSeatHoldsToRelease { get; set; }
+  }
+
+  // =========================================================
+  // Trip — Cancel Result (Chunk 5)
+  // =========================================================
+  public class TripCancelledBookingOutcomeDto
+  {
+    public Guid BookingId { get; set; }
+    public Guid? RefundId { get; set; }
+    public string Outcome { get; set; } = string.Empty;
+    public string? Detail { get; set; }
+  }
+
+  public class TripCancelResultDto
+  {
+    public Guid TripId { get; set; }
+    public int ReleasedHoldCount { get; set; }
+    public int BookingsRefunded { get; set; }
+    public int BookingsNeedingAttention { get; set; }
+    public List<TripCancelledBookingOutcomeDto> Bookings { get; set; } = new();
+  }
+
+  // =========================================================
+  // Trip — Passenger Manifest (Chunk 5)
+  // =========================================================
+  // One row per Ticket on the trip — including cancelled/refunded ones, WITH their real status,
+  // rather than silently dropping them, so a driver/conductor's printed manifest still shows
+  // "why is seat 14 empty" instead of just omitting it.
+  public class TripManifestEntryDto
+  {
+    public Guid TicketId { get; set; }
+    public string TicketNumber { get; set; } = string.Empty;
+    public string SeatNumber { get; set; } = string.Empty;
+
+    public string PassengerName { get; set; } = string.Empty;
+    public string? PassengerPhone { get; set; }
+
+    public TicketStatus Status { get; set; }
+    public DateTime? CheckedInAtUtc { get; set; }
+
+    public string Pnr { get; set; } = string.Empty;
+    public string BoardingTerminalName { get; set; } = string.Empty;
+    public string DroppingTerminalName { get; set; } = string.Empty;
+  }
+
+  public class TripManifestResponseDto
+  {
+    public Guid TripId { get; set; }
+    public string TripCode { get; set; } = string.Empty;
+    public DateTime DepartureTimeUtc { get; set; }
+    public TripStatus Status { get; set; }
+
+    public int TotalPassengers { get; set; }
+    public int CheckedInCount { get; set; }
+
+    public List<TripManifestEntryDto> Passengers { get; set; } = new();
+  }
 }

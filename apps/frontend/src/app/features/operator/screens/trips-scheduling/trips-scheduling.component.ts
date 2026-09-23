@@ -8,7 +8,9 @@ import {
   Schedule,
   Terminal,
   Trip,
+  TripCancelPreview,
   TripCreateRequest,
+  TripManifest,
   TripSeatCreateRequest,
   TripStatus,
   TripStatusHistory,
@@ -29,6 +31,7 @@ import { NetworkService } from '../../services/network.service';
 import { OperatorContextService } from '../../services/operator-context.service';
 import { TripsService } from '../../services/trips.service';
 import { toDateTimeLocalValue } from '../../../../core/utils/utc';
+import { formatMoney } from '../../../finance/shared/money.util';
 
 const TRIP_STATUSES: TripStatus[] = ['Scheduled', 'Boarding', 'Departed', 'Running', 'Arrived', 'Completed', 'Delayed', 'Cancelled'];
 
@@ -49,7 +52,13 @@ export class TripsSchedulingComponent implements OnInit {
   private readonly toast = inject(ToastService);
 
   protected readonly tripStatuses = TRIP_STATUSES;
+  // Chunk 5: Cancelled is deliberately left out of the edit-modal's Status dropdown — the
+  // backend now rejects a direct PUT to Cancelled (it has real side effects: refunding every
+  // Confirmed booking, releasing every active seat hold), so the only way there is the
+  // dedicated "Cancel trip…" flow below.
+  protected readonly editableTripStatuses = TRIP_STATUSES.filter((s) => s !== 'Cancelled');
   protected readonly dayFlags = DAY_OF_WEEK_FLAGS;
+  protected readonly formatMoney = formatMoney;
 
   protected readonly trips = signal<Trip[]>([]);
   protected readonly buses = signal<Bus[]>([]);
@@ -64,6 +73,36 @@ export class TripsSchedulingComponent implements OnInit {
   protected readonly editingTrip = signal<Trip | null>(null);
   protected readonly scheduleModalOpen = signal(false);
   protected readonly editingSchedule = signal<Schedule | null>(null);
+
+  // --- Chunk 5: cancel-trip confirmation dialog ---
+  protected readonly cancelModalOpen = signal(false);
+  protected readonly cancellingTrip = signal<Trip | null>(null);
+  protected readonly cancelPreview = signal<TripCancelPreview | null>(null);
+  protected readonly cancelReason = signal('');
+  protected readonly cancelling = signal(false);
+
+  // --- Chunk 5: passenger manifest ---
+  protected readonly manifestModalOpen = signal(false);
+  protected readonly manifest = signal<TripManifest | null>(null);
+  protected readonly manifestColumns: TpTableColumn[] = [
+    { key: 'seatNumber', label: 'Seat' },
+    { key: 'passengerName', label: 'Passenger' },
+    { key: 'passengerPhone', label: 'Phone' },
+    { key: 'status', label: 'Status' },
+    { key: 'boardingTerminalName', label: 'Boarding' },
+    { key: 'droppingTerminalName', label: 'Dropping' },
+  ];
+  protected readonly manifestRows = computed(() =>
+    (this.manifest()?.passengers ?? []).map((p) => ({
+      id: p.ticketId,
+      seatNumber: p.seatNumber,
+      passengerName: p.passengerName,
+      passengerPhone: p.passengerPhone ?? '—',
+      status: p.status,
+      boardingTerminalName: p.boardingTerminalName,
+      droppingTerminalName: p.droppingTerminalName,
+    })),
+  );
 
   protected readonly busName = computed(() => {
     const map = new Map(this.buses().map((b) => [b.id, `${b.registrationNumber} (${b.coachNumber})`]));
@@ -348,6 +387,59 @@ export class TripsSchedulingComponent implements OnInit {
         this.tripsService.listStatusHistory(trip.id).subscribe((h) => this.statusHistory.set(h));
       }
     });
+  }
+
+  /** Chunk 5: the ONLY way a trip gets cancelled from this screen now — opens the confirmation
+   * dialog and loads its "N bookings will be refunded" preview. changeStatus() above can no
+   * longer be called with 'Cancelled'; the backend rejects that PUT outright. */
+  openCancelModal(trip: Trip): void {
+    this.cancellingTrip.set(trip);
+    this.cancelReason.set('');
+    this.cancelPreview.set(null);
+    this.cancelModalOpen.set(true);
+    this.tripsService.previewCancelTrip(trip.id).subscribe((preview) => this.cancelPreview.set(preview));
+  }
+
+  closeCancelModal(): void {
+    this.cancelModalOpen.set(false);
+    this.cancellingTrip.set(null);
+    this.cancelPreview.set(null);
+  }
+
+  onCancelReasonInput(value: string): void {
+    this.cancelReason.set(value);
+  }
+
+  confirmCancelTrip(): void {
+    const trip = this.cancellingTrip();
+    const reason = this.cancelReason().trim();
+    if (!trip || reason.length < 3) return;
+
+    this.cancelling.set(true);
+    this.tripsService.cancelTrip(trip.id, { reason }).subscribe({
+      next: ({ message }) => {
+        this.cancelling.set(false);
+        this.toast.success(message);
+        this.closeCancelModal();
+        this.loadTrips();
+        if (this.selectedTripId() === trip.id) {
+          this.tripsService.listStatusHistory(trip.id).subscribe((h) => this.statusHistory.set(h));
+        }
+      },
+      error: () => this.cancelling.set(false),
+    });
+  }
+
+  /** Chunk 5: driver/conductor boarding list for one trip. */
+  openManifestModal(trip: Trip): void {
+    this.manifest.set(null);
+    this.manifestModalOpen.set(true);
+    this.tripsService.getManifest(trip.id).subscribe((m) => this.manifest.set(m));
+  }
+
+  closeManifestModal(): void {
+    this.manifestModalOpen.set(false);
+    this.manifest.set(null);
   }
 
   onCoverImageSelected(event: Event): void {

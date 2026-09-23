@@ -3,6 +3,13 @@
 // Trip.BusOperatorId. See OperatorBranchesController's header comment for the
 // Admin/Staff/Operator role-gate note.
 //
+// Chunk 5 (RBAC Amendment v3 / Chunk 2 task 6 names TripCrewsController as one of the
+// controllers Crew.Manage belongs on): Create/Update/Delete now also require the Crew.Manage
+// permission, on top of the existing role gate + Trip-operator scoping below — a CounterStaff
+// account passes the role gate today but has no business assigning drivers to trips.
+// GetAll/GetById stay as plain Staff-role-gated reads, same as before this change; nothing in
+// the plan calls for a separate read-side permission here.
+//
 // Two extra checks beyond plain scoping, both called out directly in the completion plan:
 //   1. StaffProfileId must belong to the SAME operator as the Trip (or be platform staff, who can
 //      crew any operator's trip) — otherwise one operator could assign another operator's staff
@@ -10,6 +17,7 @@
 //   2. The plan asked us to sanity-check whether a driver/crew member can be double-booked onto
 //      two trips at once. No such check existed — this was presumably never intended, so
 //      HasOverlappingAssignmentAsync below adds it rather than just flagging it and moving on.
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -24,7 +32,7 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class TripCrewsController(AppDbContext db) : ControllerBase
+    public class TripCrewsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -124,6 +132,9 @@ namespace TicketPortal.Api.Controllers
         {
             if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
 
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CrewManage)) return Forbid();
+
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
             var (error, trip) = await ValidateAssignmentAsync(dto.TripId, dto.StaffProfileId, busOperatorId);
@@ -155,6 +166,9 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> Update(Guid id, TripCrewUpdateDto dto)
         {
             if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CrewManage)) return Forbid();
 
             var item = await db.TripCrews.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "TripCrew not found." });
@@ -220,6 +234,9 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> Delete(Guid id)
         {
             if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CrewManage)) return Forbid();
 
             var item = await db.TripCrews.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

@@ -206,6 +206,10 @@ builder.Services.AddScoped<RefundProcessingService>();
 // Refund row on approval and handing it off to RefundProcessingService from there — see
 // Services/CancellationProcessingService.cs.
 builder.Services.AddScoped<CancellationProcessingService>();
+// Chunk 5 — orchestrates SeatHoldService + CancellationProcessingService +
+// RefundProcessingService for the trip-cancel cascade (status/history, hold release, and a
+// full no-fee refund per affected booking) — see Services/TripCancellationService.cs.
+builder.Services.AddScoped<TripCancellationService>();
 // Settlement/payout/invoice batch — see Services/SettlementGenerationService.cs,
 // Services/PayoutProcessingService.cs, Services/InvoicePaymentService.cs.
 builder.Services.AddScoped<SettlementGenerationService>();
