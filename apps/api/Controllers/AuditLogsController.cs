@@ -32,7 +32,8 @@ namespace TicketPortal.Api.Controllers
             }
 
             var items = await db.AuditLogs.OrderByDescending(x => x.CreatedAtUtc).ToListAsync();
-            return Ok(items.Select(ToResponseDto));
+            var actors = await LoadActorsAsync(items.Select(x => x.UserId));
+            return Ok(items.Select(x => ToResponseDto(x, actors)));
         }
 
         [HttpGet("{id}")]
@@ -41,23 +42,54 @@ namespace TicketPortal.Api.Controllers
             if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
 
             var item = await db.AuditLogs.FirstOrDefaultAsync(x => x.Id == id);
-            return item == null ? NotFound() : Ok(ToResponseDto(item));
+            if (item == null) return NotFound();
+
+            var actors = await LoadActorsAsync(new[] { item.UserId });
+            return Ok(ToResponseDto(item, actors));
         }
 
         // No POST/PUT/DELETE — see the class comment above.
 
-        private static AuditLogResponseDto ToResponseDto(AuditLog x) => new()
+        // Chunk 9 task 4: resolve the acting user's name server-side instead of shipping a raw
+        // AspNetUsers.Id for the admin console to display as-is. One batched lookup per
+        // request (not N+1 per row) — same reasoning as AdminController.GetUsers batching
+        // GetRolesAsync, just applied to a plain dictionary lookup instead.
+        private async Task<Dictionary<Guid, (string? UserName, string? FullName)>> LoadActorsAsync(
+            IEnumerable<Guid?> userIds)
         {
-            Id = x.Id,
-            UserId = x.UserId,
-            EntityName = x.EntityName,
-            EntityId = x.EntityId,
-            Action = x.Action,
-            OldValuesJson = x.OldValuesJson,
-            NewValuesJson = x.NewValuesJson,
-            IpAddress = x.IpAddress,
-            UserAgent = x.UserAgent,
-            CreatedAtUtc = x.CreatedAtUtc,
-        };
+            var ids = userIds.Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+            if (ids.Count == 0) return new Dictionary<Guid, (string?, string?)>();
+
+            var users = await db.Users
+                .Where(u => ids.Contains(u.Id))
+                .Select(u => new { u.Id, u.UserName, u.FullName })
+                .ToListAsync();
+
+            return users.ToDictionary(u => u.Id, u => ((string?)u.UserName, (string?)u.FullName));
+        }
+
+        private static AuditLogResponseDto ToResponseDto(
+            AuditLog x, Dictionary<Guid, (string? UserName, string? FullName)> actors)
+        {
+            var actor = x.UserId.HasValue && actors.TryGetValue(x.UserId.Value, out var found)
+                ? found
+                : ((string?)null, (string?)null);
+
+            return new AuditLogResponseDto
+            {
+                Id = x.Id,
+                UserId = x.UserId,
+                ActorUserName = actor.Item1,
+                ActorFullName = actor.Item2,
+                EntityName = x.EntityName,
+                EntityId = x.EntityId,
+                Action = x.Action,
+                OldValuesJson = x.OldValuesJson,
+                NewValuesJson = x.NewValuesJson,
+                IpAddress = x.IpAddress,
+                UserAgent = x.UserAgent,
+                CreatedAtUtc = x.CreatedAtUtc,
+            };
+        }
     }
 }

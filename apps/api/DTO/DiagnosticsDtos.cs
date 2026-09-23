@@ -29,6 +29,14 @@ namespace TicketPortal.Api.DTO
     {
         public Guid Id { get; set; }
         public Guid? UserId { get; set; }
+
+        // Completion Plan v2, Chunk 9 task 4 ("readable audit/login-history page — actor name
+        // instead of raw user id — join on the server"). Resolved by AuditLogsController from
+        // ApplicationUser, not stored on AuditLog itself. Both null when UserId is null (a
+        // system/background-job action) or when the account has since been deleted.
+        public string? ActorUserName { get; set; }
+        public string? ActorFullName { get; set; }
+
         public string EntityName { get; set; } = string.Empty;
         public string EntityId { get; set; } = string.Empty;
         public string Action { get; set; } = string.Empty;
@@ -46,6 +54,13 @@ namespace TicketPortal.Api.DTO
     {
         public Guid Id { get; set; }
         public Guid UserId { get; set; }
+
+        // Same server-side join as AuditLogResponseDto above — see that field's comment.
+        // LoginHistory.UserId is never null (unlike AuditLog's), but the account can still have
+        // been deleted since, so these stay nullable.
+        public string? ActorUserName { get; set; }
+        public string? ActorFullName { get; set; }
+
         public DateTime LoginAtUtc { get; set; } = DateTime.UtcNow;
         public string? IpAddress { get; set; }
         public string? UserAgent { get; set; }

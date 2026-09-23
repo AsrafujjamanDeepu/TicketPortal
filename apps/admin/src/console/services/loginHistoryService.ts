@@ -14,10 +14,19 @@ import { api } from '@/lib/api';
 export interface LoginHistoryResponseDto {
   id: string;
   userId: string;
+  // Resolved server-side by LoginHistoriesController (Chunk 9 task 4) — null when the account
+  // has since been deleted.
+  actorUserName?: string | null;
+  actorFullName?: string | null;
   loginAtUtc: string;
   ipAddress?: string | null;
   userAgent?: string | null;
   success: boolean;
+}
+
+/** Best-effort display name for the "Actor" column — full name, falling back to username, falling back to the raw id. */
+export function actorDisplayName(row: { userId: string; actorFullName?: string | null; actorUserName?: string | null }): string {
+  return row.actorFullName || row.actorUserName || row.userId;
 }
 
 const POLL_INTERVAL_MS = 15000;

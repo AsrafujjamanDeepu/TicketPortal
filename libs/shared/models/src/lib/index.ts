@@ -25,3 +25,4 @@ export * from './ticket.model';
 export * from './trip.model';
 export * from './admin-user.model';
 export * from './integration.model';
+export * from './admin-dashboard.model';

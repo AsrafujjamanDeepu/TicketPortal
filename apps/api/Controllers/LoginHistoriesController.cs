@@ -31,7 +31,8 @@ namespace TicketPortal.Api.Controllers
             }
 
             var items = await query.OrderByDescending(x => x.LoginAtUtc).ToListAsync();
-            return Ok(items.Select(ToResponseDto));
+            var actors = await LoadActorsAsync(items.Select(x => (Guid?)x.UserId));
+            return Ok(items.Select(x => ToResponseDto(x, actors)));
         }
 
         [HttpGet("{id}")]
@@ -45,7 +46,8 @@ namespace TicketPortal.Api.Controllers
                 return Forbid();
             }
 
-            return Ok(ToResponseDto(item));
+            var actors = await LoadActorsAsync(new Guid?[] { item.UserId });
+            return Ok(ToResponseDto(item, actors));
         }
 
         // No POST/PUT/DELETE — see the class comment above.
@@ -56,14 +58,38 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private static LoginHistoryResponseDto ToResponseDto(LoginHistory x) => new()
+        // Chunk 9 task 4: same server-side actor-name join as AuditLogsController — see its
+        // own LoadActorsAsync comment for why this is one batched lookup, not N+1.
+        private async Task<Dictionary<Guid, (string? UserName, string? FullName)>> LoadActorsAsync(
+            IEnumerable<Guid?> userIds)
         {
-            Id = x.Id,
-            UserId = x.UserId,
-            LoginAtUtc = x.LoginAtUtc,
-            IpAddress = x.IpAddress,
-            UserAgent = x.UserAgent,
-            Success = x.Success,
-        };
+            var ids = userIds.Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
+            if (ids.Count == 0) return new Dictionary<Guid, (string?, string?)>();
+
+            var users = await db.Users
+                .Where(u => ids.Contains(u.Id))
+                .Select(u => new { u.Id, u.UserName, u.FullName })
+                .ToListAsync();
+
+            return users.ToDictionary(u => u.Id, u => ((string?)u.UserName, (string?)u.FullName));
+        }
+
+        private static LoginHistoryResponseDto ToResponseDto(
+            LoginHistory x, Dictionary<Guid, (string? UserName, string? FullName)> actors)
+        {
+            var actor = actors.TryGetValue(x.UserId, out var found) ? found : ((string?)null, (string?)null);
+
+            return new LoginHistoryResponseDto
+            {
+                Id = x.Id,
+                UserId = x.UserId,
+                ActorUserName = actor.Item1,
+                ActorFullName = actor.Item2,
+                LoginAtUtc = x.LoginAtUtc,
+                IpAddress = x.IpAddress,
+                UserAgent = x.UserAgent,
+                Success = x.Success,
+            };
+        }
     }
 }

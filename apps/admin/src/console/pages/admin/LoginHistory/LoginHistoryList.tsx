@@ -5,6 +5,7 @@ import {
   getAllLoginHistories,
   subscribeToLoginHistoryPolling,
   summarizeUserAgent,
+  actorDisplayName,
 } from '@/services/loginHistoryService';
 import { useAuth } from '@/lib/auth';
 
@@ -56,7 +57,8 @@ export const LoginHistoryList: React.FC = () => {
         !q ||
         (log.ipAddress || '').toLowerCase().includes(q) ||
         (log.userAgent || '').toLowerCase().includes(q) ||
-        log.userId.toLowerCase().includes(q);
+        log.userId.toLowerCase().includes(q) ||
+        actorDisplayName(log).toLowerCase().includes(q);
       const matchesSuccess =
         successFilter === 'all' || (successFilter === 'success' ? log.success : !log.success);
       return matchesSearch && matchesSuccess;
@@ -185,7 +187,7 @@ export const LoginHistoryList: React.FC = () => {
               <input
                 type="text"
                 className="form-control"
-                placeholder={isPrivileged ? 'Search IP, device, user ID...' : 'Search IP or device...'}
+                placeholder={isPrivileged ? 'Search IP, device, actor...' : 'Search IP or device...'}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -231,7 +233,7 @@ export const LoginHistoryList: React.FC = () => {
             <thead className="table-light">
               <tr>
                 <th>Status</th>
-                {isPrivileged && <th>User</th>}
+                {isPrivileged && <th>Actor</th>}
                 <th>Device</th>
                 <th>IP Address</th>
                 <th>When</th>
@@ -271,8 +273,8 @@ export const LoginHistoryList: React.FC = () => {
                         )}
                       </td>
                       {isPrivileged && (
-                        <td className="font-monospace text-truncate" style={{ maxWidth: 140 }}>
-                          {log.userId}
+                        <td className="text-truncate" style={{ maxWidth: 160 }} title={log.userId}>
+                          {actorDisplayName(log)}
                           {isYou && <span className="badge text-bg-light border ms-1">You</span>}
                         </td>
                       )}

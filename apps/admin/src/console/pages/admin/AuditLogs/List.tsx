@@ -4,6 +4,7 @@ import {
   getAllAuditLogs,
   getStoredAuditLogs,
   AUDIT_LOG_UPDATED_EVENT,
+  actorDisplayName,
   type AuditLogResponseDto,
 } from "@/services/auditLogService";
 
@@ -69,6 +70,7 @@ export default function AuditLogList() {
           x.entityName.toLowerCase().includes(q) ||
           x.entityId.toLowerCase().includes(q) ||
           (x.userId ?? "").toLowerCase().includes(q) ||
+          actorDisplayName(x).toLowerCase().includes(q) ||
           (x.ipAddress ?? "").toLowerCase().includes(q)
       );
     }
@@ -149,7 +151,7 @@ export default function AuditLogList() {
                 </span>
                 <input
                   className="form-control"
-                  placeholder="Search by Entity / Entity ID / User ID / IP..."
+                  placeholder="Search by Entity / Entity ID / Actor / IP..."
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
@@ -205,7 +207,7 @@ export default function AuditLogList() {
                   <th role="button" onClick={() => toggleSort("action")}>
                     Action {sortIcon("action")}
                   </th>
-                  <th>User ID</th>
+                  <th>Actor</th>
                   <th>IP Address</th>
                   <th role="button" onClick={() => toggleSort("createdAtUtc")}>
                     When {sortIcon("createdAtUtc")}
@@ -236,7 +238,7 @@ export default function AuditLogList() {
                     </td>
                     <td>{actionBadge(a.action)}</td>
                     <td className="text-truncate" style={{ maxWidth: 160 }} title={a.userId ?? ""}>
-                      {a.userId ?? "—"}
+                      {actorDisplayName(a)}
                     </td>
                     <td>{a.ipAddress ?? "—"}</td>
                     <td className="text-muted small">{new Date(a.createdAtUtc).toLocaleString()}</td>

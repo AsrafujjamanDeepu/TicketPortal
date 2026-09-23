@@ -9,6 +9,10 @@ import { api } from '@/lib/api';
 export interface AuditLogResponseDto {
   id: string;
   userId?: string | null;
+  // Resolved server-side by AuditLogsController (Chunk 9 task 4) — both null for a
+  // system/background action (userId itself null) or a since-deleted account.
+  actorUserName?: string | null;
+  actorFullName?: string | null;
   entityName: string;
   entityId: string;
   action: string;
@@ -17,6 +21,12 @@ export interface AuditLogResponseDto {
   ipAddress?: string | null;
   userAgent?: string | null;
   createdAtUtc: string;
+}
+
+/** Best-effort display name for the "Actor" column — full name, falling back to username, falling back to "System" for a null userId, falling back to the raw id. */
+export function actorDisplayName(row: { userId?: string | null; actorFullName?: string | null; actorUserName?: string | null }): string {
+  if (!row.userId) return 'System';
+  return row.actorFullName || row.actorUserName || row.userId;
 }
 
 export const AUDIT_LOG_UPDATED_EVENT = 'audit_logs_updated';

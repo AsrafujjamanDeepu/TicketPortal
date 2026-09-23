@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getAuditLogById, type AuditLogResponseDto } from "@/services/auditLogService";
+import { getAuditLogById, actorDisplayName, type AuditLogResponseDto } from "@/services/auditLogService";
 
 function actionBadge(action: string) {
   const map: Record<string, string> = {
@@ -125,9 +125,9 @@ export default function AuditLogDetails() {
             <div className="card-header bg-white fw-semibold">Actor</div>
             <div className="card-body">
               <dl className="row mb-0">
-                <dt className="col-5 text-muted">User ID</dt>
+                <dt className="col-5 text-muted">Actor</dt>
                 <dd className="col-7 text-end text-truncate" title={item.userId ?? ""}>
-                  {item.userId ?? "—"}
+                  {actorDisplayName(item)}
                 </dd>
 
                 <dt className="col-5 text-muted">IP Address</dt>

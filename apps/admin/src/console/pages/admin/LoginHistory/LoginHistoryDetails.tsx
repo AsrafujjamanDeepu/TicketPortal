@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getLoginHistoryById, LoginHistoryResponseDto, summarizeUserAgent } from '@/services/loginHistoryService';
+import { getLoginHistoryById, LoginHistoryResponseDto, summarizeUserAgent, actorDisplayName } from '@/services/loginHistoryService';
 import { useAuth } from '@/lib/auth';
 
 const POLL_INTERVAL_MS = 15000;
@@ -125,9 +125,9 @@ export const LoginHistoryDetails: React.FC = () => {
           </div>
 
           <div className="col-md-6">
-            <span className="text-muted small text-uppercase fw-semibold d-block mb-1">User</span>
+            <span className="text-muted small text-uppercase fw-semibold d-block mb-1">Actor</span>
             <div className="d-flex align-items-center gap-2">
-              <span className="font-monospace text-break">{item.userId}</span>
+              <span className="text-break" title={item.userId}>{actorDisplayName(item)}</span>
               {isYou && <span className="badge text-bg-light border">You</span>}
             </div>
           </div>
