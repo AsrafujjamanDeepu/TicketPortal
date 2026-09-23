@@ -2,6 +2,7 @@ using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Scheduling;
+using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -24,8 +25,15 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class TripsController(AppDbContext db, IWebHostEnvironment env) : ControllerBase
+    public class TripsController(AppDbContext db, IWebHostEnvironment env, IConfiguration configuration) : ControllerBase
     {
+        // Chunk 3 task 1 (shared with BookingBusesController and SeatHoldService): how long
+        // before a still-Scheduled departure sales close. Defaults to zero minutes, i.e. the
+        // exact cutoff this endpoint already used ("DepartureTimeUtc > now") before this config
+        // key existed — see SeatHold:StopSalesMinutesBeforeDeparture in appsettings.json.
+        private TimeSpan StopSalesWindow =>
+            TimeSpan.FromMinutes(configuration.GetValue("SeatHold:StopSalesMinutesBeforeDeparture", 0));
+
     // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
     // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
 
@@ -128,29 +136,22 @@ namespace TicketPortal.Api.Controllers
             // 2. Build the search window
             // =========================================================
 
-            // "date" is treated as a calendar day in UTC — this project doesn't model a
-            // per-terminal local timezone anywhere else either (DepartureTimeUtc is the only
-            // time field on Trip), so this matches everything else already in the schema.
-            var dayStartUtc = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-            var dayEndUtc = dayStartUtc.AddDays(1);
+            // Chunk 3 task 2: "date" is the calendar day the customer means in Dhaka, not UTC —
+            // treating it as a UTC day put a 05:00 Dhaka departure under the previous calendar
+            // day. DhakaClock converts it to the [start, end) range of UTC instants that Dhaka
+            // day actually covers; DepartureTimeUtc itself stays UTC, matching the rest of the
+            // schema (Trip has no per-terminal local timezone field).
+            var (dayStartUtc, dayEndUtc) = DhakaClock.DayRangeUtc(date);
             var now = DateTime.UtcNow;
-
-            // Trip.Status values that mean "not sellable any more", independent of the clock —
-            // e.g. a same-day trip the operator marked Cancelled an hour ago still has a future
-            // DepartureTimeUtc and must NOT show up just because the clock hasn't caught up.
-            var nonBookableStatuses = new[]
-            {
-                TripStatus.Cancelled,
-                TripStatus.Departed,
-                TripStatus.Running,
-                TripStatus.Arrived,
-                TripStatus.Completed,
-            };
+            var stopSalesWindow = StopSalesWindow;
 
             // =========================================================
-            // 3. Query — DepartureTimeUtc > now excludes already-departed trips even for a
-            //    same-day search; this is on top of (not instead of) the Status filter above,
-            //    since a Trip can be marked Delayed and still be genuinely bookable.
+            // 3. Query — DepartureTimeUtc > now (optionally minus a configurable stop-sales
+            //    window) excludes already-departed/closed trips even for a same-day search;
+            //    this is on top of (not instead of) the Status filter below, since a Trip can be
+            //    marked Delayed and still be genuinely bookable. TripSellability.NonBookableStatuses
+            //    is the same list BookingBusesController and SeatHoldService use — see Chunk 3
+            //    gap register #1.
             // =========================================================
 
             var trips = await db.Trips
@@ -163,8 +164,8 @@ namespace TicketPortal.Api.Controllers
                     && t.ArrivalTerminalId == toTerminalId
                     && t.DepartureTimeUtc >= dayStartUtc
                     && t.DepartureTimeUtc < dayEndUtc
-                    && t.DepartureTimeUtc > now
-                    && !nonBookableStatuses.Contains(t.Status))
+                    && t.DepartureTimeUtc > now.Add(stopSalesWindow)
+                    && !TripSellability.NonBookableStatuses.Contains(t.Status))
                 .OrderBy(t => t.DepartureTimeUtc)
                 .ToListAsync();
 

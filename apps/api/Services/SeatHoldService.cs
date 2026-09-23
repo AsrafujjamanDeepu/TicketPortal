@@ -11,6 +11,16 @@ namespace TicketPortal.Api.Services
         public SeatsUnavailableException(string message) : base(message) { }
     }
 
+    // Chunk 3 task 1: HoldSeatsAsync used to only check that the trip existed — a cancelled,
+    // departed, or otherwise-finished trip (correctly hidden from search) could still be held
+    // by calling POST /api/seatholds directly. Kept separate from SeatsUnavailableException
+    // (a per-seat race) since the failure reason and the right caller-facing message are
+    // different: "this trip isn't bookable" vs. "someone just took that seat".
+    public class TripNotBookableException : Exception
+    {
+        public TripNotBookableException(string message) : base(message) { }
+    }
+
     // This class is the ONLY place in the whole codebase allowed to change TripSeat.Status or
     // SeatHold.Status. That rule exists to protect against the platform's single biggest risk:
     // two customers being sold the same physical seat.
@@ -28,10 +38,12 @@ namespace TicketPortal.Api.Services
     public class SeatHoldService
     {
         private readonly AppDbContext _db;
+        private readonly IConfiguration _configuration;
 
-        public SeatHoldService(AppDbContext db)
+        public SeatHoldService(AppDbContext db, IConfiguration configuration)
         {
             _db = db;
+            _configuration = configuration;
         }
 
         // Step 1 of checkout: the customer has picked their seats on the seat map, and we now
@@ -50,20 +62,47 @@ namespace TicketPortal.Api.Services
             int holdMinutes,
             Guid? heldByUserId,
             string? clientIpAddress,
-            string? userAgent)
+            string? userAgent,
+            bool skipSellabilityCheck = false)
         {
             if (tripSeatIds.Count == 0)
             {
                 throw new ArgumentException("At least one seat must be selected.", nameof(tripSeatIds));
             }
 
+            var now = DateTime.UtcNow;
+
             // Without this check, a bad/typo'd tripId doesn't fail until the SaveChangesAsync
             // below, as a raw foreign-key-violation DbUpdateException — much harder to turn
-            // into a clean 4xx response than a check we control right here.
-            var tripExists = await _db.Trips.AnyAsync(t => t.Id == tripId);
-            if (!tripExists)
+            // into a clean 4xx response than a check we control right here. Also loads exactly
+            // what Chunk 3's trip-state gating needs (Status/DepartureTimeUtc), so this stays a
+            // single round-trip instead of a second query just for the sellability check.
+            var trip = await _db.Trips
+                .Where(t => t.Id == tripId)
+                .Select(t => new { t.Status, t.DepartureTimeUtc })
+                .FirstOrDefaultAsync();
+            if (trip is null)
             {
                 throw new InvalidOperationException($"Trip {tripId} does not exist.");
+            }
+
+            // Chunk 3 task 1: refuse a hold on a trip that's Cancelled/Departed/Running/
+            // Arrived/Completed, or whose departure (optionally minus a configurable stop-sales
+            // window) has already passed — the same rule TripsController.Search and
+            // BookingBusesController already use to keep such trips out of results in the first
+            // place. skipSellabilityCheck exists ONLY for DemoDataSeeder backfilling a booking
+            // onto an already-completed historical trip; every real caller (SeatHoldsController)
+            // leaves it false.
+            if (!skipSellabilityCheck)
+            {
+                var stopSalesWindow = TimeSpan.FromMinutes(
+                    _configuration.GetValue("SeatHold:StopSalesMinutesBeforeDeparture", 0));
+
+                if (!TripSellability.IsSellable(trip.Status, trip.DepartureTimeUtc, now, stopSalesWindow))
+                {
+                    throw new TripNotBookableException(
+                        TripSellability.GetUnsellableReason(trip.Status, trip.DepartureTimeUtc, now, stopSalesWindow));
+                }
             }
 
             // HeldByUserId is a foreign key to AspNetUsers. A signed-in browser can present a token
@@ -74,8 +113,6 @@ namespace TicketPortal.Api.Services
                 throw new InvalidOperationException(
                     "Your login belongs to an account that no longer exists. Please log out and log in again.");
             }
-
-            var now = DateTime.UtcNow;
 
             // Create the hold "envelope" first — the actual timer (3/5 minutes, from holdMinutes).
             var hold = new SeatHold

@@ -1,6 +1,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Enums;
+using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -12,19 +13,18 @@ namespace TicketPortal.Api.Controllers
   [AllowAnonymous]
   [Route("api/booking-buses")]
   [ApiController]
-  public class BookingBusesController(AppDbContext db) : ControllerBase
+  public class BookingBusesController(AppDbContext db, IConfiguration configuration) : ControllerBase
   {
-    // =========================================================
-    // Trips that CANNOT be booked
-    // =========================================================
-    private static readonly TripStatus[] NonBookableStatuses = new[]
-    {
-            TripStatus.Cancelled,
-            TripStatus.Departed,
-            TripStatus.Running,
-            TripStatus.Arrived,
-            TripStatus.Completed
-        };
+    // Chunk 3 task 1: this used to be its own private copy of the "which trip statuses are
+    // unsellable" list — now shared with TripsController.Search and SeatHoldService via
+    // TripSellability, so the three can't quietly drift apart again (Chunk 3 gap register #1).
+    private static readonly IReadOnlyCollection<TripStatus> NonBookableStatuses = TripSellability.NonBookableStatuses;
+
+    // Chunk 3 task 1 (shared config key with TripsController/SeatHoldService/SeatHoldsController):
+    // how long before a still-Scheduled departure sales close. Zero by default, i.e. exactly the
+    // cutoff this controller already used ("DepartureTimeUtc > now") before this key existed.
+    private TimeSpan StopSalesWindow =>
+        TimeSpan.FromMinutes(configuration.GetValue("SeatHold:StopSalesMinutesBeforeDeparture", 0));
 
     // =========================================================
     // GET: /api/booking-buses
@@ -40,6 +40,7 @@ namespace TicketPortal.Api.Controllers
         [FromQuery] DateTime? date)
     {
       var now = DateTime.UtcNow;
+      var cutoffUtc = now.Add(StopSalesWindow);
 
       // -----------------------------------------------------
       // 1. Base trip query — future + bookable + available seats
@@ -47,7 +48,7 @@ namespace TicketPortal.Api.Controllers
       var tripQuery = db.Trips
           .Where(t =>
               t.Bus.IsActive &&
-              t.DepartureTimeUtc > now &&
+              t.DepartureTimeUtc > cutoffUtc &&
               !NonBookableStatuses.Contains(t.Status) &&
               t.TripSeats.Any(s =>
                   s.Status == TripSeatStatus.Available));
@@ -94,11 +95,12 @@ namespace TicketPortal.Api.Controllers
 
       // -----------------------------------------------------
       // 4. Filter by DATE
+      // Chunk 3 task 2: `date` means a Dhaka calendar day, same fix and same helper as
+      // TripsController.Search — see DhakaClock for why this can't just be date.Value.Date.
       // -----------------------------------------------------
       if (date.HasValue)
       {
-        var start = date.Value.Date;
-        var end = start.AddDays(1);
+        var (start, end) = DhakaClock.DayRangeUtc(DateOnly.FromDateTime(date.Value));
         tripQuery = tripQuery.Where(t =>
             t.DepartureTimeUtc >= start &&
             t.DepartureTimeUtc < end);
@@ -258,6 +260,7 @@ namespace TicketPortal.Api.Controllers
     public async Task<IActionResult> GetAvailableTerminals()
     {
       var now = DateTime.UtcNow;
+      var cutoffUtc = now.Add(StopSalesWindow);
 
       // -----------------------------------------------------
       // 1. Load bookable trips with terminals
@@ -266,7 +269,7 @@ namespace TicketPortal.Api.Controllers
           .AsNoTracking()
           .Where(t =>
               t.Bus.IsActive &&
-              t.DepartureTimeUtc > now &&
+              t.DepartureTimeUtc > cutoffUtc &&
               !NonBookableStatuses.Contains(t.Status) &&
               t.TripSeats.Any(s =>
                   s.Status == TripSeatStatus.Available))
@@ -338,6 +341,7 @@ namespace TicketPortal.Api.Controllers
     public async Task<IActionResult> GetById(Guid id)
     {
       var now = DateTime.UtcNow;
+      var cutoffUtc = now.Add(StopSalesWindow);
 
       var bus = await db.Buses
           .AsNoTracking()
@@ -360,7 +364,7 @@ namespace TicketPortal.Api.Controllers
               .ThenInclude(ts => ts.Seat)
           .Where(t =>
               t.BusId == id &&
-              t.DepartureTimeUtc > now &&
+              t.DepartureTimeUtc > cutoffUtc &&
               !NonBookableStatuses.Contains(t.Status) &&
               t.TripSeats.Any(s =>
                   s.Status == TripSeatStatus.Available))

@@ -18,12 +18,14 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class SeatHoldsController(AppDbContext db, SeatHoldService seatHoldService) : ControllerBase
+    public class SeatHoldsController(AppDbContext db, SeatHoldService seatHoldService, IConfiguration configuration) : ControllerBase
     {
-        // The "3 to 5 minute timer" from the business plan — fixed here, server-side, so a
-        // client can never request its own (much longer) hold window. Move this to
-        // appsettings/config if it needs to become tunable later.
-        private const int HoldDurationMinutes = 5;
+        // The "3 to 5 minute timer" from the concept (§5) — server-side, so a client can never
+        // request its own (much longer) hold window. Chunk 3 task 3: now configurable via
+        // SeatHold:Minutes (appsettings.json / SeatHold__Minutes env var) instead of a fixed
+        // constant, but still clamped to the concept's allowed 3–5 minute range here — a bad or
+        // malicious config value can't hand out an hour-long hold.
+        private int HoldDurationMinutes => Math.Clamp(configuration.GetValue("SeatHold:Minutes", 5), 3, 5);
 
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -96,6 +98,14 @@ namespace TicketPortal.Api.Controllers
                 return CreatedAtAction(nameof(GetById), new { id = hold.Id }, ToResponseDto(hold));
             }
             catch (SeatsUnavailableException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
+            // Chunk 3 task 1: the trip's state changed out from under a stale seat map (someone
+            // cancelled it, or it departed) between the customer loading the page and clicking
+            // Hold. Same 409-and-refresh treatment as SeatsUnavailableException above, rather
+            // than a generic 400, so the Angular seat map handles both the same way.
+            catch (TripNotBookableException ex)
             {
                 return Conflict(new { message = ex.Message });
             }

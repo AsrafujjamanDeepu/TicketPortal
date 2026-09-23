@@ -1101,7 +1101,10 @@ namespace TicketPortal.Api.Data
 
         private static async Task SeedBookingScenariosAsync(AppDbContext db, DemoContext ctx)
         {
-            var seatHoldService = new SeatHoldService(db);
+            // Chunk 3: SeatHoldService now takes IConfiguration (for the configurable stop-sales
+            // window) — same "no real config available here, an empty one gives the same
+            // zero/default behaviour" pattern already used for PaymentConfirmationService below.
+            var seatHoldService = new SeatHoldService(db, new ConfigurationBuilder().Build());
             var financeLedgerService = new FinanceLedgerService(db);
             var couponService = new CouponRedemptionService(db);
             var walletService = new CustomerWalletService(db);
@@ -1158,7 +1161,13 @@ namespace TicketPortal.Api.Data
             {
                 var trip = ctx.Trips["GL-1"];
                 var seatIds = await GetAvailableSeatIdsAsync(db, trip.Id, 2);
-                var hold = await seatHoldService.HoldSeatsAsync(trip.Id, seatIds, 5, ctx.CustomerUsers["fatema.begum"].Id, "103.94.10.33", "Mozilla/5.0 (Android 13; Mobile)");
+                // GL-1 is deliberately seeded as TripStatus.Completed with a past DepartureTimeUtc
+                // (see AddTripAsync above) so there's a realistic "trip already happened, ticket
+                // already used" scenario to click through in the demo. Chunk 3's trip-state
+                // gating would otherwise correctly refuse this exact hold for a real customer —
+                // skipSellabilityCheck is the documented, seeder-only escape hatch for backfilling
+                // historical data onto a trip that's no longer actually bookable.
+                var hold = await seatHoldService.HoldSeatsAsync(trip.Id, seatIds, 5, ctx.CustomerUsers["fatema.begum"].Id, "103.94.10.33", "Mozilla/5.0 (Android 13; Mobile)", skipSellabilityCheck: true);
                 var booking = await CreateBookingRecordAsync(db, trip, hold, ctx.Customers["fatema.begum"].Id, null, null,
                     "Fatema Begum", "+8801733445566", "fatema.begum@example.com",
                     new List<PassengerInfo>

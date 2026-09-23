@@ -6,8 +6,15 @@ import { Terminal } from '@ticketportal-mono/models';
 import { TpButtonDirective, TpCardComponent, TpSpinnerComponent } from '../../../shared/ui';
 import { SearchApiService } from '../services/search-api.service';
 
+// Chunk 3 task 2: the backend now treats a search "date" as a Dhaka calendar day (see
+// DhakaClock.DayRangeUtc on the API side) — this default has to agree, or "today" pre-fills
+// with the wrong date for anyone browsing between midnight and 6am Dhaka time (browser-local
+// midnight in Dhaka is 18:00 UTC the previous day, so `new Date().toISOString()` — UTC — was
+// landing on yesterday for that whole early-morning window). Bangladesh is a fixed UTC+6 with
+// no DST, so a plain offset is exact here without pulling in a timezone library.
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const dhakaMs = Date.now() + 6 * 60 * 60 * 1000;
+  return new Date(dhakaMs).toISOString().slice(0, 10);
 }
 
 /**
