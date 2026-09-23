@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -20,7 +21,8 @@ namespace TicketPortal.Api.Controllers
   [ApiController]
   public class PaymentsController(
       AppDbContext db,
-      PaymentConfirmationService paymentConfirmationService
+      PaymentConfirmationService paymentConfirmationService,
+      ICurrentActorService currentActor
   ) : ControllerBase
   {
     // =========================================================
@@ -213,22 +215,34 @@ namespace TicketPortal.Api.Controllers
     // =========================================================
     // POST: /api/payments/counter-sale/confirm
     // =========================================================
+    //
+    // RBAC Amendment v3, Chunk 6 note: "make ... the walk-in workflow use Counter.Read/
+    // Counter.Sell and the assigned-counter relation. Do not use only BusOperatorId as its
+    // authorization test." This confirm step is the last leg of that same walk-in workflow —
+    // BookingsController.Create already enforces Counter.Sell + CanUseCounter against
+    // dto.SalesCounterId when the booking is first created (see its own comment), but this
+    // endpoint still only checked CanManageOperatorAsync (operator-level). That gap meant a
+    // CounterStaff clerk assigned to counter A could still confirm cash for a booking created
+    // (by anyone) against counter B of the same operator — collecting/recording a "sale" for
+    // a desk they were never assigned to. Same permission + scope pair as the create step,
+    // now checked again here against the booking's own SalesCounterId.
     [HttpPost("counter-sale/confirm")]
     public async Task<IActionResult> ConfirmCounterSale(CounterSaleConfirmDto dto)
     {
-      if (!User.IsInRole("Admin") &&
-          !User.IsInRole("Staff") &&
-          !User.IsInRole("Operator"))
-      {
-        return Forbid();
-      }
+      var actor = await currentActor.ResolveAsync(User);
+      if (!actor.HasPermission(Permissions.CounterSell)) return Forbid();
 
       var booking = await db.Bookings
           .FirstOrDefaultAsync(b => b.Id == dto.BookingId);
       if (booking == null)
         return NotFound(new { message = "Booking not found." });
 
-      if (!await User.CanManageOperatorAsync(db, booking.BusOperatorId))
+      if (booking.SalesCounterId == null)
+      {
+        return BadRequest(new { message = "This booking was not made at a sales counter." });
+      }
+
+      if (!actor.CanUseCounter(booking.SalesCounterId.Value, booking.BusOperatorId))
       {
         return Forbid();
       }

@@ -100,6 +100,21 @@ that chunk touches it. This was a deliberate scope decision (get the foundation 
 highest-value, most-cited controllers right and verifiable, rather than mechanically edit 45
 more controllers with no compiler in this environment to catch a mistake) — not an oversight.
 
+### Chunk 6 follow-up: `PaymentsController.ConfirmCounterSale`
+
+One gap in the list above turned out to matter for Chunk 6 specifically. The walk-in workflow
+is really two steps against two different controllers — `BookingsController.Create` (which
+the Chunk 2 sweep did cover: `Counter.Sell` + `CanUseCounter` against `dto.SalesCounterId`) and
+`PaymentsController.ConfirmCounterSale` (the "cash collected, issue the tickets" step, which it
+did not — still `CanManageOperatorAsync` only). A CounterStaff member assigned to only one of
+an operator's counters could create a booking at their own counter but, because the confirm
+step never checked which counter the booking belonged to, could also confirm — and so
+attribute a cash sale to — any *other* booking already sitting at a different counter of the
+same operator. Chunk 6 closes this the same way the create step already does: resolve the
+actor, require `Counter.Sell`, then `actor.CanUseCounter(booking.SalesCounterId, ...)` against
+the specific counter the booking was actually made at. See `PaymentsController.cs`'s own
+comment on `ConfirmCounterSale` for the exact reasoning.
+
 ## Angular route-guard gaps
 
 `role.guard.ts`'s `data.permissions` check is AND-only ("must hold every listed permission").
