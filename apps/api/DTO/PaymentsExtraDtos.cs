@@ -111,6 +111,11 @@ namespace TicketPortal.Api.DTO
         [StringLength(100)]
         public string? GatewayTransactionId { get; set; }
 
+        // Chunk 4 P0 task 3: kept for shape-compatibility with what a real gateway callback would
+        // eventually send, but PaymentConfirmationService.ConfirmOnlinePaymentAsync no longer
+        // trusts this value for the ledger — it recomputes the real fee server-side from
+        // PaymentMethodConfiguration instead. Do not wire this back into the ledger without the
+        // same signature verification the TODO above already calls for.
         [Range(0, double.MaxValue, ErrorMessage = "GatewayFeeAmount cannot be negative.")]
         public decimal GatewayFeeAmount { get; set; }
 

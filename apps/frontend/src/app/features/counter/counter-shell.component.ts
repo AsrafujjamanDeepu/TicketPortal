@@ -5,7 +5,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
  * Piece 5 root screen — a thin sub-nav (same visual language as
  * shared/ui/tabs, built with real routerLinks instead of tp-tabs' index
  * switch so each screen is a real, bookmarkable/back-button-friendly URL)
- * plus a <router-outlet> for the six screens below it. Mounted once at
+ * plus a <router-outlet> for the seven screens below it. Mounted once at
  * /counter — see counter.routes.ts for the child route list.
  */
 @Component({
@@ -16,7 +16,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
     <div class="tp-page">
       <header class="tp-counter-header">
         <h1>Counter &amp; Agent Operations</h1>
-        <p class="tp-muted">Walk-in sales, agent roster, cancellations/refunds, staff HR, and complaints.</p>
+        <p class="tp-muted">Walk-in sales, agent roster, cancellations/refunds, staff HR, complaints, and boarding check-in.</p>
       </header>
 
       <nav class="tp-tabs" role="tablist">
@@ -26,6 +26,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
         <a class="tp-tab" routerLink="cancellations" routerLinkActive="tp-tab--active">Cancellations &amp; Refunds</a>
         <a class="tp-tab" routerLink="staff" routerLinkActive="tp-tab--active">Staff HR</a>
         <a class="tp-tab" routerLink="complaints" routerLinkActive="tp-tab--active">Complaints</a>
+        <a class="tp-tab" routerLink="boarding" routerLinkActive="tp-tab--active">Boarding</a>
       </nav>
 
       <router-outlet />

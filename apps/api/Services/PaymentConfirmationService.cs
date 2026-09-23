@@ -136,11 +136,17 @@ namespace TicketPortal.Api.Services
         // TODO on PaymentsController.Confirm) says the money arrived. From here, three things
         // must happen together: the hold becomes a real booking, tickets get issued, and the
         // sale gets posted to the commission ledger.
+        // Chunk 4 P0 task 3 ("do not trust client-sent gateway fee"): the caller-supplied fee is
+        // no longer trusted for the ledger — see clientReportedGatewayFeeAmount's own comment
+        // below for what still happens with it. Parameter kept (not removed) so
+        // PaymentsController.Confirm/PaymentGatewayResultDto don't need a breaking contract
+        // change; a real gateway integration would eventually replace this whole parameter with
+        // a verified webhook payload anyway (see the TODO on PaymentGatewayResultDto).
         public async Task<PaymentConfirmationResult> ConfirmOnlinePaymentAsync(
             Guid paymentId,
             string holdToken,
             string? gatewayTransactionId,
-            decimal gatewayFeeAmount,
+            decimal clientReportedGatewayFeeAmount,
             string? gatewayResponseJson)
         {
             var payment = await _db.Payments.FirstOrDefaultAsync(p => p.Id == paymentId)
@@ -186,6 +192,17 @@ namespace TicketPortal.Api.Services
                 throw new InvalidOperationException($"Booking {booking.Id} has no SeatHoldId.");
             }
 
+            // Chunk 4 P0 task 3: a client (or a compromised/misbehaving gateway callback) could
+            // otherwise declare its own fee and shrink NetReceivedAmount — and, before this fix,
+            // the Angular checkout literally always sent 0 here regardless of the fee it had just
+            // shown the customer at the method picker (see payment.component.ts), so the ledger
+            // silently recorded zero gateway cost on every online sale. The real figure is looked
+            // up from the same PaymentMethodConfiguration the customer's fee estimate came from —
+            // never from clientReportedGatewayFeeAmount, which is intentionally unused for the
+            // ledger from here on (kept only as a signed-in parameter — see the method's own
+            // comment above — for symmetry with the DTO a future real gateway would replace).
+            var computedGatewayFeeAmount = await ComputeGatewayFeeAsync(payment);
+
             // Record the money as received first. This is the source-of-truth fact and stays
             // true even in the seat-loss branch below — the payment really did succeed; what
             // happens next is a separate question.
@@ -196,8 +213,8 @@ namespace TicketPortal.Api.Services
                     payment.Status = PaymentStatus.Succeeded;
                     payment.PaidAtUtc = DateTime.UtcNow;
                     payment.GatewayTransactionId = gatewayTransactionId;
-                    payment.GatewayFeeAmount = gatewayFeeAmount;
-                    payment.NetReceivedAmount = payment.Amount - gatewayFeeAmount;
+                    payment.GatewayFeeAmount = computedGatewayFeeAmount;
+                    payment.NetReceivedAmount = payment.Amount - computedGatewayFeeAmount;
                     payment.GatewayResponseJson = TagDemoConfirmationIfEnabled(gatewayResponseJson);
                     payment.UpdatedAtUtc = DateTime.UtcNow;
 
@@ -710,6 +727,39 @@ namespace TicketPortal.Api.Services
                 .FirstOrDefaultAsync() ?? GatewayFeeBearer.Platform;
 
             return (commission, feeBearer);
+        }
+
+        // Chunk 4 P0 task 3: the server-side source of truth for what a gateway/method actually
+        // costs, looked up from the exact same PaymentMethodConfiguration row
+        // PaymentsController.GetPaymentMethods used to show the customer their fee estimate at
+        // checkout — so the ledger entry always matches what was quoted, and a client can never
+        // just declare its own (e.g. zero) fee. Cash/no-provider payments have no gateway fee;
+        // an unconfigured method also costs nothing rather than throwing, since a missing fee
+        // row is a pricing gap for Finance to fill in, not a reason to block a paying customer's
+        // ticket (same "never block checkout on a config gap" reasoning as the commission-rule
+        // try/catch around this method's caller).
+        private async Task<decimal> ComputeGatewayFeeAsync(Payment payment)
+        {
+            if (payment.PaymentProviderId is null)
+            {
+                return 0m;
+            }
+
+            var config = await _db.PaymentMethodConfigurations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c =>
+                    c.PaymentProviderId == payment.PaymentProviderId.Value &&
+                    c.Method == payment.Method);
+
+            if (config is null)
+            {
+                return 0m;
+            }
+
+            var fixedFee = config.FixedFee ?? 0m;
+            var percentageFee = config.PercentageFee ?? 0m;
+
+            return Math.Round(fixedFee + payment.Amount * (percentageFee / 100m), 2);
         }
 
         private static string GenerateTicketNumber() =>

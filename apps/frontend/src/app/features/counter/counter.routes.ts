@@ -6,7 +6,7 @@ import { CounterShellComponent } from './counter-shell.component';
 /**
  * Piece 5 — Counter & Agent Operations Panel. One guarded shell route
  * (Staff/Operator/Admin — 'Staff' per role.guard.ts's note that Counter
- * doesn't get a role of its own) with six child screens underneath it:
+ * doesn't get a role of its own) with seven child screens underneath it:
  *
  *  - walk-in   : search -> seat map -> passenger details -> one-click cash
  *                confirm via POST 'payments/counter-sale/confirm' (NOT the
@@ -19,6 +19,8 @@ import { CounterShellComponent } from './counter-shell.component';
  *                    + RefundsController)
  *  - staff     : HR mini-module — profiles/attendance/salary
  *  - complaints: complaints intake/status board
+ *  - boarding  : Chunk 4 task 2 — check a ticket number, then check it in
+ *                (POST 'tickets/{ticketNumber}/check-in')
  *
  * RBAC Amendment v3 task 7: each child now also carries the `permissions` a
  * CounterStaff/Supervisor/Operator-Finance account does or doesn't hold (see
@@ -26,7 +28,7 @@ import { CounterShellComponent } from './counter-shell.component';
  * redirected client-side instead of loading a screen whose every API call
  * then 403s. 'agents' and 'complaints' are deliberately left without an
  * added permission — the fixed RBAC Amendment v3 catalogue has no
- * Agent.*/Complaints.* permission granted to any operator-scoped job role
+ * Agent.* / Complaints.* permission granted to any operator-scoped job role
  * yet (see AUTHORIZATION_DECISIONS.md), so gating them here would incorrectly
  * lock every operator's staff out of screens they currently rely on. This is
  * an acknowledged Chunk 2 gap, not a decision that they're meant to be open.
@@ -78,6 +80,13 @@ export const COUNTER_ROUTES: Routes = [
         path: 'complaints',
         loadComponent: () => import('./complaints/complaints.component').then((m) => m.ComplaintsComponent),
         title: 'Complaints — Counter Desk',
+      },
+      {
+        path: 'boarding',
+        loadComponent: () => import('./boarding/boarding.component').then((m) => m.BoardingComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Ticket.CheckIn'] },
+        title: 'Boarding Desk — Counter Desk',
       },
     ],
   },

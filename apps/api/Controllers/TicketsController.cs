@@ -1,7 +1,9 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Bookings;
+using TicketPortal.Api.Models.Diagnostics;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
@@ -11,11 +13,12 @@ using System.Security.Claims;
 
 namespace TicketPortal.Api.Controllers
 {
-    // Read-only on purpose. Tickets are issued exclusively by PaymentConfirmationService the
-    // moment an online payment is confirmed — the old generic Create/Update here let a client
-    // mint an "Issued" ticket at any Fare, with no link to a real payment at all. Cancelling a
-    // ticket belongs to the CancellationRequest workflow, not a raw field edit, so Delete has
-    // also been removed.
+    // Read-only on purpose (mostly). Tickets are issued exclusively by
+    // PaymentConfirmationService the moment an online payment is confirmed — the old generic
+    // Create/Update here let a client mint an "Issued" ticket at any Fare, with no link to a
+    // real payment at all. Cancelling a ticket belongs to the CancellationRequest workflow, not
+    // a raw field edit, so Delete has also been removed. The one deliberate exception is
+    // CheckIn below — a boarding-desk action, not a field edit, and gated by its own permission.
     //
     // Access is three-tiered, same pattern as PaymentsController/RefundsController (Ticket
     // carries no BusOperatorId directly, so scoping joins through Booking.BusOperatorId):
@@ -24,7 +27,7 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class TicketsController(AppDbContext db) : ControllerBase
+    public class TicketsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         // A conductor or customer needs to check that a ticket is currently usable without
         // seeing passenger contact details, payment details, or a full booking. This exposes
@@ -55,13 +58,20 @@ namespace TicketPortal.Api.Controllers
             }
 
             var trip = ticket.Trip;
+            // "Valid" here means "a real, currently-honourable ticket" (not cancelled/refunded),
+            // not "still checkable in" — an already-boarded passenger's ticket is still valid,
+            // it just can't be checked in a second time. `checkedIn` (Chunk 4 gap #9) is the
+            // separate, explicit signal a gate/verify page needs to tell those two apart instead
+            // of pattern-matching the status string itself.
             var validForBoarding = ticket.Status is TicketStatus.Issued or TicketStatus.CheckedIn;
+            var checkedIn = ticket.Status == TicketStatus.CheckedIn;
 
             return Ok(new
             {
                 ticketNumber = ticket.TicketNumber,
                 status = ticket.Status,
                 validForBoarding,
+                checkedIn,
                 seatNumber = ticket.SeatNumberSnapshot,
                 tripCode = trip.TripCode,
                 operatorName = trip.BusOperator?.Name,
@@ -70,6 +80,122 @@ namespace TicketPortal.Api.Controllers
                 departureTimeUtc = trip.DepartureTimeUtc
             });
         }
+
+        // =========================================================
+        // POST: /api/tickets/{ticketNumber}/check-in
+        // Boarding-desk action (Chunk 4 gap #9 — closes the reuse hole documented in
+        // TicketPortal_Final_Exam_Completion_Plan_v2.md Appendix A: verification used to say
+        // "valid" forever because nothing ever moved a ticket out of Issued).
+        //
+        // RBAC Amendment v3: gated on the Ticket.CheckIn PERMISSION (held by StaffRole.Supervisor
+        // — see PermissionMatrix.OperatorScope — and, on the platform side, by Admin implicitly),
+        // never on a bare IsInRole("Staff")/IsInRole("Operator") check, plus the usual
+        // CanManageOperator(...) resource-scope check so a Green Line supervisor can't check in
+        // an Ena ticket. Ticket carries no BusOperatorId of its own, so — same as everywhere else
+        // in this controller — scope is resolved by joining through Booking.BusOperatorId.
+        // =========================================================
+        [HttpPost("{ticketNumber}/check-in")]
+        public async Task<IActionResult> CheckIn(string ticketNumber)
+        {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.TicketCheckIn))
+            {
+                return Forbid();
+            }
+
+            var normalizedTicketNumber = ticketNumber?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedTicketNumber))
+            {
+                return NotFound(new { message = "Ticket not found." });
+            }
+
+            var ticket = await db.Tickets
+                .FirstOrDefaultAsync(t => t.TicketNumber == normalizedTicketNumber);
+
+            if (ticket is null)
+            {
+                return NotFound(new { message = "Ticket not found." });
+            }
+
+            var operatorId = await db.Bookings
+                .Where(b => b.Id == ticket.BookingId)
+                .Select(b => (Guid?)b.BusOperatorId)
+                .FirstOrDefaultAsync();
+
+            if (operatorId is null || !actor.CanManageOperator(operatorId.Value))
+            {
+                return Forbid();
+            }
+
+            // Cancelled/refunded tickets are refused outright — there is no legitimate reason
+            // to board on one, and silently accepting it would let a refunded seat travel twice.
+            if (ticket.Status is TicketStatus.Cancelled or TicketStatus.Refunded)
+            {
+                return BadRequest(new { message = $"Ticket is {ticket.Status} and cannot be checked in." });
+            }
+
+            // Idempotent by design (Chunk 4 task 1/5): a second scan of an already-checked-in
+            // ticket is an ordinary boarding-desk event (a passenger scans twice, two gate staff
+            // both try) — the desk needs "already used at HH:mm", a 200, not a thrown error.
+            if (ticket.Status == TicketStatus.CheckedIn)
+            {
+                return Ok(BuildCheckInResponse(ticket, alreadyCheckedIn: true));
+            }
+
+            if (ticket.Status != TicketStatus.Issued)
+            {
+                // PendingPayment / Used / NoShow — not boardable, and not "already checked in"
+                // either, so it gets its own message rather than the generic Cancelled one above.
+                return BadRequest(new { message = $"Ticket is {ticket.Status} and cannot be checked in." });
+            }
+
+            ticket.Status = TicketStatus.CheckedIn;
+            ticket.CheckedInAtUtc = DateTime.UtcNow;
+            ticket.UpdatedAtUtc = DateTime.UtcNow;
+            ticket.UpdatedByUserId = actor.UserId;
+
+            db.ActivityLogs.Add(new ActivityLog
+            {
+                UserId = actor.UserId,
+                Action = "Ticket.CheckedIn",
+                EntityName = "Ticket",
+                EntityId = ticket.Id.ToString(),
+            });
+
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Two scans landed at effectively the same instant (two staff at the same gate).
+                // Whichever write actually committed is authoritative; the loser gets exactly the
+                // same "already checked in" response a slightly-later second scan would have
+                // gotten anyway, instead of a 500.
+                var reloaded = await db.Tickets.AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.Id == ticket.Id);
+
+                if (reloaded != null && reloaded.Status == TicketStatus.CheckedIn)
+                {
+                    return Ok(BuildCheckInResponse(reloaded, alreadyCheckedIn: true));
+                }
+
+                throw;
+            }
+
+            return Ok(BuildCheckInResponse(ticket, alreadyCheckedIn: false));
+        }
+
+        private static object BuildCheckInResponse(Ticket ticket, bool alreadyCheckedIn) => new
+        {
+            ticketNumber = ticket.TicketNumber,
+            status = ticket.Status,
+            alreadyCheckedIn,
+            checkedInAtUtc = ticket.CheckedInAtUtc,
+            message = alreadyCheckedIn
+                ? $"Already checked in at {ticket.CheckedInAtUtc:HH:mm} UTC."
+                : "Checked in."
+        };
 
         // =========================================================
         // GET: /api/tickets

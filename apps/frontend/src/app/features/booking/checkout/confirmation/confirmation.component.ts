@@ -41,6 +41,17 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
           </tp-card>
         }
 
+        @if (b.requiresExternalConfirmation) {
+          <tp-card class="tp-external-confirmation-note">
+            <strong>Awaiting operator confirmation.</strong>
+            <span>
+              This operator manages its own booking system. Your seats are held and your payment is recorded, but the
+              operator's system still needs to confirm the seat — this normally happens automatically within a few
+              minutes. Check My Bookings for the latest status.
+            </span>
+          </tp-card>
+        }
+
         <div class="tp-ticket-grid">
           @for (t of tickets(); track t.id) {
             <tp-card class="tp-ticket-card">
@@ -82,6 +93,21 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
 
       .tp-trip-summary {
         margin-bottom: var(--tp-space-5);
+      }
+
+      .tp-external-confirmation-note {
+        display: flex;
+        flex-direction: column;
+        gap: var(--tp-space-1);
+        margin-bottom: var(--tp-space-5);
+        border-left: 4px solid var(--tp-warning, #d97706);
+        font-size: 13px;
+        color: var(--tp-text-muted);
+      }
+
+      .tp-external-confirmation-note strong {
+        color: var(--tp-text);
+        font-family: var(--tp-font-heading);
       }
 
       .tp-ticket-grid {
