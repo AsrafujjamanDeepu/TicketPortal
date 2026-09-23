@@ -13,7 +13,9 @@
 using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
+using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +27,140 @@ namespace TicketPortal.Api.Controllers
     [ApiController]
     public class SalesCountersController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
+        // Chunk 6 task 1 — the counter desk's default landing screen. One scoped aggregate
+        // instead of the Angular dashboard downloading full booking/cancellation/complaint
+        // lists and counting client-side (see COUNTER_SALE_DEMO_SCRIPT.md).
+        //
+        // RBAC Amendment v3, Chunk 6 note: scoped by Counter.Read + the assigned-counter
+        // relation — never by BusOperatorId alone. A CounterStaff member sees only the
+        // counter(s) they actually hold an active StaffSalesCounterAssignment for (same rule
+        // as CurrentActor.CanUseCounter); an Operator Manager/BusOwner sees every counter of
+        // their own operator; platform Staff/Admin see every counter platform-wide, same
+        // "BusOperatorId == null => unscoped" convention as GetAll below.
+        //
+        // "date" is a plain yyyy-MM-dd calendar day in Bangladesh local time (Asia/Dhaka,
+        // UTC+6), not a UTC day — a sale at 00:30 Dhaka time must count on the day the clerk
+        // is actually closing out, not roll into "yesterday" because the server stores UTC.
+        // Uses Chunk 3's DhakaClock (Services/DhakaClock.cs) — the same conversion
+        // TripsController.Search/BookingBusesController.GetAll use — rather than a second,
+        // locally-grown copy of the same fixed-UTC+6 logic.
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> GetDashboard([FromQuery] DateOnly? date)
+        {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.CounterRead)) return Forbid();
+
+            // Dhaka has been a fixed UTC+6 offset with no DST since 2009 (see DhakaClock's own
+            // comment), so shifting DateTime.UtcNow by 6 hours before taking its date is exactly
+            // right for "what day is it in Dhaka right now" — no separate zone lookup needed
+            // just to answer that when no explicit date was given.
+            var day = date ?? DateOnly.FromDateTime(DateTime.UtcNow.AddHours(6));
+            var (windowStartUtc, windowEndUtc) = DhakaClock.DayRangeUtc(day);
+
+            var counterQuery = db.SalesCounters.Where(c => c.IsActive).AsQueryable();
+            if (actor.BusOperatorId != null)
+            {
+                counterQuery = counterQuery.Where(c => c.BusOperatorId == actor.BusOperatorId);
+            }
+            if (actor.JobRole == StaffRole.CounterStaff)
+            {
+                counterQuery = counterQuery.Where(c => actor.AssignedCounterIds.Contains(c.Id));
+            }
+
+            var counters = await counterQuery
+                .Select(c => new { c.Id, c.CounterName, c.CounterCode, c.BusOperatorId })
+                .ToListAsync();
+            var counterIds = counters.Select(c => c.Id).ToList();
+
+            // A booking only counts as "sold today" once its cash has actually been
+            // confirmed (ConfirmedAtUtc — the same moment
+            // PaymentConfirmationService.ConfirmCounterSaleAsync issues the tickets); a
+            // booking still sitting in PendingPayment hasn't collected any cash yet. A fully
+            // Cancelled or Refunded booking no longer represents real revenue for the day.
+            var soldToday = counterIds.Count == 0
+                ? new List<CounterSaleRow>()
+                : await db.Bookings
+                    .Where(b =>
+                        b.SalesCounterId != null &&
+                        counterIds.Contains(b.SalesCounterId.Value) &&
+                        b.SaleChannel == SaleChannel.Counter &&
+                        b.ConfirmedAtUtc != null &&
+                        b.ConfirmedAtUtc >= windowStartUtc && b.ConfirmedAtUtc < windowEndUtc &&
+                        (b.Status == BookingStatus.Confirmed || b.Status == BookingStatus.Completed ||
+                         b.Status == BookingStatus.PartiallyCancelled))
+                    .Select(b => new CounterSaleRow
+                    {
+                        SalesCounterId = b.SalesCounterId!.Value,
+                        GrandTotal = b.GrandTotal,
+                        TicketCount = b.Tickets.Count(t => t.Status != TicketStatus.Cancelled),
+                    })
+                    .ToListAsync();
+
+            var perCounter = counters.Select(c =>
+            {
+                var forThisCounter = soldToday.Where(b => b.SalesCounterId == c.Id).ToList();
+                return new CounterDashboardCounterSummaryDto
+                {
+                    CounterId = c.Id,
+                    CounterName = c.CounterName,
+                    CounterCode = c.CounterCode,
+                    TicketsSoldToday = forThisCounter.Sum(b => b.TicketCount),
+                    CashSalesTotal = forThisCounter.Sum(b => b.GrandTotal),
+                };
+            }).ToList();
+
+            // CancellationRequest and Complaint carry no SalesCounterId of their own, so
+            // these two counts are scoped per-operator (the operator(s) the visible counters
+            // above belong to), not per-counter.
+            int pendingCancellations;
+            int openComplaints;
+            if (actor.BusOperatorId != null)
+            {
+                var operatorIds = counters.Select(c => c.BusOperatorId).Distinct().ToList();
+
+                pendingCancellations = await db.CancellationRequests.CountAsync(r =>
+                    r.Status == CancellationRequestStatus.Requested &&
+                    db.Bookings.Any(b => b.Id == r.BookingId && operatorIds.Contains(b.BusOperatorId)));
+
+                // Complaint has no BusOperatorId/SalesCounterId at all — only a nullable
+                // BookingId (see ComplaintsController's own acknowledged scoping gap). A
+                // complaint that isn't tied to any booking simply has no operator to scope
+                // it to, so it's excluded here: undercounting is the safe direction — this
+                // must never leak another operator's total onto this one's desk.
+                openComplaints = await db.Complaints.CountAsync(c =>
+                    (c.Status == ComplaintStatus.Open || c.Status == ComplaintStatus.InProgress) &&
+                    c.BookingId != null &&
+                    db.Bookings.Any(b => b.Id == c.BookingId && operatorIds.Contains(b.BusOperatorId)));
+            }
+            else
+            {
+                // Platform-wide Staff/Admin — no restriction, same convention as every other
+                // list endpoint here ("null BusOperatorId == unscoped").
+                pendingCancellations = await db.CancellationRequests.CountAsync(r => r.Status == CancellationRequestStatus.Requested);
+                openComplaints = await db.Complaints.CountAsync(c => c.Status == ComplaintStatus.Open || c.Status == ComplaintStatus.InProgress);
+            }
+
+            return Ok(new CounterDashboardResponseDto
+            {
+                Date = day,
+                TicketsSoldToday = perCounter.Sum(c => c.TicketsSoldToday),
+                CashSalesTotal = perCounter.Sum(c => c.CashSalesTotal),
+                Currency = "BDT",
+                PendingCancellations = pendingCancellations,
+                OpenComplaints = openComplaints,
+                Counters = perCounter,
+            });
+        }
+
+        // Small EF-projectable row shape for the query above — kept private, not a public
+        // DTO, since it never leaves this method.
+        private sealed class CounterSaleRow
+        {
+            public Guid SalesCounterId { get; set; }
+            public decimal GrandTotal { get; set; }
+            public int TicketCount { get; set; }
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {

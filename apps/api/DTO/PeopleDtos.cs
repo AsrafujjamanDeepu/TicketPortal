@@ -381,6 +381,39 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // Chunk 6 task 1 — GET /api/salescounters/dashboard. One scoped server aggregate
+    // instead of the counter desk downloading full booking/cancellation/complaint lists just
+    // to count them client-side. "Date" is always a Bangladesh local (Asia/Dhaka) calendar
+    // day — see SalesCountersController.GetDashboard's own comment on why.
+    public class CounterDashboardResponseDto
+    {
+        public DateOnly Date { get; set; }
+
+        // Totals across every counter this caller can see (see GetDashboard's scoping
+        // comment) — same numbers as summing Counters below, provided as a convenience so a
+        // CounterStaff member watching their own single counter doesn't have to add it up.
+        public int TicketsSoldToday { get; set; }
+        public decimal CashSalesTotal { get; set; }
+
+        [MaxLength(3)]
+        public string Currency { get; set; } = "BDT";
+
+        public int PendingCancellations { get; set; }
+        public int OpenComplaints { get; set; }
+
+        public IReadOnlyCollection<CounterDashboardCounterSummaryDto> Counters { get; set; } =
+            Array.Empty<CounterDashboardCounterSummaryDto>();
+    }
+
+    public class CounterDashboardCounterSummaryDto
+    {
+        public Guid CounterId { get; set; }
+        public string CounterName { get; set; } = string.Empty;
+        public string CounterCode { get; set; } = string.Empty;
+        public int TicketsSoldToday { get; set; }
+        public decimal CashSalesTotal { get; set; }
+    }
+
     // StaffProfileId verified against the caller's own operator scope server-side — see
     // StaffAttendancesController.
     public class StaffAttendanceCreateDto
