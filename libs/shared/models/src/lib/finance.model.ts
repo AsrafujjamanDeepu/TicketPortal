@@ -12,9 +12,10 @@ import {
 } from './enums';
 
 // ---------------------------------------------------------------------------
-// Commission Rules — DTO/FinanceDtos.cs. Admin-only end to end (see
-// CommissionRulesController). GET/POST /api/CommissionRules, PUT/DELETE
-// /api/CommissionRules/{id}.
+// Commission Rules — DTO/FinanceDtos.cs. RBAC Amendment v3 / Chunk 7 task 1+2: reads
+// need Finance.ReadPlatform (Platform Finance or Admin), writes still need
+// Finance.Configure (Admin only — see CommissionRulesController). GET/POST
+// /api/CommissionRules, PUT/DELETE /api/CommissionRules/{id}.
 // ---------------------------------------------------------------------------
 
 export interface CommissionRuleCreateRequest {
@@ -431,4 +432,24 @@ export interface PaymentMethodConfiguration {
   createdAtUtc: string;
   updatedAtUtc: string | null;
   rowVersion: string;
+}
+
+// ---------------------------------------------------------------------------
+// Finance reconciliation — DTO/FinanceReconciliationDtos.cs,
+// Controllers/FinanceReconciliationController.cs. RBAC Amendment v3 / Chunk 7 task 4
+// ("Missing-rule visibility"): the "confirmed bookings with no ledger rows" list and its
+// safe re-post action. Both endpoints need Finance.Reconcile (Platform Finance or Admin
+// only). GET /api/FinanceReconciliation/ledger-gaps, POST
+// /api/FinanceReconciliation/ledger-gaps/{bookingId}/repost.
+// ---------------------------------------------------------------------------
+
+export interface LedgerGap {
+  bookingId: string;
+  pnr: string;
+  busOperatorId: string;
+  saleChannel: SaleChannel;
+  grandTotal: number;
+  currency: string;
+  confirmedAtUtc: string;
+  reason: string;
 }

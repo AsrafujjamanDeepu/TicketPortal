@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -27,24 +28,37 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorSettlementsController(AppDbContext db, SettlementGenerationService settlementGenerationService) : ControllerBase
+    public class OperatorSettlementsController(
+        AppDbContext db,
+        SettlementGenerationService settlementGenerationService,
+        ICurrentActorService currentActor) : ControllerBase
     {
+        // RBAC Amendment v3 / Chunk 7 task 1 ("Fix finance access mismatch") — GetAll/GetById
+        // only; Generate/Approve below are untouched (read scoping is Chunk 7's owner scope for
+        // this controller, not the write/workflow endpoints). A raw IsInRole("Staff") let ANY
+        // platform staff account see every operator's settlements, and IsInRole("Operator") let
+        // any operator-scoped account (even counter staff with no finance permission at all) see
+        // their own operator's — neither matches PermissionMatrix.cs. Finance.ReadPlatform
+        // (Platform Finance/Admin) sees every operator; Finance.ReadOwnOperator (Operator
+        // Manager/BusOwner/Finance) is forced to their own operator regardless of what
+        // busOperatorId the request asks for.
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            var seesAllOperators = actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!seesAllOperators && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
             {
                 return Ok(Array.Empty<OperatorSettlementResponseDto>());
             }
 
             var query = db.OperatorSettlements.AsQueryable();
 
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!seesAllOperators)
             {
                 // Operator-scoped caller: always their own operator, regardless of what the
                 // busOperatorId query param asks for.
-                query = query.Where(s => s.BusOperatorId == callerOperatorId.Value);
+                query = query.Where(s => s.BusOperatorId == actor.BusOperatorId);
             }
             else if (busOperatorId.HasValue)
             {
@@ -58,6 +72,13 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)
+                && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
+            {
+                return Forbid();
+            }
+
             var item = await db.OperatorSettlements
                 .Include(s => s.Items)
                 .FirstOrDefaultAsync(x => x.Id == id);

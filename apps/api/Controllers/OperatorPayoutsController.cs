@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -26,22 +27,30 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorPayoutsController(AppDbContext db, PayoutProcessingService payoutProcessingService) : ControllerBase
+    public class OperatorPayoutsController(
+        AppDbContext db,
+        PayoutProcessingService payoutProcessingService,
+        ICurrentActorService currentActor) : ControllerBase
     {
+        // RBAC Amendment v3 / Chunk 7 task 1 — GetAll/GetById only; Create and the four
+        // state-changing endpoints below are untouched (read scoping is Chunk 7's owner scope
+        // for this controller). Same Finance.ReadPlatform / Finance.ReadOwnOperator split as
+        // OperatorSettlementsController.
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            var seesAllOperators = actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!seesAllOperators && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
             {
                 return Ok(Array.Empty<OperatorPayoutResponseDto>());
             }
 
             var query = db.OperatorPayouts.AsQueryable();
 
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!seesAllOperators)
             {
-                query = query.Where(p => p.BusOperatorId == callerOperatorId.Value);
+                query = query.Where(p => p.BusOperatorId == actor.BusOperatorId);
             }
             else if (busOperatorId.HasValue)
             {
@@ -55,6 +64,13 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)
+                && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
+            {
+                return Forbid();
+            }
+
             var item = await db.OperatorPayouts.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
             if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();

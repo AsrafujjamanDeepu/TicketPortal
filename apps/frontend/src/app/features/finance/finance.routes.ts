@@ -21,7 +21,13 @@ import { roleGuard } from '../../core/guards/role.guard';
  * ALL listed permissions" — it can't express that OR cleanly. The actual
  * security boundary for those screens is enforced server-side by whichever
  * finance controller backs them (Chunk 7's job per RBAC Amendment v3's
- * chunk-ownership table), not by this route guard.
+ * chunk-ownership table — done: see CommissionRulesController etc. and the
+ * six settlement/invoice/payout/wallet controllers), not by this route guard.
+ *
+ * 'reconciliation' (Chunk 7 task 4) IS gated here, on Finance.Reconcile —
+ * unlike the OR case above, that permission maps to exactly one role
+ * (Platform Finance/Admin), so a plain "must hold this permission" guard
+ * expresses it correctly.
  */
 export const FINANCE_ROUTES: Routes = [
   {
@@ -70,6 +76,14 @@ export const FINANCE_ROUTES: Routes = [
         canActivate: [roleGuard],
         data: { permissions: ['Finance.Configure'] },
         title: 'System Config — Finance',
+      },
+      {
+        path: 'reconciliation',
+        loadComponent: () =>
+          import('./reconciliation/reconciliation.component').then((m) => m.ReconciliationComponent),
+        canActivate: [roleGuard],
+        data: { permissions: ['Finance.Reconcile'] },
+        title: 'Reconciliation — Finance',
       },
     ],
   },

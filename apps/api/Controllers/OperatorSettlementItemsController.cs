@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -18,12 +19,17 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorSettlementItemsController(AppDbContext db) : ControllerBase
+    public class OperatorSettlementItemsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
+        // RBAC Amendment v3 / Chunk 7 task 1 — same Finance.ReadPlatform / Finance.ReadOwnOperator
+        // split as OperatorSettlementsController (this entity has no BusOperatorId of its own, so
+        // scoping always joins through OperatorSettlement.BusOperatorId).
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? operatorSettlementId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            var seesAllOperators = actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!seesAllOperators && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
             {
                 return Ok(Array.Empty<OperatorSettlementItemResponseDto>());
             }
@@ -34,11 +40,10 @@ namespace TicketPortal.Api.Controllers
                 query = query.Where(i => i.OperatorSettlementId == operatorSettlementId.Value);
             }
 
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!seesAllOperators)
             {
                 query = query.Where(i => db.OperatorSettlements.Any(s =>
-                    s.Id == i.OperatorSettlementId && s.BusOperatorId == callerOperatorId));
+                    s.Id == i.OperatorSettlementId && s.BusOperatorId == actor.BusOperatorId));
             }
 
             var items = await query.ToListAsync();
@@ -48,6 +53,13 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)
+                && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
+            {
+                return Forbid();
+            }
+
             var item = await db.OperatorSettlementItems.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 

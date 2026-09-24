@@ -23,6 +23,7 @@ import {
   OperatorSettlementDetail,
   OperatorStatement,
   OperatorStatementDetail,
+  LedgerGap,
   OperatorWallet,
   PaymentMethodConfiguration,
   PaymentMethodConfigurationCreateRequest,
@@ -44,11 +45,14 @@ import {
  * this wraps. Screens inject this instead of ApiService directly, same
  * pattern as AuthService for the auth domain.
  *
- * A few endpoints (CommissionRules/TaxRules/Currencies/PaymentProviders/
- * PaymentMethodConfigurations) are Admin-only server-side — a Staff-only
- * caller reaching one of these methods still gets a clean 403, normalized
- * and toasted by ErrorInterceptor, so components don't need their own
- * special-casing for that.
+ * A few endpoints (CommissionRules/TaxRules/PaymentProviders/
+ * PaymentMethodConfigurations reads, Currencies) need Finance.ReadPlatform
+ * server-side (Platform Finance or Admin — RBAC Amendment v3 / Chunk 7 task 1);
+ * writes on those same endpoints need Finance.Configure (Admin only). A caller
+ * without the right permission still gets a clean 403, normalized and toasted
+ * by ErrorInterceptor, so components don't need their own special-casing for
+ * that — see finance.routes.ts for which screens are additionally gated at
+ * the route level.
  */
 @Injectable({ providedIn: 'root' })
 export class FinanceApiService {
@@ -245,5 +249,17 @@ export class FinanceApiService {
 
   deletePaymentMethodConfiguration(id: string): Observable<void> {
     return this.api.delete<void>(`PaymentMethodConfigurations/${id}`);
+  }
+
+  // ---- Finance reconciliation (Finance.Reconcile — Platform Finance/Admin only) ----
+  // RBAC Amendment v3 / Chunk 7 task 4: the "confirmed bookings with no ledger rows"
+  // list and its safe re-post action — see FinanceReconciliationController.
+
+  listLedgerGaps(busOperatorId?: string | null): Observable<LedgerGap[]> {
+    return this.api.get<LedgerGap[]>('FinanceReconciliation/ledger-gaps', { busOperatorId });
+  }
+
+  repostLedgerGap(bookingId: string): Observable<void> {
+    return this.api.post<void>(`FinanceReconciliation/ledger-gaps/${bookingId}/repost`);
   }
 }

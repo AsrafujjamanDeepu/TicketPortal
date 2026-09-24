@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -17,22 +18,25 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorWalletsController(AppDbContext db) : ControllerBase
+    public class OperatorWalletsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
+        // RBAC Amendment v3 / Chunk 7 task 1 — same Finance.ReadPlatform / Finance.ReadOwnOperator
+        // split as OperatorSettlementsController, applied to all three read endpoints below.
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            var seesAllOperators = actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!seesAllOperators && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
             {
                 return Ok(Array.Empty<OperatorWalletResponseDto>());
             }
 
             var query = db.OperatorWallets.AsQueryable();
 
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!seesAllOperators)
             {
-                query = query.Where(w => w.BusOperatorId == callerOperatorId.Value);
+                query = query.Where(w => w.BusOperatorId == actor.BusOperatorId);
             }
 
             var items = await query.ToListAsync();
@@ -42,6 +46,13 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)
+                && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
+            {
+                return Forbid();
+            }
+
             var item = await db.OperatorWallets.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
             if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
@@ -53,6 +64,12 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("by-operator/{busOperatorId}")]
         public async Task<IActionResult> GetByOperator(Guid busOperatorId)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)
+                && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
+            {
+                return Forbid();
+            }
             if (!await User.CanManageOperatorAsync(db, busOperatorId)) return Forbid();
 
             var item = await db.OperatorWallets.FirstOrDefaultAsync(x => x.BusOperatorId == busOperatorId);

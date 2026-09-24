@@ -1,15 +1,25 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { AuthService } from '../../../core/services/auth.service';
 
 /**
  * Piece 6 — Finance & Settlement Panel shell. Mounted once at 'finance/**',
- * renders the sub-nav across the six screens and hosts <router-outlet> for
+ * renders the sub-nav across the seven screens and hosts <router-outlet> for
  * whichever one is active — same shape as the top-level ShellComponent, one
  * level down.
  *
  * Per the Frontend Guideline's design note for this piece: dense with
  * numbers, so this stays deliberately neutral (white/border, no yellow fill)
  * — individual screens reserve yellow for primary actions and key totals.
+ *
+ * RBAC Amendment v3 / Chunk 7 task 1: every link is now conditioned on the
+ * actual capability payload rather than shown unconditionally to any Staff
+ * account — a CounterStaff clerk with no finance permission at all
+ * previously saw (and could click into) every one of these, only to be
+ * bounced server-side or shown an empty list. ensureCapabilities() is
+ * called eagerly here since this shell's own route only checks `roles:
+ * ['Staff']` (no `permissions`), so role.guard.ts wouldn't otherwise have
+ * triggered the GET /api/account/me load before this template renders.
  */
 @Component({
   selector: 'tp-finance-shell',
@@ -23,24 +33,35 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
       </div>
 
       <nav class="tp-finance__nav">
-        <a routerLink="commissions" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
-          Commission Rules
-        </a>
-        <a routerLink="wallets" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
-          Wallets &amp; Ledger
-        </a>
-        <a routerLink="settlements" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
-          Settlements
-        </a>
-        <a routerLink="invoices" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
-          Invoices
-        </a>
-        <a routerLink="payouts" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
-          Payouts
-        </a>
-        <a routerLink="config" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
-          System Config
-        </a>
+        @if (authService.hasPermission('Finance.Configure')) {
+          <a routerLink="commissions" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            Commission Rules
+          </a>
+        }
+        @if (authService.hasPermission('Finance.ReadPlatform') || authService.hasPermission('Finance.ReadOwnOperator')) {
+          <a routerLink="wallets" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            Wallets &amp; Ledger
+          </a>
+          <a routerLink="settlements" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            Settlements
+          </a>
+          <a routerLink="invoices" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            Invoices
+          </a>
+          <a routerLink="payouts" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            Payouts
+          </a>
+        }
+        @if (authService.hasPermission('Finance.Configure')) {
+          <a routerLink="config" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            System Config
+          </a>
+        }
+        @if (authService.hasPermission('Finance.Reconcile')) {
+          <a routerLink="reconciliation" routerLinkActive="tp-finance__nav-link--active" class="tp-finance__nav-link">
+            Reconciliation
+          </a>
+        }
       </nav>
 
       <div class="tp-finance__content">
@@ -94,4 +115,11 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
     `,
   ],
 })
-export class FinanceShellComponent {}
+export class FinanceShellComponent {
+  protected readonly authService = inject(AuthService);
+
+  constructor() {
+    // Cached after the first call — safe to call every time this shell mounts.
+    this.authService.ensureCapabilities().subscribe();
+  }
+}

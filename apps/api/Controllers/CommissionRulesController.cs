@@ -1,11 +1,18 @@
-// Piece 1 (Identity, Access Control & Platform Configuration) — Admin-only gate. 🟡 tier per the
-// completion plan: structurally fine as generic CRUD, this only ever needed locking down, no new
-// service. Was reachable read/write by any authenticated user; now Admin-only end to end — a
-// customer or unscoped staff account being able to zero out (or inflate) an operator's commission
-// rate is a direct way to manipulate money owed. Real Staff/Operator role-scoping
-// (StaffProfile.BusOperatorId) doesn't apply here since this is platform-wide reference/finance
-// data, not any one operator's own rows.
+// Piece 1 (Identity, Access Control & Platform Configuration) — originally Admin-only end to
+// end. RBAC Amendment v3 / Chunk 7 task 1+2 ("Fix finance access mismatch"): a flat Admin-only
+// gate meant Platform Finance staff — who exist specifically to work with commission data —
+// couldn't even READ the rules that drive every settlement they're responsible for. Reads now
+// also open to whoever holds Finance.ReadPlatform (PermissionMatrix.cs grants this to
+// StaffRole.Finance when BusOperatorId is null — i.e. Platform Finance — and to nobody else;
+// Operator Finance/Manager are deliberately NOT included, matching the amendment's explicit
+// correction: "only the mapped Finance or Admin personas should receive those tabs/endpoints",
+// not every platform Staff account as the original v2 plan text suggested). Writes are
+// unchanged — Finance.Configure, which the matrix grants to nobody, so only Admin (which
+// CurrentActor.HasPermission always short-circuits true for) can still create/edit/delete a
+// commission rate. Real Staff/Operator role-scoping (StaffProfile.BusOperatorId) still doesn't
+// apply here — this is platform-wide reference/finance data, not any one operator's own rows.
 
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Enums;
@@ -19,12 +26,13 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class CommissionRulesController(AppDbContext db) : ControllerBase
+    public class CommissionRulesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform))
             {
                 return Ok(Array.Empty<CommissionRuleResponseDto>());
             }
@@ -36,7 +44,8 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)) return Forbid();
 
             var item = await db.CommissionRules.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));
@@ -45,7 +54,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(CommissionRuleCreateDto dto)
         {
-            if (!User.IsInRole("Admin")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceConfigure)) return Forbid();
 
             if (!IsCommissionValueValid(dto.CommissionType, dto.CommissionValue, out var validationError))
             {
@@ -74,7 +84,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, CommissionRuleUpdateDto dto)
         {
-            if (!User.IsInRole("Admin")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceConfigure)) return Forbid();
 
             var item = await db.CommissionRules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "CommissionRule not found." });
@@ -128,7 +139,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceConfigure)) return Forbid();
 
             var item = await db.CommissionRules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

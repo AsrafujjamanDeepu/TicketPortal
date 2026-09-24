@@ -215,6 +215,9 @@ builder.Services.AddScoped<TripCancellationService>();
 builder.Services.AddScoped<SettlementGenerationService>();
 builder.Services.AddScoped<PayoutProcessingService>();
 builder.Services.AddScoped<InvoicePaymentService>();
+// RBAC Amendment v3, Chunk 7 task 4 — "confirmed bookings with no ledger rows" reconciliation
+// list + safe re-post action. See Services/FinanceReconciliationService.cs.
+builder.Services.AddScoped<FinanceReconciliationService>();
 // The only writer of CouponUsage — validates a coupon's own rules before redemption. See
 // Services/CouponRedemptionService.cs.
 builder.Services.AddScoped<CouponRedemptionService>();

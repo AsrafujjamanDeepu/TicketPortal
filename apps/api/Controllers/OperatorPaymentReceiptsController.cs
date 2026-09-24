@@ -1,3 +1,4 @@
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -27,12 +28,20 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorPaymentReceiptsController(AppDbContext db, InvoicePaymentService invoicePaymentService) : ControllerBase
+    public class OperatorPaymentReceiptsController(
+        AppDbContext db,
+        InvoicePaymentService invoicePaymentService,
+        ICurrentActorService currentActor) : ControllerBase
     {
+        // RBAC Amendment v3 / Chunk 7 task 1 — GetAll/GetById only; Create below is untouched
+        // (still platform-staff/Admin only, unrelated to this fix). Same Finance.ReadPlatform /
+        // Finance.ReadOwnOperator split as OperatorSettlementsController.
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? operatorInvoiceId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            var seesAllOperators = actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!seesAllOperators && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
             {
                 return Ok(Array.Empty<OperatorPaymentReceiptResponseDto>());
             }
@@ -43,11 +52,10 @@ namespace TicketPortal.Api.Controllers
                 query = query.Where(r => r.OperatorInvoiceId == operatorInvoiceId.Value);
             }
 
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!seesAllOperators)
             {
                 query = query.Where(r => db.OperatorInvoices.Any(i =>
-                    i.Id == r.OperatorInvoiceId && i.BusOperatorId == callerOperatorId));
+                    i.Id == r.OperatorInvoiceId && i.BusOperatorId == actor.BusOperatorId));
             }
 
             var items = await query.OrderByDescending(r => r.ReceivedAtUtc).ToListAsync();
@@ -57,6 +65,13 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.FinanceReadPlatform)
+                && !actor.HasPermission(Permissions.FinanceReadOwnOperator))
+            {
+                return Forbid();
+            }
+
             var item = await db.OperatorPaymentReceipts.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
             if (!await CanAccessAsync(item.OperatorInvoiceId)) return Forbid();

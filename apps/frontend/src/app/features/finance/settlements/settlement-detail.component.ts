@@ -33,6 +33,14 @@ interface SettlementItemRow {
  * by SettlementGenerationService alongside the parent settlement (read-only,
  * see finance.model.ts) — this page never edits a line item, only approves
  * the settlement as a whole.
+ *
+ * RBAC Amendment v3 / Chunk 7 task 6 ("Plain-language settlement summary"):
+ * the breakdown grid below is accurate but assumes the reader already knows
+ * what "Direction" and a signed "Net Amount" mean. summaryText() turns the
+ * same numbers into one sentence — who owes whom, how much, over how many
+ * transactions — using the exact sign convention SettlementGenerationService
+ * writes (positive netAmount => PlatformPaysOperator, negative =>
+ * OperatorPaysPlatform, zero => NetZero).
  */
 @Component({
   selector: 'tp-settlement-detail',
@@ -69,6 +77,8 @@ interface SettlementItemRow {
             }
           </div>
         </div>
+
+        <p class="tp-settlement-summary">{{ summaryText() }}</p>
 
         <dl class="tp-settlement-breakdown">
           <div><dt>Direction</dt><dd>{{ s.direction }}</dd></div>
@@ -140,6 +150,16 @@ interface SettlementItemRow {
         display: flex;
         align-items: center;
         gap: var(--tp-space-3);
+      }
+
+      .tp-settlement-summary {
+        font-size: 15px;
+        color: var(--tp-text);
+        background: var(--tp-bg-soft);
+        border: 1px solid var(--tp-border);
+        border-radius: var(--tp-radius-sm);
+        padding: var(--tp-space-3) var(--tp-space-4);
+        margin-bottom: var(--tp-space-5);
       }
 
       h4 {
@@ -241,6 +261,29 @@ export class SettlementDetailComponent implements OnInit {
       netAmountDisplay: formatMoney(item.netAmount),
     })),
   );
+
+  // RBAC Amendment v3 / Chunk 7 task 6. netAmount is signed (see
+  // SettlementGenerationService) — direction already says who owes whom in
+  // words, so the amount here is always shown unsigned.
+  protected readonly summaryText = computed<string>(() => {
+    const s = this.settlement();
+    if (!s) return '';
+
+    const operatorName = this.operatorLookup.nameFor(s.busOperatorId);
+    const period = `${formatDate(s.fromDate)} – ${formatDate(s.toDate)}`;
+    const count = s.items.length;
+    const txnWord = count === 1 ? 'transaction' : 'transactions';
+    const amount = formatMoney(Math.abs(s.netAmount));
+
+    switch (s.direction) {
+      case 'PlatformPaysOperator':
+        return `For ${period} (${count} ${txnWord}), TicketPortal owes ${operatorName} ${amount}.`;
+      case 'OperatorPaysPlatform':
+        return `For ${period} (${count} ${txnWord}), ${operatorName} owes TicketPortal ${amount}.`;
+      default:
+        return `For ${period} (${count} ${txnWord}), nothing is owed either way — this settlement nets to zero.`;
+    }
+  });
 
   ngOnInit(): void {
     this.operatorLookup.ensureLoaded();
