@@ -208,6 +208,12 @@ namespace TicketPortal.Api.DTO
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
 
+    // Chunk 8 task 3: this is the read shape returned to the browser, and it deliberately does
+    // NOT include the raw SecretReference — only whether one is set (HasSecret) and a masked
+    // preview safe to display (e.g. "env:HAN••••_KEY"). The real secret value is never returned
+    // by any endpoint; see ExternalBookingSyncService.ResolveSecret for where it's actually
+    // read from (server-side only, at call time). Write it via OperatorIntegrationCreateDto/
+    // OperatorIntegrationUpdateDto instead, which stay write-only for this field.
     public class OperatorIntegrationResponseDto
     {
         public Guid Id { get; set; }
@@ -216,13 +222,34 @@ namespace TicketPortal.Api.DTO
         public string BaseUrl { get; set; } = string.Empty;
         public IntegrationAuthType AuthType { get; set; } = IntegrationAuthType.ApiKey;
         public string? ApiKeyHeaderName { get; set; }
-        public string? SecretReference { get; set; }
+        public bool HasSecret { get; set; }
+        public string? SecretReferenceMasked { get; set; }
         public int TimeoutSeconds { get; set; } = 30;
         public bool IsActive { get; set; } = true;
         public DateTime? LastSuccessfulSyncAtUtc { get; set; }
         public DateTime CreatedAtUtc { get; set; }
         public DateTime? UpdatedAtUtc { get; set; }
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
+    }
+
+    // Chunk 8 / RBAC Amendment v3 §8: the redacted view an operator manager can see for their
+    // OWN operator's integration (Permissions.IntegrationsRead) — mode, health, recent activity,
+    // nothing else. No BaseUrl, no auth details, no secret (masked or otherwise), no sync-log
+    // detail. Full records (OperatorIntegrationResponseDto, IntegrationSyncLogResponseDto,
+    // mapping tables) stay behind Permissions.IntegrationsManage (Admin-only) — see
+    // OperatorIntegrationsController.GetStatus vs. the rest of that controller.
+    public class OperatorIntegrationStatusDto
+    {
+        public Guid BusOperatorId { get; set; }
+        public string BusOperatorName { get; set; } = string.Empty;
+        public OperatorInventoryMode InventoryMode { get; set; }
+        public bool HasIntegrationConfigured { get; set; }
+        public string? IntegrationName { get; set; }
+        public bool IsActive { get; set; }
+        public DateTime? LastSuccessfulSyncAtUtc { get; set; }
+        public string? LastSyncStatus { get; set; }
+        public DateTime? LastSyncAtUtc { get; set; }
+        public int RecentFailureCount { get; set; } // Failed sync-log rows in the last 24h.
     }
 
     public class OperatorIntegrationEndpointCreateDto

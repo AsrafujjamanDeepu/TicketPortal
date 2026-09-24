@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { BusOperator, SalesCounter, Terminal } from '@ticketportal-mono/models';
 import { AuthService } from '../../../core/services/auth.service';
@@ -75,8 +75,13 @@ import { TerminalsService } from '../services/terminals.service';
       <form [formGroup]="form" class="tp-form" (ngSubmit)="save()">
         @if (auth.hasRole('Admin')) {
           <label>
-            Bus Operator ID
-            <input type="text" formControlName="busOperatorId" placeholder="Operator GUID" />
+            Bus Operator
+            <select formControlName="busOperatorId">
+              <option value="" disabled>Select an operator</option>
+              @for (operator of eligibleBusOperators(); track operator.id) {
+                <option [value]="operator.id">{{ operator.name }}</option>
+              }
+            </select>
           </label>
         }
         <label>
@@ -224,6 +229,14 @@ export class CounterSetupComponent implements OnInit {
   protected readonly counters = signal<SalesCounter[]>([]);
   protected readonly terminals = signal<Terminal[]>([]);
   private readonly busOperators = signal<BusOperator[]>([]);
+
+  // Chunk 8 task 6: an ExternalApiManaged operator (e.g. Hanif) runs its own ERP end-to-end,
+  // including cash-counter sales (concept doc §3.2) — TicketPortal never operates a counter for
+  // one. Filtering it out of this picker is what actually keeps it out of counter configuration
+  // day to day; SalesCountersController.Create rejects it server-side too either way.
+  protected readonly eligibleBusOperators = computed(() =>
+    this.busOperators().filter((o) => o.inventoryMode !== 'ExternalApiManaged'),
+  );
 
   protected readonly form = this.fb.nonNullable.group({
     busOperatorId: [''],

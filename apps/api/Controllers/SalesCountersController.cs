@@ -239,6 +239,28 @@ namespace TicketPortal.Api.Controllers
                 targetOperatorId = dto.BusOperatorId;
             }
 
+            // Chunk 8 task 6: an API-connected operator (concept doc §3.2 — "TicketPortal has no
+            // involvement in their cash-counter sales") never gets a counter at all, whichever
+            // branch above resolved targetOperatorId — an Admin/platform-Staff caller picking an
+            // operator by id, or a scoped operator-side caller whose own BusOperatorId happens
+            // to be one. BookingsController.Create already refuses a counter SALE against a
+            // non-PlatformManaged trip; this stops the counter from being configured in the
+            // first place, which is what actually keeps it out of every operator/counter picker
+            // in the UI (see counter-setup.component.ts).
+            var targetOperatorMode = await db.BusOperators
+                .Where(o => o.Id == targetOperatorId)
+                .Select(o => (OperatorInventoryMode?)o.InventoryMode)
+                .FirstOrDefaultAsync();
+
+            if (targetOperatorMode == OperatorInventoryMode.ExternalApiManaged)
+            {
+                return BadRequest(new
+                {
+                    message = "This operator's inventory is managed entirely through their own ERP " +
+                        "(ExternalApiManaged) — TicketPortal never runs a sales counter for them."
+                });
+            }
+
             var branchError = await ValidateBranchAsync(dto.OperatorBranchId, targetOperatorId);
             if (branchError != null) return branchError;
 

@@ -2,6 +2,7 @@ using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Bookings;
+using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,7 +19,11 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class SeatHoldsController(AppDbContext db, SeatHoldService seatHoldService, IConfiguration configuration) : ControllerBase
+    public class SeatHoldsController(
+        AppDbContext db,
+        SeatHoldService seatHoldService,
+        IConfiguration configuration,
+        ExternalBookingSyncService externalSync) : ControllerBase
     {
         // The "3 to 5 minute timer" from the concept (§5) — server-side, so a client can never
         // request its own (much longer) hold window. Chunk 3 task 3: now configurable via
@@ -83,6 +88,47 @@ namespace TicketPortal.Api.Controllers
             if (dto.TripSeatIds == null || dto.TripSeatIds.Count == 0)
             {
                 return BadRequest(new { message = "Select at least one seat." });
+            }
+
+            // Chunk 8 task 5: for a trip whose operator's own ERP is the source of truth
+            // (ExternalApiManaged), our own TripSeat.Status can be stale — the operator may have
+            // sold this exact seat through a channel we don't see. Ask their GetSeatAvailability
+            // endpoint before ever taking the hold. This fails OPEN (see
+            // ExternalBookingSyncService.CheckSeatAvailabilityAsync's own comment) — an
+            // unreachable ERP falls back to our own seat map rather than blocking every sale on
+            // that trip, so this is an extra check on top of SeatHoldService's own race-safe
+            // locking (and Chunk 3's TripNotBookableException checks below), never a replacement
+            // for either.
+            var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == dto.TripId);
+            if (trip == null)
+            {
+                return BadRequest(new { message = "Trip not found." });
+            }
+
+            if (trip.InventoryMode == OperatorInventoryMode.ExternalApiManaged)
+            {
+                var requestedSeatNumbers = await db.TripSeats
+                    .Where(ts => dto.TripSeatIds.Contains(ts.Id))
+                    .Select(ts => ts.SeatNumber)
+                    .ToListAsync();
+
+                var availability = await externalSync.CheckSeatAvailabilityAsync(trip);
+                if (availability.Success)
+                {
+                    var conflictingSeats = requestedSeatNumbers
+                        .Where(availability.SoldSeatNumbers.Contains)
+                        .ToList();
+
+                    if (conflictingSeats.Count > 0)
+                    {
+                        return Conflict(new
+                        {
+                            message = $"The operator's system reports seat(s) {string.Join(", ", conflictingSeats)} " +
+                                "already sold. Please choose different seats.",
+                            seatNumbers = conflictingSeats,
+                        });
+                    }
+                }
             }
 
             try

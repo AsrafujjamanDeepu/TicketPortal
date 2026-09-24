@@ -111,6 +111,14 @@ namespace TicketPortal.Api.Authorization
             Permissions.StaffRead, Permissions.StaffManage,
             Permissions.BookingRead, Permissions.ReportsRead,
             Permissions.FinanceReadOwnOperator,
+            // RBAC Amendment v3 §8 (Chunk 8): "An operator manager may receive a redacted
+            // status/read view for their own integration if useful, but never endpoint
+            // secrets, test-connection controls, or mapping administration." IntegrationsRead
+            // is scoped by CanManageOperator on the one endpoint that checks it
+            // (OperatorIntegrationsController.GetStatus) — it does NOT unlock the full
+            // OperatorIntegrationResponseDto/IntegrationSyncLogsController/mapping controllers,
+            // which all still require IntegrationsManage (Admin-only).
+            Permissions.IntegrationsRead,
         };
 
         public static IReadOnlyCollection<string> Resolve(StaffRole jobRole, bool isPlatformScope)

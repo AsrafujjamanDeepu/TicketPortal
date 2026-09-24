@@ -400,7 +400,7 @@ using (var scope = app.Services.CreateScope())
         // DemoDataSeeder.SeedAsync for the exact guard.
         if (app.Environment.IsDevelopment())
         {
-            await DemoDataSeeder.SeedAsync(db, userManager);
+            await DemoDataSeeder.SeedAsync(db, userManager, app.Configuration);
         }
     }
     catch (Exception ex)

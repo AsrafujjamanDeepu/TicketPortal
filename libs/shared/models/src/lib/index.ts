@@ -24,3 +24,4 @@ export * from './seat-hold.model';
 export * from './ticket.model';
 export * from './trip.model';
 export * from './admin-user.model';
+export * from './integration.model';

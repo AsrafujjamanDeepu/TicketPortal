@@ -34,11 +34,14 @@ namespace TicketPortal.Api.Services
     {
         private readonly AppDbContext _db;
         private readonly SeatHoldService _seatHoldService;
+        private readonly ExternalBookingSyncService _externalSync;
 
-        public CancellationProcessingService(AppDbContext db, SeatHoldService seatHoldService)
+        public CancellationProcessingService(
+            AppDbContext db, SeatHoldService seatHoldService, ExternalBookingSyncService externalSync)
         {
             _db = db;
             _seatHoldService = seatHoldService;
+            _externalSync = externalSync;
         }
 
         // Customer-initiated (or staff, on the customer's behalf) — ties the request to the
@@ -289,6 +292,14 @@ namespace TicketPortal.Api.Services
             await _seatHoldService.ReleaseCancelledSeatsAsync(booking.Id, cancelledTripSeatIds);
 
             await transaction.CommitAsync();
+
+            // Chunk 8 task 7 (P1): best-effort propagation to the operator's own ERP, AFTER the
+            // refund/seat-release transaction above has already committed — a failure here must
+            // never undo or block the cancellation itself (see
+            // ExternalBookingSyncService.TryCancelExternalBookingAsync, which never throws and
+            // is a no-op for a booking that was never synced with an operator ERP in the first
+            // place, i.e. every PlatformManaged booking).
+            await _externalSync.TryCancelExternalBookingAsync(booking.Id);
         }
 
         public async Task RejectAsync(Guid cancellationRequestId, string rejectedReason)

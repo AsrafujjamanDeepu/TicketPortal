@@ -20,6 +20,11 @@ namespace TicketPortal.Api.Controllers
     // Nothing writes here yet: the actual sync worker that talks to an operator's ERP is future
     // work (see the ERP-integrations piece), not built here. The write path lands with that
     // worker; this controller is locked down now so there's no open write path waiting for it.
+    //
+    // UPDATE (Chunk 8): that worker now exists (ExternalBookingSyncService) and writes real
+    // rows here on every ConfirmBooking/GetSeatAvailability/CancelBooking/TestConnection call —
+    // this controller's own read-side auth was already correctly scoped ahead of that, so
+    // nothing needed to change here. See docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]

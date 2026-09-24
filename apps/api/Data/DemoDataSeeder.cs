@@ -31,7 +31,7 @@ namespace TicketPortal.Api.Data
     {
         private const string DemoPassword = "Demo@12345";
 
-        public static async Task SeedAsync(AppDbContext db, UserManager<ApplicationUser> userManager)
+        public static async Task SeedAsync(AppDbContext db, UserManager<ApplicationUser> userManager, IConfiguration configuration)
         {
             if (await db.BusOperators.AnyAsync())
             {
@@ -48,7 +48,7 @@ namespace TicketPortal.Api.Data
             await SeedAgentsAndCountersAsync(db, ctx);
             await SeedCustomersAsync(db, userManager, ctx);
             await SeedOperatorRoutesAsync(db, ctx);
-            await SeedHanifIntegrationAsync(db, ctx);
+            await SeedHanifIntegrationAsync(db, ctx, configuration);
             await SeedSchedulesAndTripsAsync(db, ctx);
             await SeedCouponsAsync(db, ctx);
             await SeedOffersAndBannersAsync(db, ctx);
@@ -705,16 +705,30 @@ namespace TicketPortal.Api.Data
         // ================================================================================
         // 9. Hanif's ERP integration (the ExternalApiManaged operator)
         // ================================================================================
-        private static async Task SeedHanifIntegrationAsync(AppDbContext db, DemoContext ctx)
+        // Chunk 8 task 3: BaseUrl and SecretReference are no longer hardcoded fictional values —
+        // BaseUrl points at apps/mock-erp by default (see docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md
+        // for how to run it), overridable via Integrations:HanifErpBaseUrl for anyone pointing
+        // this at a real server instead. SecretReference is "env:HANIF_ERP_API_KEY" — a POINTER
+        // the sync engine resolves at call time (see ExternalBookingSyncService.ResolveSecret),
+        // never a literal secret value sitting in seeded demo data. appsettings.Development.json
+        // sets a matching demo default so a fresh clone works out of the box; override the
+        // HANIF_ERP_API_KEY environment variable for anything beyond local demo use.
+        private static async Task SeedHanifIntegrationAsync(AppDbContext db, DemoContext ctx, IConfiguration configuration)
         {
+            var baseUrl = configuration["Integrations:HanifErpBaseUrl"];
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                baseUrl = "http://localhost:5099/api/v1";
+            }
+
             var integration = new OperatorIntegration
             {
                 BusOperatorId = ctx.Hanif.Id,
                 Name = "Hanif ERP Connect",
-                BaseUrl = "https://erp.hanifenterprise.example.com/api/v1",
+                BaseUrl = baseUrl,
                 AuthType = IntegrationAuthType.ApiKey,
                 ApiKeyHeaderName = "X-API-Key",
-                SecretReference = "secret-manager://hanif-erp-api-key",
+                SecretReference = "env:HANIF_ERP_API_KEY",
                 TimeoutSeconds = 30,
                 IsActive = true,
                 LastSuccessfulSyncAtUtc = DateTime.UtcNow.AddHours(-6),
