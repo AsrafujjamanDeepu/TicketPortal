@@ -3,6 +3,14 @@
    React's <Button>/<Card>/<StatusPill> all apply these class names — this is
    what keeps the two frameworks visually identical instead of two hand-tuned
    copies drifting apart. If you change a style here, both apps get it.
+
+   Sleek Dark Olive pass: almost every rule below reads a --tp-* variable
+   rather than a literal color, so most of this file needed no changes at
+   all once tokens.css was repainted — that's the payoff of the token
+   indirection already being in place. The exceptions, called out inline,
+   are the handful of places that only had a *transform* for :active (no
+   color change) and the focus ring, both tightened to make the new amber
+   accent read clearly at each interactive state.
    ============================================================================= */
 
 .tp-btn {
@@ -24,13 +32,23 @@
   white-space: nowrap;
 }
 
+/* Focus ring: unchanged structure, now amber. Kept at 3px tint + 1px solid
+   ring — on the new light neutral canvas this combination stays >=3:1
+   (WCAG 1.4.11 non-text contrast) against both --tp-bg and --tp-surface. */
 .tp-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--tp-yellow-tint), 0 0 0 1px var(--tp-yellow-dark);
 }
 
+/* NEW: active/pressed now gets a real color shift, not just the transform —
+   previously every variant relied on transform alone for :active, so a
+   press had no color feedback at all. This adds one shared active tint via
+   filter (works uniformly across the gradient, solid, and ghost variants
+   without needing a per-variant --tp-*-active token) layered on top of the
+   existing press transform. */
 .tp-btn:active:not(:disabled) {
   transform: translateY(1px) scale(0.98);
+  filter: brightness(0.94);
 }
 
 .tp-btn:disabled {
@@ -141,6 +159,19 @@
   border-color: var(--tp-yellow-dark);
 }
 
+/* NEW: focus-visible parity for keyboard users — a hoverable card is
+   almost always a tappable target (booking selection, operator row),
+   so it needs the same ring a button gets. */
+.tp-card--hoverable:focus-visible {
+  outline: none;
+  box-shadow: var(--tp-shadow-elevated), 0 0 0 3px var(--tp-yellow-tint), 0 0 0 1px var(--tp-yellow-dark);
+  border-color: var(--tp-yellow-dark);
+}
+
+.tp-card--hoverable:active {
+  transform: translateY(-1px);
+}
+
 /* ---- Status pill --------------------------------------------------------- */
 
 .tp-pill {
@@ -182,9 +213,10 @@
 
 /* ---- Shared visual utilities --------------------------------------------
    Small, additive, opt-in utility classes used by the brand chrome (navbar,
-   footer, auth pages, empty states) and available to any screen that wants
-   the same premium treatment. Nothing above this line changed in a way
-   that breaks existing usage — everything below is new. */
+   footer, auth pages, empty states). See the review checklist: .tp-glass
+   in particular needs a decision before this rebrand is complete — it's
+   currently what actually paints the Angular navbar's background, and it's
+   still a light/translucent surface, not dark olive. */
 
 .tp-gradient-text {
   background: var(--tp-gradient-brand);

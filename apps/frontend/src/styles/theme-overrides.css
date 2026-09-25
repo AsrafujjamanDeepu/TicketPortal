@@ -1,140 +1,37 @@
 /* =============================================================================
-   TicketPortal — Customer Frontend Theme Override — "Cloudy Glass"
-   (The Chromatic White)
+   TicketPortal — Customer Frontend Theme Override
    -----------------------------------------------------------------------------
-   Supersedes the Neo-Brutalist pass. Tech-forward, airy glassmorphism: a
-   barely-there warm-to-cool page gradient, translucent blurred glass cards,
-   two soft pastel accents (icy blue + peach), and the signature move —
-   colored (not grey/black) box-shadows, so glass panels look lit from
-   below/behind rather than merely "elevated."
+   INTENTIONALLY EMPTIED as part of the "Sleek Dark Olive" rebrand.
 
-   As before, this file is loaded ONLY by apps/frontend (see project.json's
-   "styles" array), after tokens.css/components.css — so libs/shared/design-
-   tokens and apps/admin are untouched by this file. (Admin's LOGO was
-   updated to match this turn too, but that's a separate, explicit change to
-   apps/admin/src/components/Logo.tsx itself — not something that flows from
-   this override file, and admin's overall color scheme is still untouched.)
+   This file previously re-declared nearly every --tp-* custom property
+   with its own "Cloudy Glass" pastel palette (icy blue / lavender / peach),
+   loaded in apps/frontend/project.json AFTER libs/shared/design-tokens/
+   tokens.css and components.css. Because :root declarations here came
+   later in the cascade, this file silently won every time — apps/frontend
+   was never actually themed by the shared tokens, regardless of what those
+   tokens said. Updating only libs/shared/design-tokens/tokens.css (without
+   also emptying this file) would have produced ZERO visible change on the
+   customer/counter/operator/finance portal.
 
-   1. Re-declares the shared --tp-* custom properties (same names the shared
-      components already read) with the new palette/shadows/radii — most of
-      the re-theme flows through automatically this way.
-   2. A few supplemental rules below `:root` for the one thing that isn't
-      fully token-driven in the shared components.css: the glass blur itself
-      (`backdrop-filter` isn't something a `background:` token can carry),
-      plus restoring the softer hover/press feel brutalism had stripped out.
+   Removing the re-declaration block restores the shared tokens.css/
+   components.css as the actual single source of truth for this app, which
+   is what "shift the visual identity using the single source of truth in
+   my shared design tokens library" requires. --tp-brand-1/2/3 (previously
+   only defined here, for tp-logo.component.ts's SVG gradient) now live in
+   tokens.css instead, so the Angular logo mark stays on-brand without this
+   file needing to define them.
+
+   The glass-blur supplemental rules (.tp-card background/backdrop-filter,
+   .tp-card--peach) are removed too — they were built for the old radial
+   gradient-mesh backdrop the "Cloudy Glass" theme painted behind them; on
+   the new flat light-neutral canvas there's nothing colorful behind a
+   translucent card to blur, so the effect would just look like a faint
+   grey smear rather than "frosted glass." If a future pass wants a glass
+   treatment that fits the dark-olive system, it should be re-authored
+   against the new tokens rather than left over from the old ones.
+
+   If apps/frontend genuinely needs a per-app override again later, add it
+   here — but re-declare individual tokens deliberately, not the whole set,
+   and keep in mind anything you set here will win over tokens.css by
+   load order (see apps/frontend/project.json's "styles" array).
    ============================================================================= */
-
-:root {
-  /* ---- Color: page background — the "60%" — a full-page diagonal wash,
-     warm cream to cool blue-grey, subtle enough most people won't
-     consciously clock it. `--tp-bg` is consumed via `background:` on
-     <body>, so a gradient value works as a drop-in for what was a flat
-     color before. */
-  --tp-bg: linear-gradient(135deg, #fdfbf7 0%, #f2f4f8 100%);
-  --tp-bg-soft: #f5f3ef;
-  --tp-surface: rgba(255, 255, 255, 0.7);
-  --tp-surface-alt: #edf2f7;
-  --tp-border: #e2e4ea; /* general/non-glass borders — buttons, tables, dividers */
-
-  /* ---- Color: accents — the "10%" ---------------------------------------
-     Two pastel accents used deliberately, not one dominant brand color.
-     Token NAMES are unchanged from earlier themes (every shared component
-     already reads these), values are the new palette:
-       --tp-yellow      -> icy baby blue (primary accent)
-       --tp-yellow-2    -> peach fuzz (secondary accent)
-       --tp-yellow-dark -> a slightly deeper icy blue for hover/pressed
-       --tp-yellow-tint -> a paler icy-blue wash for focus rings/hover fills */
-  --tp-yellow: #a8d8ea;
-  --tp-yellow-dark: #7ec2dc;
-  --tp-yellow-tint: #eef8fb;
-  --tp-yellow-2: #ffd3b4;
-
-  /* The "prism" gradient — icy blue through a soft lavender to peach.
-     Used for primary buttons, icon-badges, and the logo mark, so the one
-     recurring flourish across the app is literally "light through a
-     prism", matching the brief's framing. */
-  --tp-gradient-brand: linear-gradient(135deg, #a8d8ea 0%, #d9c9f0 50%, #ffd3b4 100%);
-  --tp-gradient-brand-hover: linear-gradient(135deg, #7ec2dc 0%, #c7b2ea 50%, #f5b98a 100%);
-  --tp-gradient-mesh: radial-gradient(circle at 15% 20%, rgba(168, 216, 234, 0.38), transparent 45%),
-    radial-gradient(circle at 85% 0%, rgba(255, 211, 180, 0.32), transparent 45%),
-    radial-gradient(circle at 50% 100%, rgba(217, 201, 240, 0.28), transparent 55%);
-
-  /* Logo gradient stops — same three-color prism sweep as --tp-gradient-brand. */
-  --tp-brand-1: #a8d8ea;
-  --tp-brand-2: #d9c9f0;
-  --tp-brand-3: #ffd3b4;
-
-  /* Headings back to a rounder, friendlier face — "airy/magical" reads
-     better with Poppins than the blocky Space Grotesk brutalism used. */
-  --tp-font-heading: 'Poppins', 'Segoe UI', sans-serif;
-
-  /* ---- Color: "ink" (footer band, auth hero panel) -----------------------
-     The full prism gradient at panel scale, rather than a flat/dark color —
-     this is the one place the icy-blue-to-peach sweep gets to be the star.
-     Both accents are pale, so text on top flips to dark here (unlike the
-     white text earlier "ink" themes used on a dark/saturated background). */
-  --tp-ink: linear-gradient(135deg, #a8d8ea 0%, #d9c9f0 50%, #ffd3b4 100%);
-  --tp-ink-soft: #cfe6ee;
-  --tp-ink-border: rgba(45, 42, 50, 0.14);
-  --tp-ink-text: #2d2a32;
-  --tp-ink-text-muted: rgba(45, 42, 50, 0.66);
-
-  /* ---- Color: text — soft warm charcoal, not pure black ------------------
-     Pure black felt harsh against a warm-cream/pastel palette; a warm dark
-     slate keeps the "airy" feel while staying easily readable. */
-  --tp-text: #2d2a32;
-  --tp-text-muted: #6b6875;
-  --tp-text-on-yellow: #2d2a32; /* dark text on the pale accent fills — white would fail contrast on baby blue/peach */
-
-  /* ---- Shadows — colored, not grey/black — the "mindblowing trick" ------
-     Cards get an icy-blue glow; buttons/icon-badges/the logo get a peach
-     glow — so both accents show up as light sources somewhere on every
-     screen, rather than one flat neutral drop-shadow everywhere. Exact
-     values/spread match the brief. A .tp-card--peach utility below is
-     available for anyone who wants a specific card to glow peach instead. */
-  --tp-shadow-card: 0 15px 40px -10px #a8d8ea;
-  --tp-shadow-elevated: 0 20px 50px -8px #a8d8ea;
-  --tp-shadow-glow: 0 15px 40px -10px #ffd3b4;
-  --tp-shadow-glow-lg: 0 20px 50px -8px #ffd3b4;
-
-  /* ---- Radius — soft and plush, the opposite of brutalism's sharp edges - */
-  --tp-radius-sm: 12px;
-  --tp-radius-md: 20px;
-  --tp-radius-lg: 28px;
-  --tp-radius-xl: 36px;
-  --tp-radius-pill: 999px;
-}
-
-/* =============================================================================
-   Supplemental rules — just the actual glass effect. backdrop-filter isn't
-   something a background: token can carry, so .tp-card's blur/translucency
-   is set directly here rather than through --tp-surface/--tp-border. Every
-   other brutalist supplemental rule from the previous pass (thick borders,
-   hard press transforms, the squared Material corners, etc.) is gone
-   entirely now that this file has been rewritten from scratch — the shared
-   components.css defaults (soft hover lift, translateY+scale press) apply
-   again unmodified, which is exactly the softer feel this theme wants.
-   ============================================================================= */
-
-/* The "30%" — glass cards. background/border deliberately bypass the
-   --tp-surface/--tp-border tokens here to hit the brief's exact values
-   (translucent white + a near-white edge that "catches the light" against
-   the colored gradient-mesh backdrop behind it) without changing what
-   --tp-surface/--tp-border mean for ordinary, non-glass UI elsewhere. */
-.tp-card {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-}
-
-/* Opt-in: swap a specific card to the peach glow instead of the icy-blue
-   default, for the "different cards get different colored shadows" effect
-   in a spot that calls for it. */
-.tp-card--peach {
-  box-shadow: 0 15px 40px -10px #ffd3b4;
-}
-
-.tp-card--peach.tp-card--hoverable:hover {
-  box-shadow: 0 20px 50px -8px #ffd3b4;
-}
