@@ -57,7 +57,6 @@ export default function AuditLogList() {
     };
     window.addEventListener(AUDIT_LOG_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(AUDIT_LOG_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {

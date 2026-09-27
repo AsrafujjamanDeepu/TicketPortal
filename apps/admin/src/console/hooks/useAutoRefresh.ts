@@ -29,7 +29,6 @@ export function useAutoRefresh<T>(fetcher: () => Promise<T>, intervalMs = 5000) 
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intervalMs]);
 
   return { data, loading, error, lastSyncedAt, reload: load };

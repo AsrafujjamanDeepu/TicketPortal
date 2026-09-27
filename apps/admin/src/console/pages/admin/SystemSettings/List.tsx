@@ -47,7 +47,6 @@ export default function SystemSettingList() {
     };
     window.addEventListener(SYSTEM_SETTING_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(SYSTEM_SETTING_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {

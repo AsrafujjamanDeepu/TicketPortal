@@ -58,7 +58,6 @@ export default function ExternalBookingMappingList() {
     };
     window.addEventListener(EXTERNAL_BOOKING_MAPPING_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(EXTERNAL_BOOKING_MAPPING_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {

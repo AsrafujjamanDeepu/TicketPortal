@@ -96,7 +96,6 @@ export const CouponEdit: React.FC = () => {
     };
     window.addEventListener(COUPON_UPDATED_EVENT, handleExternalUpdate);
     return () => window.removeEventListener(COUPON_UPDATED_EVENT, handleExternalUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const validate = (): boolean => {

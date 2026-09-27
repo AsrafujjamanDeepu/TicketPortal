@@ -20,6 +20,5 @@
       "@ticketportal-mono/models": ["../../../../libs/shared/models/src/index.ts"]
     }
   },
-  "include": ["./**/*.ts", "./**/*.tsx", "../lib/apiClient.ts"],
-  "exclude": ["pages/admin/Trips/**", "pages/admin/IntegrationWebhookLogs/**"]
+  "include": ["./**/*.ts", "./**/*.tsx", "../lib/apiClient.ts"]
 }

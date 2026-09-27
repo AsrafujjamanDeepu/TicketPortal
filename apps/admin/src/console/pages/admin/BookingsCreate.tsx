@@ -79,10 +79,10 @@ export const BookingsCreate: React.FC = () => {
   useEffect(() => {
     return () => {
       if (hold && hold.status === 'Active') {
+        // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
         releaseSeatHold(hold.id).catch(() => {});
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hold?.id]);
 
   const trip = trips.find((t) => t.id === tripId);
@@ -133,6 +133,7 @@ export const BookingsCreate: React.FC = () => {
     if (!hold) return;
     try {
       await releaseSeatHold(hold.id);
+      // eslint-disable-next-line no-empty -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
     } catch {}
     setHold(null);
     setPassengers([]);

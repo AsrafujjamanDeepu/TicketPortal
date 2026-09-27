@@ -49,7 +49,6 @@ export default function CouponUsageList() {
     };
     window.addEventListener(COUPON_USAGE_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(COUPON_USAGE_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stats = useMemo(() => {

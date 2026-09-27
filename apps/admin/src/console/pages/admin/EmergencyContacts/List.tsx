@@ -47,7 +47,6 @@ export default function EmergencyContactList() {
     };
     window.addEventListener(EMERGENCY_CONTACT_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(EMERGENCY_CONTACT_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {

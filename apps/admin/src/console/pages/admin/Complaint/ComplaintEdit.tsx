@@ -78,7 +78,6 @@ export const ComplaintEdit: React.FC = () => {
     };
     window.addEventListener(COMPLAINT_UPDATED_EVENT, handleExternalUpdate);
     return () => window.removeEventListener(COMPLAINT_UPDATED_EVENT, handleExternalUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const validate = (): boolean => {

@@ -60,7 +60,6 @@ export const OperatorSettlementItemList: React.FC = () => {
     };
     window.addEventListener(OPERATOR_SETTLEMENT_ITEM_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(OPERATOR_SETTLEMENT_ITEM_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [operatorSettlementId]);
 
   const itemTypes = useMemo(() => Array.from(new Set(items.map((i) => i.itemType))).sort(), [items]);

@@ -35,6 +35,7 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
 }
 
 export function subscribeToPaymentHistories(callback: () => void): () => void {
+  // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   if (typeof window === 'undefined') return () => {};
   const bcHandler = (e: MessageEvent) => {
     if (e.data?.type === 'PAYMENT_HISTORIES_CHANGED') callback();

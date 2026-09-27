@@ -20,6 +20,7 @@ export const PaymentsCreate: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
     getAllPaymentProvidersLite().then(setProviders).catch(() => {});
   }, []);
 

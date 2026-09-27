@@ -48,7 +48,6 @@ export default function CommissionRuleEdit() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const set = <K extends keyof CommissionRuleUpdateDto>(key: K, value: CommissionRuleUpdateDto[K]) =>

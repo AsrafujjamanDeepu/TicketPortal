@@ -268,7 +268,6 @@ import StaffSalaryDetails from "@/pages/admin/StaffSalaries/Details";
 import StaffSalaryCreate from "@/pages/admin/StaffSalaries/Create";
 import StaffSalaryEdit from "@/pages/admin/StaffSalaries/Edit";
 
-import TripsDetailsNew from "@/pages/admin/Trips/TripsDetails";
 
 
 {/* Add these imports near the other page imports in AppRoutes.tsx: */}
@@ -745,11 +744,8 @@ export default function AppRoutes() {
           <Route path='resource/StaffSalaries/:id' element={<StaffSalaryDetails />} />
           <Route path='staff-salaries/:id' element={<StaffSalaryDetails />} />
 
-          <Route path='resource/Trips' element={<TripsList />} />
           <Route path='resource/Trips/create' element={<TripsCreate />} />
           <Route path='resource/Trips/:id/edit' element={<TripsEdit />} />
-          <Route path='resource/Trips/:id' element={<TripsDetails />} />
-                    
 
 
           {/* Driver Licenses (operator-scoped — api/DriverLicenses. Customers get an empty list;

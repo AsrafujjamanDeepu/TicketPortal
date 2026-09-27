@@ -44,7 +44,6 @@ export default function OperatorPayoutDetails() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   function openAction(type: "process" | "complete" | "fail" | "cancel") {

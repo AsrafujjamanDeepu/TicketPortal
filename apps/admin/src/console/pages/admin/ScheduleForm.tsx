@@ -13,7 +13,7 @@ import {
   OperatorRouteOption,
 } from "@/types/schedule.types";
 
-export interface ScheduleFormValues extends ScheduleCreateDto {}
+export type ScheduleFormValues = ScheduleCreateDto;
 
 interface Props {
   initialValues: ScheduleFormValues;
@@ -46,7 +46,6 @@ export default function ScheduleForm({
 
   useEffect(() => {
     setValues(initialValues);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialValues.busOperatorId, initialValues.scheduleCode]);
 
   useEffect(() => {

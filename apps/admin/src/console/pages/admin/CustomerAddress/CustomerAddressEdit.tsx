@@ -84,7 +84,6 @@ export const CustomerAddressEdit: React.FC = () => {
     };
     window.addEventListener(CUSTOMER_ADDRESS_UPDATED_EVENT, handleExternalUpdate);
     return () => window.removeEventListener(CUSTOMER_ADDRESS_UPDATED_EVENT, handleExternalUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const validate = (): boolean => {

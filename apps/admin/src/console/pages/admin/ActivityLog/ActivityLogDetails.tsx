@@ -43,7 +43,6 @@ export const ActivityLogDetails: React.FC = () => {
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const copyToClipboard = async (text: string, label: string) => {

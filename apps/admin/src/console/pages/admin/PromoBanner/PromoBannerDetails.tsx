@@ -51,7 +51,6 @@ export const PromoBannerDetails: React.FC = () => {
     const handleUpdate = () => load();
     window.addEventListener(PROMO_BANNER_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(PROMO_BANNER_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {

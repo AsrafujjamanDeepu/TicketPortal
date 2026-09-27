@@ -48,7 +48,6 @@ export const CouponDetails: React.FC = () => {
     const handleUpdate = () => load();
     window.addEventListener(COUPON_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(COUPON_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {

@@ -59,7 +59,6 @@ export default function ReviewList() {
     };
     window.addEventListener(REVIEW_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(REVIEW_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stats = useMemo(() => {

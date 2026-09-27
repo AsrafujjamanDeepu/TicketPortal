@@ -78,7 +78,6 @@ export const DriverLicenseEdit: React.FC = () => {
     };
     window.addEventListener(DRIVER_LICENSE_UPDATED_EVENT, handleExternalUpdate);
     return () => window.removeEventListener(DRIVER_LICENSE_UPDATED_EVENT, handleExternalUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const validate = (): boolean => {

@@ -69,7 +69,6 @@ export const ComplaintDetails: React.FC = () => {
     const handleUpdate = () => load();
     window.addEventListener(COMPLAINT_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(COMPLAINT_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {

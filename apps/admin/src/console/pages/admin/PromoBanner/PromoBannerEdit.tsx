@@ -75,7 +75,6 @@ export const PromoBannerEdit: React.FC = () => {
     };
     window.addEventListener(PROMO_BANNER_UPDATED_EVENT, handleExternalUpdate);
     return () => window.removeEventListener(PROMO_BANNER_UPDATED_EVENT, handleExternalUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const validate = (): boolean => {

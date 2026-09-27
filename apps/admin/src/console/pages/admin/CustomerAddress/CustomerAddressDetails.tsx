@@ -54,7 +54,6 @@ export const CustomerAddressDetails: React.FC = () => {
     const handleUpdate = () => load();
     window.addEventListener(CUSTOMER_ADDRESS_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(CUSTOMER_ADDRESS_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {

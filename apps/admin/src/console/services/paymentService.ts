@@ -79,13 +79,16 @@ export function notifyPaymentsChanged(): void {
   if (typeof window === 'undefined') return;
   try {
     window.dispatchEvent(new CustomEvent('payments_updated'));
+  // eslint-disable-next-line no-empty -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   } catch {}
   try {
     paymentsBroadcast?.postMessage({ type: 'PAYMENTS_CHANGED', ts: Date.now() });
+  // eslint-disable-next-line no-empty -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   } catch {}
 }
 
 export function subscribeToPayments(callback: () => void): () => void {
+  // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   if (typeof window === 'undefined') return () => {};
   const handler = () => callback();
   window.addEventListener('payments_updated', handler);
@@ -113,7 +116,7 @@ export function extractErrorMessage(err: unknown): string {
   return apiErr?.message || (err as any)?.message || 'Something went wrong. Please try again.';
 }
 
-export function formatMoney(amount: number, currency: string = 'BDT'): string {
+export function formatMoney(amount: number, currency = 'BDT'): string {
   const symbol = currency === 'BDT' ? '৳' : currency ? `${currency} ` : '';
   return `${symbol}${Number(amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }

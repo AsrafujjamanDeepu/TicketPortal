@@ -57,6 +57,7 @@ export function useCancellationRequests() {
       setError(null);
     }, 4000);
 
+    // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
     const unsubscribe = subscribeToCancellationRequests(() => {});
 
     return () => {

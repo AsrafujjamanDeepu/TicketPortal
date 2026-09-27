@@ -184,13 +184,16 @@ export function notifySeatHoldsChanged(): void {
   if (typeof window === 'undefined') return;
   try {
     window.dispatchEvent(new CustomEvent('seatholds_updated'));
+  // eslint-disable-next-line no-empty -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   } catch {}
   try {
     seatHoldsBroadcast?.postMessage({ type: 'SEATHOLDS_CHANGED', ts: Date.now() });
+  // eslint-disable-next-line no-empty -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   } catch {}
 }
 
 export function subscribeToSeatHolds(callback: () => void): () => void {
+  // eslint-disable-next-line @typescript-eslint/no-empty-function -- intentional best-effort no-op; failure here is not user-visible and should not surface as an error
   if (typeof window === 'undefined') return () => {};
   const handler = () => callback();
   window.addEventListener('seatholds_updated', handler);

@@ -45,7 +45,6 @@ export const OperatorSettlementItemDetails: React.FC = () => {
     const handleUpdate = () => load();
     window.addEventListener(OPERATOR_SETTLEMENT_ITEM_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(OPERATOR_SETTLEMENT_ITEM_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (loading) {

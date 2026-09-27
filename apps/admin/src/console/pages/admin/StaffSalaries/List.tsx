@@ -53,7 +53,6 @@ export default function StaffSalaryList() {
     };
     window.addEventListener(STAFF_SALARY_UPDATED_EVENT, onUpdate);
     return () => window.removeEventListener(STAFF_SALARY_UPDATED_EVENT, onUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stats = useMemo(() => {

@@ -57,7 +57,6 @@ export const DriverLicenseDetails: React.FC = () => {
     const handleUpdate = () => load();
     window.addEventListener(DRIVER_LICENSE_UPDATED_EVENT, handleUpdate);
     return () => window.removeEventListener(DRIVER_LICENSE_UPDATED_EVENT, handleUpdate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
