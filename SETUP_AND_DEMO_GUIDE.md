@@ -117,6 +117,10 @@ back to the same seat map by itself.
 4. Log in as `delwar.supervisor.sho` → Counter Desk → Setup and Staff HR are unreachable
    (redirected to Not Authorized) — Supervisor has neither `Counter.Configure` nor `Staff.Read`.
 5. Let a seat hold expire (5 min) and confirm the seats free up again.
+6. Live updates (two browsers): admin console -> Bookings in one window, book a seat as
+   `rahim.uddin` in the other; the admin list updates on its own and the top-bar badge shows
+   *Live*. Stop the API to see *Reconnecting* -> *Offline*, restart it to see it recover. The full
+   scenario list, including the `Realtime__Enabled=false` kill switch, is in `docs/REALTIME.md`.
 
 ## Deploying
 - Serve `apps/admin` build output with rewrites `/admin/*` → `/console/index.html` and everything

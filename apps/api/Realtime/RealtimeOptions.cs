@@ -18,9 +18,15 @@ namespace TicketPortal.Api.Realtime
         // client could join every trip in the system.
         public int MaxTripsPerConnection { get; set; } = 20;
 
-        // Largest message a client may send to the hub. The client only ever sends tiny
-        // JoinTrip/LeaveTrip calls, so the framework default (32 KB) is already generous;
-        // it is spelled out here so Chunk 7 has one obvious place to tighten it.
-        public int MaxReceiveMessageSizeBytes { get; set; } = 32 * 1024;
+        // Largest message a client may send to the hub (SignalR closes the connection when a
+        // bigger one arrives). The client only ever sends JoinTrip/LeaveTrip with one GUID,
+        // well under 200 bytes, so Chunk 7 tightens the framework default (32 KB) to 4 KB.
+        public int MaxReceiveMessageSizeBytes { get; set; } = 4 * 1024;
+
+        // Chunk 7 abuse limit: how many hub calls ONE connection may make per second (sliding
+        // window, enforced by RealtimeRateLimitFilter). A seat map makes one call per trip it
+        // opens and a reconnect re-joins at most MaxTripsPerConnection trips, so this leaves
+        // plenty of headroom for real use and none for a flood.
+        public int MaxInvocationsPerSecond { get; set; } = 60;
     }
 }

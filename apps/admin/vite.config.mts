@@ -49,6 +49,13 @@ export default defineConfig(() => ({
     // "@/..." is the management console's own import alias (see src/console/tsconfig.json).
     alias: { '@': path.resolve(import.meta.dirname, 'src/console') },
   },
+  // Unit tests (REALTIME_SIGNALR_PLAN.md, Chunk 7): `npx nx run admin:test`. Node by default; the
+  // React hook tests opt into jsdom with a `// @vitest-environment jsdom` docblock.
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.{ts,tsx}'],
+    globals: false,
+  },
   // Uncomment this if you are using workers.
   // worker: {
   //   plugins: () => [ nxViteTsPaths() ],

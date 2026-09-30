@@ -264,6 +264,12 @@ npx nx run api.tests:test
 
 The xUnit suite exercises the real API over HTTP (`WebApplicationFactory`) against a fresh LocalDB database, covering seat-hold concurrency and expiry, trip-state gating, ticket check-in, finance-ledger and settlement formulas, and RBAC allow/deny cases.
 
+Admin console client tests (real-time connection logic, with a mocked connection):
+
+```bash
+npx vitest run --root apps/admin
+```
+
 Frontend checks and a full build:
 
 ```bash
@@ -287,6 +293,7 @@ See [`docs/FINAL_TEST_MATRIX.md`](docs/FINAL_TEST_MATRIX.md) for what is covered
 | [`docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md`](docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md) | API contract for operators with their own ERP |
 | [`docs/ADMIN_DASHBOARD_DATA_MAP.md`](docs/ADMIN_DASHBOARD_DATA_MAP.md) | Where every dashboard number comes from |
 | [`docs/FINAL_DEMO_SCRIPT.md`](docs/FINAL_DEMO_SCRIPT.md) | Step-by-step demo walkthrough |
+| [`docs/REALTIME.md`](docs/REALTIME.md) | Live updates over SignalR: design, settings, security, scale-out, two-browser tests |
 
 ---
 

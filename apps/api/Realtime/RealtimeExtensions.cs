@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using TicketPortal.Api.Hubs;
@@ -21,6 +22,9 @@ namespace TicketPortal.Api.Realtime
             services.AddSignalR(hub =>
             {
                 hub.MaximumReceiveMessageSize = options.MaxReceiveMessageSizeBytes;
+
+                // Chunk 7: per-connection cap on hub calls per second.
+                hub.AddFilter<RealtimeRateLimitFilter>();
             });
 
             // Chunk 2 — automatic change capture. Singletons: none of them holds per-request

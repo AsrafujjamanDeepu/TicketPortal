@@ -49,6 +49,22 @@ history of what was known and when.
   fail-open/fail-closed behavior itself does not exist yet** and would be a good follow-up
   (see `docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md` for the contract to test against).
 
+## Real-time updates (SignalR) - see `docs/REALTIME.md`
+
+- **Polling replaced by push (Chunks 4-6).** The Angular apps and the React admin console now
+  refresh from SignalR pushes instead of timers; the timers remain only as a fallback (the original
+  interval while push is unavailable or unconfirmed, a 60 s safety net once push is confirmed).
+- **Bulk-SQL changes are announced (Chunk 3), but only the ones that exist today.** A *new*
+  `ExecuteUpdateAsync` path that does not call `IRealtimeNotifier.EntityChangedAsync` is invisible
+  to push; register its table in `BULK_SQL_BLIND_SPOTS` (`lib/realtime.ts`) so the React screens
+  that show it keep polling.
+- **Single API instance assumed.** With more than one instance a Redis backplane is required
+  (documented in `docs/REALTIME.md`, not built).
+- **No automated test for socket expiry** (login issues fixed 3-hour tokens); a manual procedure
+  is in `docs/REALTIME.md`. No browser-level (Playwright) tests exist, and the Angular app has no
+  unit-test runner, so its `RealtimeService` is verified through the documented two-browser
+  scenarios only.
+
 ## Carried over from earlier chunks (still true, not re-verified this pass)
 
 - Refer to prior chunks' own documentation/gap registers (`docs/ADMIN_DASHBOARD_DATA_MAP.md`,

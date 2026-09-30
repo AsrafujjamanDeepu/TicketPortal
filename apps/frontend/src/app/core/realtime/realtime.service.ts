@@ -37,6 +37,22 @@ const DEFAULT_DEBOUNCE_MS = 300;
 const SEAT_AVAILABILITY = 'SeatAvailability';
 
 /**
+ * The HTTP status behind a failed connection attempt, or undefined.
+ *
+ * The SignalR client does NOT put the status on `error.statusCode` when /negotiate fails: it wraps the
+ * failure in a FailedToNegotiateWithServerError whose message contains "Status code '404'". Read both, so
+ * the 404 (kill switch) and 401 (rejected token) cases below really do stop the retry loop.
+ */
+export function httpStatusOf(error: unknown): number | undefined {
+  const direct = (error as { statusCode?: unknown } | null | undefined)?.statusCode;
+  if (typeof direct === 'number') return direct;
+
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  const match = /Status code '(\d{3})'/.exec(message);
+  return match ? Number(match[1]) : undefined;
+}
+
+/**
  * The one SignalR connection for the whole Angular app.
  *
  * Design (REALTIME_SIGNALR_PLAN.md §0): the server pushes a *signal* ("Bookings row X changed"), never
@@ -294,7 +310,7 @@ export class RealtimeService {
     this._state.set('offline');
     this.needsResync = true;
 
-    const status = (error as { statusCode?: number } | null)?.statusCode;
+    const status = httpStatusOf(error);
     // 404: the server's Realtime:Enabled=false kill switch (the hub isn't mapped). 401: the token was rejected.
     // Retrying either with identical inputs would only spam the API; a login/logout starts a fresh attempt.
     if (status === 404 || status === 401) return;
