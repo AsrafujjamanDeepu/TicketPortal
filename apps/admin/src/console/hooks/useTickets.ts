@@ -1,14 +1,14 @@
 // src/hooks/useTickets.ts
 //
 // Reusable list hook for Tickets: fetch, client-side search + status filter +
-// pagination, and "realtime" via polling (no websocket in this backend, so
-// polling is the honest way to describe it — swap POLL_INTERVAL_MS or replace
-// the interval with a SignalR/WebSocket push if one gets added later).
+// pagination, and "realtime" via SignalR push (startLiveRefresh in lib/realtime.ts).
+// POLL_INTERVAL_MS is now only the fallback cadence used while the hub is offline.
 //
 // Drop this hook into ANY page/dropdown that needs the ticket list —
 // TicketsList.tsx, a booking's "tickets in this booking" panel, a dashboard
 // widget, etc. — it always returns the same shape.
 
+import { startLiveRefresh } from '../lib/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ticketService from '../services/ticketService';
 import type { TicketResponseDto, TicketStatus } from '../types/ticket.types';
@@ -49,8 +49,7 @@ export function useTickets(options: UseTicketsOptions = {}) {
     setLoading(true);
     load();
     if (!live) return;
-    const id = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['Tickets'], load, POLL_INTERVAL_MS);
   }, [load, live]);
 
   // Reset to page 1 whenever the filters change.
@@ -134,8 +133,7 @@ export function useTicket(id: string | undefined, { live = true }: { live?: bool
     setLoading(true);
     load();
     if (!live || !id) return;
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['Tickets'], load, POLL_INTERVAL_MS);
   }, [load, live, id]);
 
   return { ticket, loading, error, notFound, forbidden, refresh: load };

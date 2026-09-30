@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import { api, ApiError } from '@/lib/api';
 import type {
   CancellationRequestResponseDto,
@@ -225,10 +226,10 @@ export function startCancellationRequestsPolling(
   }
 
   tick();
-  const handle = window.setInterval(tick, intervalMs);
+  const stopLive = startLiveRefresh(['CancellationRequests'], tick, intervalMs);
   return () => {
     cancelled = true;
-    window.clearInterval(handle);
+    stopLive();
   };
 }
 

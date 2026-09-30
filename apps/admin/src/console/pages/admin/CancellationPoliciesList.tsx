@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { startLiveRefresh } from '@/lib/realtime';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   getAllCancellationPolicies,
@@ -34,7 +35,6 @@ export const CancellationPoliciesList: React.FC = () => {
   const [deleteCandidate, setDeleteCandidate] = useState<CancellationPolicyResponseDto | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const pollRef = useRef<number | null>(null);
   const operators = getStoredBusOperators();
 
   const loadData = async (silent = false) => {
@@ -54,12 +54,12 @@ export const CancellationPoliciesList: React.FC = () => {
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToCancellationPolicies(() => loadData(true));
-    pollRef.current = window.setInterval(() => loadData(true), POLL_INTERVAL_MS);
+    const stopLive = startLiveRefresh(['CancellationPolicies', 'CancellationPolicyRules'], () => loadData(true), POLL_INTERVAL_MS);
     const onFocus = () => loadData(true);
     window.addEventListener('focus', onFocus);
     return () => {
       unsubscribe();
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      stopLive();
       window.removeEventListener('focus', onFocus);
     };
   }, []);

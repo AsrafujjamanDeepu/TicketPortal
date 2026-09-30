@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getLoginHistoryById, LoginHistoryResponseDto, summarizeUserAgent, actorDisplayName } from '@/services/loginHistoryService';
@@ -39,8 +40,7 @@ export const LoginHistoryDetails: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['LoginHistories'], load, POLL_INTERVAL_MS);
   }, [id]);
 
   if (loading) {

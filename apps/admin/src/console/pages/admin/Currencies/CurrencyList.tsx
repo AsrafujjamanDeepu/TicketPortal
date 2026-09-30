@@ -14,7 +14,8 @@ export default function CurrencyList() {
   const navigate = useNavigate();
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<Currency[]>(
     currencyService.getAll,
-    5000
+    5000,
+    ["Currencies"]
   );
 
   const [search, setSearch] = useState("");

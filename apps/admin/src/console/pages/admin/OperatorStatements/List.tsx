@@ -27,7 +27,8 @@ function statusBadge(status: string) {
 export default function OperatorStatementList() {
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<OperatorStatement[]>(
     () => operatorStatementService.getAll(),
-    5000
+    5000,
+    ["OperatorStatements", "OperatorStatementItems"]
   );
 
   const [search, setSearch] = useState("");

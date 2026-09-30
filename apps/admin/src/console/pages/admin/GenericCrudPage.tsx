@@ -8,6 +8,7 @@ import DataTable from "@/components/ui/DataTable"
 import FormModal from "@/components/ui/FormModal"
 import ConfirmDialog from "@/components/ui/ConfirmDialog"
 import WorkflowActionModal from "@/components/ui/WorkflowActionModal"
+import { useRealtime } from "@/hooks/useRealtime"
 
 // আপনার কাস্টম পেজটি ইমপোর্ট করুন
 import BusOperatorsPage from "./BusOperatorsPage" 
@@ -35,9 +36,11 @@ export default function GenericCrudPage() {
   const [uploadTarget, setUploadTarget] = useState<any | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const load = useCallback(async () => {
+  // `silent` = a background refresh (realtime push): keep showing the current rows instead of
+  // flashing the loading skeleton.
+  const load = useCallback(async (silent = false) => {
     if (!config) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const res = await api.get(config.base)
@@ -50,6 +53,20 @@ export default function GenericCrudPage() {
   }, [config])
 
   useEffect(() => { load() }, [load])
+
+  // Realtime (plan Chunk 6): every resource key equals its EF table name (Bookings, Tickets, ...),
+  // which is the entity name the server pushes, so this one subscription covers all generic pages.
+  // Skipped while a form/dialog is open so a background reload never re-renders under the user's
+  // typing; the list is refreshed from the change that arrived once they close it (see below).
+  const busy = formOpen || !!workflowTarget || !!uploadTarget || !!deleting
+  const [staleWhileBusy, setStaleWhileBusy] = useState(false)
+  useRealtime(resourceKey ? [resourceKey] : [], () => {
+    if (busy) setStaleWhileBusy(true)
+    else load(true)
+  }, { enabled: !!config })
+  useEffect(() => {
+    if (!busy && staleWhileBusy) { setStaleWhileBusy(false); load(true) }
+  }, [busy, staleWhileBusy, load])
 
   if (!config) return <div className="card p-6">Unknown resource.</div>
 
@@ -145,7 +162,7 @@ export default function GenericCrudPage() {
           rows={rows}
           loading={loading}
           error={error}
-          onRetry={load}
+          onRetry={() => load()}
           onEdit={canWrite ? openEdit : undefined}
           onDelete={canWrite ? (row) => setDeleting(row) : undefined}
           extraActions={[

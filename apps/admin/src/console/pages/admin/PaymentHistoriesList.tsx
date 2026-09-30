@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { startLiveRefresh } from '@/lib/realtime';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   getAllPaymentHistories,
@@ -30,7 +31,6 @@ export const PaymentHistoriesList: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const pollRef = useRef<number | null>(null);
 
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -49,12 +49,12 @@ export const PaymentHistoriesList: React.FC = () => {
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToPaymentHistories(() => loadData(true));
-    pollRef.current = window.setInterval(() => loadData(true), POLL_INTERVAL_MS);
+    const stopLive = startLiveRefresh(['PaymentHistories'], () => loadData(true), POLL_INTERVAL_MS);
     const onFocus = () => loadData(true);
     window.addEventListener('focus', onFocus);
     return () => {
       unsubscribe();
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      stopLive();
       window.removeEventListener('focus', onFocus);
     };
   }, []);

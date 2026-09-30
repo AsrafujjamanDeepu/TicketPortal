@@ -4,6 +4,7 @@
 // filter, group-by-status, sort, pagination, realtime polling, plus a small
 // stats summary for the dashboard-style cards at the top of the list page.
 
+import { startLiveRefresh } from '../lib/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import refundService from '../services/refundService';
 import type { RefundResponseDto, RefundStatus } from '../types/refund.types';
@@ -49,8 +50,7 @@ export function useRefunds(options: UseRefundsOptions = {}) {
     setLoading(true);
     load();
     if (!live) return;
-    const id = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['Refunds'], load, POLL_INTERVAL_MS);
   }, [load, live]);
 
   useEffect(() => {
@@ -173,8 +173,7 @@ export function useRefund(id: string | undefined, { live = true }: { live?: bool
     setLoading(true);
     load();
     if (!live || !id) return;
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['Refunds'], load, POLL_INTERVAL_MS);
   }, [load, live, id]);
 
   return { refund, loading, error, notFound, forbidden, refresh: load };

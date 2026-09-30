@@ -1,8 +1,9 @@
 // useCancellationRequest.ts
-// Shared single-item hook: live polling (4s) for one CancellationRequest by
+// Shared single-item hook: live updates (SignalR push, 4s polling fallback) for one CancellationRequest by
 // id, plus the Approve/Reject/Complete actions with toast feedback. Used by
 // CancellationRequestsDetails.tsx (and reusable from CancellationRequestsList
 // row actions if needed).
+import { startLiveRefresh } from '../lib/realtime';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
@@ -45,10 +46,10 @@ export function useCancellationRequest(id: string | undefined) {
     }
 
     load();
-    const handle = window.setInterval(load, 4000);
+    const stopLive = startLiveRefresh(['CancellationRequests', 'Refunds'], load, 4000);
     return () => {
       cancelled = true;
-      window.clearInterval(handle);
+      stopLive();
     };
   }, [id]);
 

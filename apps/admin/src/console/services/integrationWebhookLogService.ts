@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import { api } from '@/lib/api';
 
 // Real backend contract (IntegrationWebhookLogsController):
@@ -75,9 +76,8 @@ export async function getWebhookLogById(id: string): Promise<IntegrationWebhookL
 }
 
 /**
- * Polling loop for "realtime" — this backend has no push/webhook-of-its-own for its own
- * webhook log (no websocket endpoint exists here), so periodic re-fetch is the honest way to
- * keep the list current as new inbound events land. Returns an unsubscribe function.
+ * Live feed: reloads on SignalR push (IntegrationWebhookLogs) as new inbound events land;
+ * POLL_INTERVAL_MS is only the fallback while the hub is offline. Returns an unsubscribe function.
  */
 export function subscribeToWebhookLogPolling(onData: (list: IntegrationWebhookLogResponseDto[]) => void): () => void {
   let cancelled = false;
@@ -89,9 +89,9 @@ export function subscribeToWebhookLogPolling(onData: (list: IntegrationWebhookLo
       // transient poll errors are silently retried on the next tick
     }
   };
-  const interval = setInterval(tick, POLL_INTERVAL_MS);
+  const stopLive = startLiveRefresh(['IntegrationWebhookLogs'], tick, POLL_INTERVAL_MS);
   return () => {
     cancelled = true;
-    clearInterval(interval);
+    stopLive();
   };
 }

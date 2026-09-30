@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import { api } from '@/lib/api';
 
 // Real backend contract (ActivityLogsController):
@@ -41,9 +42,8 @@ export async function getActivityLogById(id: string): Promise<ActivityLogRespons
 }
 
 /**
- * Polling loop for "realtime" — no push/websocket endpoint exists for this feed, so periodic
- * re-fetch is the honest way to keep the list current as new entries land (once something
- * actually writes to this table). Returns an unsubscribe function.
+ * Live feed: reloads on SignalR push (ActivityLogs) as new entries land; POLL_INTERVAL_MS is
+ * only the fallback while the hub is offline. Returns an unsubscribe function.
  */
 export function subscribeToActivityLogPolling(onData: (list: ActivityLogResponseDto[]) => void): () => void {
   let cancelled = false;
@@ -55,9 +55,9 @@ export function subscribeToActivityLogPolling(onData: (list: ActivityLogResponse
       // transient poll errors are silently retried on the next tick
     }
   };
-  const interval = setInterval(tick, POLL_INTERVAL_MS);
+  const stopLive = startLiveRefresh(['ActivityLogs'], tick, POLL_INTERVAL_MS);
   return () => {
     cancelled = true;
-    clearInterval(interval);
+    stopLive();
   };
 }

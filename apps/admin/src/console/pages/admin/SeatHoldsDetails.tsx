@@ -1,6 +1,7 @@
 // SeatHoldsDetails.tsx
 // Live-updating detail view: polls the hold every 5s and ticks its own
 // 1s countdown from holdExpiresAtUtc. Offers Release while the hold is Active.
+import { startLiveRefresh } from '@/lib/realtime';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -44,11 +45,11 @@ export default function SeatHoldsDetails() {
     }
 
     load();
-    const pollHandle = window.setInterval(load, 5000);
+    const stopLive = startLiveRefresh(['SeatHolds', 'SeatHoldItems'], load, 5000);
     const tickHandle = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
       cancelled = true;
-      window.clearInterval(pollHandle);
+      stopLive();
       window.clearInterval(tickHandle);
     };
   }, [id]);

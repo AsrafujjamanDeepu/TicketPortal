@@ -29,7 +29,8 @@ export default function OperatorPayoutList() {
   const navigate = useNavigate();
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<OperatorPayout[]>(
     () => operatorPayoutService.getAll(),
-    5000
+    5000,
+    ["OperatorPayouts"]
   );
 
   const [search, setSearch] = useState("");

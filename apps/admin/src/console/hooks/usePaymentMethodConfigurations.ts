@@ -7,10 +7,10 @@
 //   - usePaymentProviders(): the dropdown source for Create/Edit's provider
 //     picker — polls much slower since providers change rarely.
 //
-// "Realtime" = polling (no websocket/SignalR endpoint exists on this backend
-// today). If one gets added later, swap the setInterval loop below for a
-// subscription without touching any consumer of these hooks.
+// "Realtime" = SignalR push via startLiveRefresh (lib/realtime.ts); the interval
+// below is only the fallback used while the hub is offline (plus a 60 s safety net).
 
+import { startLiveRefresh } from '../lib/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import paymentMethodConfigurationService, {
   getPaymentProviders,
@@ -65,8 +65,7 @@ export function usePaymentMethodConfigurations(options: UseListOptions = {}) {
     setLoading(true);
     load();
     if (!live) return;
-    const id = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['PaymentMethodConfigurations'], load, POLL_INTERVAL_MS);
   }, [load, live]);
 
   useEffect(() => {
@@ -176,8 +175,7 @@ export function usePaymentMethodConfiguration(
     setLoading(true);
     load();
     if (!live || !id) return;
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['PaymentMethodConfigurations'], load, POLL_INTERVAL_MS);
   }, [load, live, id]);
 
   return { item, loading, error, notFound, forbidden, refresh: load };
@@ -197,8 +195,7 @@ export function usePaymentProviders({ live = true }: { live?: boolean } = {}) {
   useEffect(() => {
     load();
     if (!live) return;
-    const id = setInterval(load, PROVIDERS_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['PaymentProviders'], load, PROVIDERS_POLL_INTERVAL_MS);
   }, [load, live]);
 
   return { providers, loading, refresh: load };

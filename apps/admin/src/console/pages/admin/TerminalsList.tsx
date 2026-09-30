@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { startLiveRefresh } from '@/lib/realtime';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   getAllTerminals,
@@ -36,7 +37,6 @@ export const TerminalsList: React.FC = () => {
   const [deleteCandidate, setDeleteCandidate] = useState<TerminalResponseDto | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const pollRef = useRef<number | null>(null);
 
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -55,12 +55,12 @@ export const TerminalsList: React.FC = () => {
   useEffect(() => {
     loadData();
     const unsubscribe = subscribeToTerminals(() => loadData(true));
-    pollRef.current = window.setInterval(() => loadData(true), POLL_INTERVAL_MS);
+    const stopLive = startLiveRefresh(['Terminals'], () => loadData(true), POLL_INTERVAL_MS);
     const onFocus = () => loadData(true);
     window.addEventListener('focus', onFocus);
     return () => {
       unsubscribe();
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      stopLive();
       window.removeEventListener('focus', onFocus);
     };
   }, []);

@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import { api } from '@/lib/api';
 
 // Real backend contract (LoginHistoriesController):
@@ -50,9 +51,9 @@ export async function getLoginHistoryById(id: string): Promise<LoginHistoryRespo
 }
 
 /**
- * Polling loop for "realtime" — no push/websocket endpoint exists for this feed, so periodic
- * re-fetch is the honest way to reflect a new login (e.g. someone logging in from another
- * device right now) without a manual refresh. Returns an unsubscribe function.
+ * Live feed: reloads on SignalR push (LoginHistories) so a new login (e.g. from another
+ * device) shows up at once; POLL_INTERVAL_MS is only the fallback while the hub is offline.
+ * Returns an unsubscribe function.
  */
 export function subscribeToLoginHistoryPolling(onData: (list: LoginHistoryResponseDto[]) => void): () => void {
   let cancelled = false;
@@ -64,10 +65,10 @@ export function subscribeToLoginHistoryPolling(onData: (list: LoginHistoryRespon
       // transient poll errors are silently retried on the next tick
     }
   };
-  const interval = setInterval(tick, POLL_INTERVAL_MS);
+  const stopLive = startLiveRefresh(['LoginHistories'], tick, POLL_INTERVAL_MS);
   return () => {
     cancelled = true;
-    clearInterval(interval);
+    stopLive();
   };
 }
 

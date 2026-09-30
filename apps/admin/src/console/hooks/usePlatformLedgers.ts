@@ -6,6 +6,7 @@
 // debit / total credit / net (credit - debit) / distinct operators, since
 // this is a double-entry ledger rather than a status trail.
 
+import { startLiveRefresh } from '../lib/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import platformLedgerService from '../services/platformLedgerService';
 import { SaleChannel, StatementItemType, type PlatformLedgerResponseDto } from '../types/platformLedger.types';
@@ -54,8 +55,7 @@ export function usePlatformLedgers(options: UsePlatformLedgersOptions = {}) {
     setLoading(true);
     load();
     if (!live) return;
-    const id = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['PlatformLedgers'], load, POLL_INTERVAL_MS);
   }, [load, live]);
 
   useEffect(() => {
@@ -182,8 +182,7 @@ export function usePlatformLedger(id: string | undefined, { live = true }: { liv
     setLoading(true);
     load();
     if (!live || !id) return;
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['PlatformLedgers'], load, POLL_INTERVAL_MS);
   }, [load, live, id]);
 
   return { item, loading, error, notFound, forbidden, refresh: load };

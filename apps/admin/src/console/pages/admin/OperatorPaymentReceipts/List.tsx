@@ -16,7 +16,8 @@ function money(n: number) {
 export default function OperatorPaymentReceiptList() {
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<OperatorPaymentReceipt[]>(
     () => operatorPaymentReceiptService.getAll(),
-    5000
+    5000,
+    ["OperatorPaymentReceipts"]
   );
 
   const [search, setSearch] = useState("");

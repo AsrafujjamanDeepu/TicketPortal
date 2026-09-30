@@ -4,6 +4,7 @@
 // filter, group-by-status, sort, pagination, realtime polling, plus stats
 // cards (total events / succeeded / needs-attention / distinct refunds).
 
+import { startLiveRefresh } from '../lib/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import refundHistoryService from '../services/refundHistoryService';
 import { RefundStatus, type RefundHistoryResponseDto } from '../types/refundHistory.types';
@@ -47,8 +48,7 @@ export function useRefundHistories(options: UseRefundHistoriesOptions = {}) {
     setLoading(true);
     load();
     if (!live) return;
-    const id = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['RefundHistories'], load, POLL_INTERVAL_MS);
   }, [load, live]);
 
   useEffect(() => {
@@ -168,8 +168,7 @@ export function useRefundHistory(id: string | undefined, { live = true }: { live
     setLoading(true);
     load();
     if (!live || !id) return;
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['RefundHistories'], load, POLL_INTERVAL_MS);
   }, [load, live, id]);
 
   return { item, loading, error, notFound, forbidden, refresh: load };

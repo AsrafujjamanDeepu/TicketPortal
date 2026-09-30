@@ -27,7 +27,8 @@ function statusBadge(status: string) {
 export default function OperatorInvoiceList() {
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<OperatorInvoice[]>(
     () => operatorInvoiceService.getAll(),
-    5000
+    5000,
+    ["OperatorInvoices"]
   );
 
   const [search, setSearch] = useState("");

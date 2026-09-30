@@ -1,6 +1,7 @@
 // SeatHoldItemsDetails.tsx
 // Read-only detail view (no edit/delete — see SeatHoldItemsController). Polls
 // the parent item every 5s so an expiring/released hold reflects near-instantly.
+import { startLiveRefresh } from '@/lib/realtime';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -41,10 +42,10 @@ export default function SeatHoldItemsDetails() {
     }
 
     load();
-    const handle = window.setInterval(load, 5000);
+    const stopLive = startLiveRefresh(['SeatHoldItems', 'SeatHolds'], load, 5000);
     return () => {
       cancelled = true;
-      window.clearInterval(handle);
+      stopLive();
     };
   }, [id]);
 

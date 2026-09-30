@@ -1,10 +1,10 @@
 // src/hooks/useOffers.ts
 //
 // Same family shape as usePlatformLedgers/useRefunds: one hook usable from
-// ANY page/dropdown. "Realtime" = polling (no websocket endpoint exists on
-// this backend today) — swap the interval loop for a subscription later
-// without touching any consumer of these hooks.
+// ANY page/dropdown. "Realtime" = SignalR push via startLiveRefresh (lib/realtime.ts),
+// with the old interval kept only as a fallback while the hub is offline.
 
+import { startLiveRefresh } from '../lib/realtime';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import offerService, { getBusOperators } from '../services/offerService';
 import {
@@ -55,8 +55,7 @@ export function useOffers(options: UseOffersOptions = {}) {
     setLoading(true);
     load();
     if (!live) return;
-    const id = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['Offers'], load, POLL_INTERVAL_MS);
   }, [load, live]);
 
   useEffect(() => {
@@ -171,8 +170,7 @@ export function useOffer(id: string | undefined, { live = true }: { live?: boole
     setLoading(true);
     load();
     if (!live || !id) return;
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['Offers'], load, POLL_INTERVAL_MS);
   }, [load, live, id]);
 
   return { offer, loading, error, notFound, forbidden, refresh: load };
@@ -192,8 +190,7 @@ export function useBusOperatorsForOffers({ live = true }: { live?: boolean } = {
   useEffect(() => {
     load();
     if (!live) return;
-    const id = setInterval(load, OPERATORS_POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return startLiveRefresh(['BusOperators'], load, OPERATORS_POLL_INTERVAL_MS);
   }, [load, live]);
 
   return { operators, loading, refresh: load };

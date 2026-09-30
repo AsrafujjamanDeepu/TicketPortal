@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Menu, LogOut, Bell, Search } from "lucide-react"
 import { useAuth } from "@/lib/auth"
+import ConnectionBadge from "./ConnectionBadge"
 
 export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const { user, logout } = useAuth()
@@ -15,6 +16,7 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => voi
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <ConnectionBadge />
         <button className="btn-ghost !px-2"><Bell className="h-5 w-5" /></button>
         <div className="relative">
           <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100" onClick={() => setMenuOpen((o) => !o)}>

@@ -22,7 +22,8 @@ function money(n: number) {
 export default function OperatorWalletList() {
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<OperatorWallet[]>(
     operatorWalletService.getAll,
-    5000
+    5000,
+    ["OperatorWallets"]
   );
 
   const [search, setSearch] = useState("");

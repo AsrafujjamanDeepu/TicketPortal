@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRealtime } from "@/hooks/useRealtime"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
   CartesianGrid, Legend, BarChart,
@@ -71,10 +72,19 @@ export default function Dashboard() {
     return () => { cancelled = true }
   }, [])
 
-  const load = useCallback((filters: { from: string; to: string; operatorId: string }) => {
+  // Only the newest request may write state, so a slow background refresh can never overwrite a
+  // newer result (e.g. after the filters changed).
+  const requestSeq = useRef(0)
+
+  // `silent` = a realtime refresh: keep showing the current numbers (no skeleton flash) and, if
+  // the refresh fails, keep them rather than replacing the dashboard with an error.
+  const load = useCallback((filters: { from: string; to: string; operatorId: string }, silent = false) => {
     let cancelled = false
-    setLoading(true)
-    setError(null)
+    const seq = ++requestSeq.current
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     api.get("/api/admin/dashboard/summary", {
       params: {
         from: filters.from || undefined,
@@ -83,20 +93,33 @@ export default function Dashboard() {
       },
     })
       .then((res) => {
-        if (cancelled) return
+        if (cancelled || seq !== requestSeq.current) return
         setSummary(res.data)
+        setError(null)
         setLastLoadedAt(new Date())
       })
       .catch((err: any) => {
-        if (cancelled) return
+        if (cancelled || seq !== requestSeq.current || silent) return
         setSummary(null)
         setError(err?.message || "Something went wrong loading the dashboard. Please try again.")
       })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .finally(() => { if (!cancelled && seq === requestSeq.current && !silent) setLoading(false) })
     return () => { cancelled = true }
   }, [])
 
   useEffect(() => load(appliedFilters), [appliedFilters, load])
+
+  // Realtime (plan Chunk 6): the KPIs are SQL aggregates over these tables, so any change to one
+  // of them re-runs the summary. A longer debounce than lists - it is a heavier query and a
+  // burst of writes (one booking touches several tables) should cost a single refresh.
+  useRealtime(
+    // Exactly the tables AdminDashboardController's summary query reads.
+    ["Bookings", "Tickets", "PaymentHistories", "Refunds", "PlatformLedgers", "BusOperators",
+     "OperatorSettlements", "OperatorPayouts", "CancellationRequests", "Complaints",
+     "SeatHolds", "IntegrationSyncLogs"],
+    () => { load(appliedFilters, true) },
+    { debounceMs: 1000 },
+  )
 
   function applyFilters() {
     if (toInput < fromInput) {

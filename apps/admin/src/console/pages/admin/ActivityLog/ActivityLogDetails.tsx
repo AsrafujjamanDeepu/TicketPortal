@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -41,8 +42,7 @@ export const ActivityLogDetails: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+    return startLiveRefresh(['ActivityLogs'], load, POLL_INTERVAL_MS);
   }, [id]);
 
   const copyToClipboard = async (text: string, label: string) => {

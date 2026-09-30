@@ -1,3 +1,4 @@
+import { startLiveRefresh } from '@/lib/realtime';
 import { api, ApiError } from '@/lib/api';
 import type {
   SeatHoldResponseDto,
@@ -234,10 +235,10 @@ export function startSeatHoldsPolling(
   }
 
   tick();
-  const handle = window.setInterval(tick, intervalMs);
+  const stopLive = startLiveRefresh(['SeatHolds', 'SeatHoldItems'], tick, intervalMs);
   return () => {
     cancelled = true;
-    window.clearInterval(handle);
+    stopLive();
   };
 }
 

@@ -14,7 +14,8 @@ export default function TaxRuleList() {
   const navigate = useNavigate();
   const { data, loading, error, lastSyncedAt, reload } = useAutoRefresh<TaxRule[]>(
     taxRuleService.getAll,
-    5000
+    5000,
+    ["TaxRules"]
   );
 
   const [search, setSearch] = useState("");

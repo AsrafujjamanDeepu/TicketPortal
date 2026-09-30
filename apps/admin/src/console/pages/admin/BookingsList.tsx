@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { startLiveRefresh } from '@/lib/realtime';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   getAllBookings,
@@ -34,7 +35,6 @@ export const BookingsList: React.FC = () => {
   const [deleteCandidate, setDeleteCandidate] = useState<BookingResponseDto | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const pollRef = useRef<number | null>(null);
 
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -57,13 +57,13 @@ export const BookingsList: React.FC = () => {
     // tab / the public booking frontend (same backend, so a simple poll catches it).
     const unsubscribe = subscribeToBookings(() => loadData(true));
 
-    pollRef.current = window.setInterval(() => loadData(true), POLL_INTERVAL_MS);
+    const stopLive = startLiveRefresh(['Bookings'], () => loadData(true), POLL_INTERVAL_MS);
     const onFocus = () => loadData(true);
     window.addEventListener('focus', onFocus);
 
     return () => {
       unsubscribe();
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      stopLive();
       window.removeEventListener('focus', onFocus);
     };
   }, []);
