@@ -25,8 +25,8 @@ namespace TicketPortal.Api.Services
     {
         public Guid TripId { get; init; }
         public int ReleasedHoldCount { get; init; }
-        public int BookingsRefunded { get; init; }
-        public int BookingsNeedingAttention { get; init; }
+        public int BookingsRefunded { get; set; }
+        public int BookingsNeedingAttention { get; set; }
         public List<TripCancelledBookingOutcome> Bookings { get; init; } = new();
     }
 

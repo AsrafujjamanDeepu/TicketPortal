@@ -48,7 +48,7 @@ namespace TicketPortal.Api.Models.Scheduling
         public Seat Seat { get; set; } = default!;
         public Booking? Booking { get; set; }
         public SeatHold? CurrentSeatHold { get; set; }
-        public Ticket? Ticket { get; set; }
+        public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();
         public ICollection<SeatHoldItem> HoldItems { get; set; } = new List<SeatHoldItem>();
         public ICollection<ExternalSeatMapping> ExternalSeatMappings { get; set; } = new List<ExternalSeatMapping>();
     }

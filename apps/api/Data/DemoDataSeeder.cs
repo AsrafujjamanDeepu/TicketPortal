@@ -1123,8 +1123,18 @@ namespace TicketPortal.Api.Data
             var couponService = new CouponRedemptionService(db);
             var walletService = new CustomerWalletService(db);
             var refundService = new RefundProcessingService(db, financeLedgerService, walletService);
-            var cancellationService = new CancellationProcessingService(db, seatHoldService);
-            var paymentService = new PaymentConfirmationService(db, seatHoldService, financeLedgerService, new ConfigurationBuilder().Build());
+            // Chunk 8: CancellationProcessingService now notifies API-connected operators of
+            // cancellations via ExternalBookingSyncService. Built by hand here like the other
+            // services; a short timeout keeps the seeder from hanging if a demo operator's
+            // (fake) API URL is ever called.
+            var externalSyncService = new ExternalBookingSyncService(
+                db,
+                new HttpClient { Timeout = TimeSpan.FromSeconds(2) },
+                new ConfigurationBuilder().Build(),
+                seatHoldService,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<ExternalBookingSyncService>.Instance);
+
+            var cancellationService = new CancellationProcessingService(db, seatHoldService, externalSyncService); var paymentService = new PaymentConfirmationService(db, seatHoldService, financeLedgerService, new ConfigurationBuilder().Build());
 
             await walletService.CreditAsync(ctx.Customers["rahim.uddin"].Id, 500m, CustomerWalletTransactionType.TopUp, description: "Wallet top-up via bKash.");
             await walletService.CreditAsync(ctx.Customers["mitu.rahman"].Id, 200m, CustomerWalletTransactionType.AdminAdjustment, description: "Goodwill credit for a delayed trip.");

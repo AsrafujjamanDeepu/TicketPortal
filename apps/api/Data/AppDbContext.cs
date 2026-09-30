@@ -296,8 +296,8 @@ namespace TicketPortal.Api.Data
             // A Ticket always belongs to exactly one TripSeat, and vice versa (one-to-one).
             modelBuilder.Entity<Ticket>()
                 .HasOne(ticket => ticket.TripSeat)
-                .WithOne(seat => seat.Ticket)
-                .HasForeignKey<Ticket>(ticket => ticket.TripSeatId);
+                .WithMany(seat => seat.Tickets)
+                .HasForeignKey(ticket => ticket.TripSeatId);
 
             // -- Payments & providers. --
             modelBuilder.Entity<Payment>()
@@ -455,9 +455,9 @@ namespace TicketPortal.Api.Data
             modelBuilder.Entity<Booking>().HasIndex(b => new { b.BusOperatorId, b.SaleChannel }); // Fast "this operator's online vs counter sales" reporting.
             modelBuilder.Entity<Booking>().HasIndex(b => b.ExpiresAtUtc);
             modelBuilder.Entity<Ticket>().HasIndex(t => t.TicketNumber).IsUnique();
-            modelBuilder.Entity<Ticket>().HasIndex(t => t.TripSeatId).IsUnique(); // Enforces the one-ticket-per-seat rule at the database level too.
+            modelBuilder.Entity<Ticket>().HasIndex(t => t.TripSeatId).HasFilter("[Status] <> 5 AND [Status] <> 6");  // Enforces the one-ticket-per-seat rule at the database level too. Here, 5 = Cancelled, 6 = Refunded
 
-            modelBuilder.Entity<Payment>().HasIndex(p => p.GatewayTransactionId);
+      modelBuilder.Entity<Payment>().HasIndex(p => p.GatewayTransactionId);
             modelBuilder.Entity<Payment>().HasIndex(p => new { p.BookingId, p.Status });
             modelBuilder.Entity<PaymentProvider>().HasIndex(p => p.Code).IsUnique();
             modelBuilder.Entity<PaymentWebhookEvent>().HasIndex(e => e.ProviderEventId);

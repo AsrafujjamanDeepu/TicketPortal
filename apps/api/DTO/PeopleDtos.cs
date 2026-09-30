@@ -517,6 +517,7 @@ namespace TicketPortal.Api.DTO
         // Required — optimistic-concurrency token, echo back what GET returned.
         public byte[] RowVersion { get; set; } = Array.Empty<byte>();
     }
+    public class StaffProfileResponseDto
     {
         public Guid Id { get; set; }
         public Guid UserId { get; set; }

@@ -249,7 +249,8 @@ namespace TicketPortal.Api.Controllers
                 AssignedCounters = assignedCounters,
                 Permissions = actor.Permissions,
             });
-        } It uses ASP.NET Identity's
+        }
+        // Forgot password: It uses ASP.NET Identity's
         // one-time, time-limited reset token rather than storing a recoverable password or
         // inventing a second token scheme. Keep the success response generic to prevent email
         // address enumeration.
