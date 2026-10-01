@@ -82,6 +82,75 @@ namespace TicketPortal.Api.Controllers
         }
 
         // =========================================================
+        // GET: /api/tickets/verify-pnr/{pnr}
+        // Same minimal boarding-information contract as VerifyByTicketNumber, but keyed by the
+        // PNR — the reference a customer actually has (Booking.Pnr), which is NOT the same
+        // thing as Ticket.TicketNumber. Looking a PNR up through verify/{ticketNumber} could
+        // never match, which is why "Verify ticket by PNR" always said "ticket not found".
+        // A booking can hold several tickets (one per seat), so this returns the whole set.
+        // Passenger names/phones, payment details and fares are deliberately NOT returned.
+        // =========================================================
+        [AllowAnonymous]
+        [HttpGet("verify-pnr/{pnr}")]
+        public async Task<IActionResult> VerifyByPnr(string pnr)
+        {
+            var normalizedPnr = pnr?.Trim().ToUpperInvariant() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedPnr))
+            {
+                return NotFound(new { message = "No ticket found for this PNR." });
+            }
+
+            var booking = await db.Bookings
+                .AsNoTracking()
+                .Include(b => b.Trip)
+                    .ThenInclude(trip => trip.BusOperator)
+                .Include(b => b.Trip)
+                    .ThenInclude(trip => trip.DepartureTerminal)
+                .Include(b => b.Trip)
+                    .ThenInclude(trip => trip.ArrivalTerminal)
+                .FirstOrDefaultAsync(b => b.Pnr == normalizedPnr);
+
+            if (booking is null)
+            {
+                return NotFound(new { message = "No ticket found for this PNR." });
+            }
+
+            var tickets = await db.Tickets
+                .AsNoTracking()
+                .Where(t => t.BookingId == booking.Id)
+                .OrderBy(t => t.SeatNumberSnapshot)
+                .ToListAsync();
+
+            // A real PNR whose payment never completed (pending/expired/failed) has no issued
+            // tickets yet — the same "not found" answer as an unknown PNR, so this anonymous
+            // endpoint doesn't reveal which PNRs exist but are unpaid.
+            if (tickets.Count == 0)
+            {
+                return NotFound(new { message = "No ticket found for this PNR." });
+            }
+
+            var trip = booking.Trip;
+
+            return Ok(new
+            {
+                pnr = booking.Pnr,
+                tripCode = trip.TripCode,
+                operatorName = trip.BusOperator?.Name,
+                departureTerminal = trip.DepartureTerminal?.Name,
+                arrivalTerminal = trip.ArrivalTerminal?.Name,
+                departureTimeUtc = trip.DepartureTimeUtc,
+                tickets = tickets.Select(t => new
+                {
+                    ticketNumber = t.TicketNumber,
+                    status = t.Status,
+                    validForBoarding = t.Status is TicketStatus.Issued or TicketStatus.CheckedIn,
+                    checkedIn = t.Status == TicketStatus.CheckedIn,
+                    seatNumber = t.SeatNumberSnapshot
+                })
+            });
+        }
+
+        // =========================================================
         // POST: /api/tickets/{ticketNumber}/check-in
         // Boarding-desk action (Chunk 4 gap #9 — closes the reuse hole documented in
         // TicketPortal_Final_Exam_Completion_Plan_v2.md Appendix A: verification used to say
