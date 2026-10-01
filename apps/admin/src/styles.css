@@ -155,10 +155,9 @@ a {
 .logo svg {
   display: block;
   flex-shrink: 0;
-  /* Matches the frontend logo's icy-blue-tinted glow (see
-     apps/frontend/src/app/shared/ui/logo/tp-logo.component.ts) instead of
-     the old orange one — admin's overall palette is otherwise unchanged. */
-  filter: drop-shadow(0 4px 10px rgba(168, 216, 234, 0.45));
+  /* Same amber glow as the customer app's logo (see
+     apps/frontend/src/app/shared/ui/logo/tp-logo.component.ts). */
+  filter: drop-shadow(0 4px 10px rgba(217, 119, 6, 0.35));
 }
 
 .logo__word {

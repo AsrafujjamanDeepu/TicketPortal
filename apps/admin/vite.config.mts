@@ -36,6 +36,9 @@ export default defineConfig(() => ({
     // and you'll often want both running side by side during development.
     port: 4300,
     host: 'localhost',
+    // Open the admin app in the default browser as soon as the dev server is ready, so
+    // `nx run-many -t serve -p frontend,admin,api` brings up every app on its own.
+    open: true,
   },
   preview: {
     port: 4300,

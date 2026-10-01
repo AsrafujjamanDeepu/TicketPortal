@@ -97,3 +97,123 @@ button {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------------
+   Auth pages (login / register): the dark brand panel beside the form.
+   Lives here, not in each component, so both pages share one look.
+
+   Why the headline used to vanish: the global h1 rule above paints every heading
+   var(--tp-text), a near-black meant for the light canvas. This panel is
+   var(--tp-ink), also near-black, so the h1 rendered dark-on-dark. The h1 here sets
+   its own colour from the --tp-ink-text token. Never inherit heading colour on a
+   dark surface.
+   --------------------------------------------------------------------------- */
+.tp-auth-brand {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--tp-space-7);
+  padding: var(--tp-space-6);
+  overflow: hidden;
+  color: var(--tp-ink-text);
+  /* Warm amber glow from the top-right, terracotta from the bottom-left, over deep olive. */
+  background:
+    radial-gradient(120% 80% at 100% 0%, color-mix(in srgb, var(--tp-yellow) 42%, transparent), transparent 58%),
+    radial-gradient(90% 70% at 0% 100%, color-mix(in srgb, var(--tp-yellow-2) 34%, transparent), transparent 62%),
+    linear-gradient(160deg, var(--tp-ink-soft) 0%, var(--tp-ink) 72%);
+}
+
+/* Fine dot texture that fades out downwards, so the glow reads as light, not a flat fill. */
+.tp-auth-brand__mesh {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1.4px) 0 0 / 22px 22px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 80%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 80%);
+}
+
+/* Perforated tear-line down the panel's inner edge, like a ticket stub. */
+.tp-auth-brand::after {
+  content: '';
+  position: absolute;
+  top: var(--tp-space-5);
+  bottom: var(--tp-space-5);
+  right: 0;
+  z-index: -1;
+  border-right: 2px dashed rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.tp-auth-brand__copy h1 {
+  margin: 0 0 var(--tp-space-4);
+  font-family: var(--tp-font-heading);
+  font-size: clamp(30px, 3.6vw, 40px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--tp-ink-text);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Second line of the headline in a lighter amber to terracotta sweep. Mixing the brand colours
+   with a little white keeps it above 6:1 contrast on the dark panel (the raw brand amber is
+   ~4.9:1) while staying clearly on-brand. */
+.tp-auth-brand__accent {
+  color: color-mix(in srgb, var(--tp-yellow) 80%, white);
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .tp-auth-brand__accent {
+    background: linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--tp-yellow) 80%, white) 0%,
+      color-mix(in srgb, var(--tp-yellow-2) 80%, white) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+}
+
+.tp-auth-brand__copy p {
+  margin: 0;
+  max-width: 340px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--tp-ink-text) 84%, transparent);
+}
+
+.tp-auth-brand__points {
+  display: grid;
+  gap: var(--tp-space-2);
+  margin: var(--tp-space-5) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tp-auth-brand__points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tp-ink-text);
+}
+
+.tp-auth-brand__points li::before {
+  content: '✓';
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--tp-radius-pill);
+  background: var(--tp-gradient-brand);
+  color: var(--tp-text-on-yellow);
+  font-size: 11px;
+  font-weight: 800;
+}

@@ -17,8 +17,13 @@ import { TpLogoComponent } from '../../../shared/ui/logo/tp-logo.component';
           <div class="tp-auth-brand__mesh" aria-hidden="true"></div>
           <tp-logo [size]="40" [wordmark]="true" tone="light" />
           <div class="tp-auth-brand__copy">
-            <h1>Every operator.<br />One ticket.</h1>
+            <h1>Every operator.<br /><span class="tp-auth-brand__accent">One ticket.</span></h1>
             <p>Search live seat availability across every bus operator on the network and book in seconds.</p>
+            <ul class="tp-auth-brand__points">
+              <li>Live seat availability</li>
+              <li>One checkout, every operator</li>
+              <li>Instant QR e-tickets</li>
+            </ul>
           </div>
         </aside>
 
@@ -70,48 +75,6 @@ import { TpLogoComponent } from '../../../shared/ui/logo/tp-logo.component';
         overflow: hidden;
         box-shadow: var(--tp-shadow-elevated);
         border: 1px solid var(--tp-border);
-      }
-
-      .tp-auth-brand {
-        position: relative;
-        background: var(--tp-ink);
-        color: var(--tp-ink-text);
-        padding: var(--tp-space-6);
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        overflow: hidden;
-      }
-
-      .tp-auth-brand__mesh {
-        position: absolute;
-        inset: 0;
-        background: var(--tp-gradient-mesh);
-        opacity: 0.9;
-      }
-
-      .tp-auth-brand tp-logo {
-        position: relative;
-        z-index: 1;
-      }
-
-      .tp-auth-brand__copy {
-        position: relative;
-        z-index: 1;
-      }
-
-      .tp-auth-brand__copy h1 {
-        font-family: var(--tp-font-heading);
-        font-size: 30px;
-        line-height: 1.2;
-        margin: 0 0 var(--tp-space-3);
-      }
-
-      .tp-auth-brand__copy p {
-        margin: 0;
-        font-size: 14px;
-        color: var(--tp-ink-text-muted);
-        max-width: 320px;
       }
 
       .tp-auth-form-panel {

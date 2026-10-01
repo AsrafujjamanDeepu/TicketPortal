@@ -198,6 +198,13 @@ npx nx serve admin
 cd apps/mock-erp && npm install && npm start
 ```
 
+Or start all three with one command. Each app opens in your default browser once it is ready
+(the API opens its Swagger page):
+
+```bash
+npx nx run-many -t serve -p frontend,admin,api --parallel=3
+```
+
 On its first start the API creates the `TicketPortalDB` LocalDB database, applies migrations and **seeds demo data** (operators, buses, trips, terminals, staff, accounts) — no manual database setup needed.
 
 ### 4. Reset the demo database (optional)

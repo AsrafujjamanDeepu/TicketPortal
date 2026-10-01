@@ -33,9 +33,9 @@ let nextLogoId = 0;
       >
         <defs>
           <linearGradient [attr.id]="gradientId" x1="4" y1="2" x2="36" y2="38" gradientUnits="userSpaceOnUse">
-            <stop offset="0" style="stop-color: var(--tp-brand-1, #a8d8ea)" />
-            <stop offset="0.5" style="stop-color: var(--tp-brand-2, #d9c9f0)" />
-            <stop offset="1" style="stop-color: var(--tp-brand-3, #ffd3b4)" />
+            <stop offset="0" style="stop-color: var(--tp-brand-1, #e07a5f)" />
+            <stop offset="0.5" style="stop-color: var(--tp-brand-2, #d97706)" />
+            <stop offset="1" style="stop-color: var(--tp-brand-3, #1e251c)" />
           </linearGradient>
         </defs>
         <rect width="40" height="40" rx="11" [attr.fill]="'url(#' + gradientId + ')'" />
@@ -62,7 +62,7 @@ let nextLogoId = 0;
       .tp-logo svg {
         display: block;
         flex-shrink: 0;
-        filter: drop-shadow(0 6px 14px rgba(168, 216, 234, 0.5));
+        filter: drop-shadow(0 6px 14px rgba(217, 119, 6, 0.35));
       }
 
       .tp-logo__word {

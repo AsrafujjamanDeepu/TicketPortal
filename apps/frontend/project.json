@@ -74,6 +74,9 @@
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",
+      "options": {
+        "open": true
+      },
       "defaultConfiguration": "development",
       "configurations": {
         "production": {
