@@ -2,9 +2,12 @@ import { CommonModule } from '@angular/common';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
-import { Booking, Ticket } from '@ticketportal-mono/models';
+import { Booking } from '@ticketportal-mono/models';
 import { ApiService } from '../../../../core/services/api.service';
 import { TpButtonDirective, TpCardComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../../shared/ui';
+import { downloadTicketPdf } from '../../../../shared/tickets/ticket-pdf';
+import { TicketQrCardComponent } from '../../../../shared/tickets/ticket-qr-card.component';
+import { TicketView } from '../../../../shared/tickets/ticket.types';
 import { CheckoutStateService } from '../../services/checkout-state.service';
 import { TripDisplayContext, TripDisplayService } from '../../services/trip-display.service';
 
@@ -17,7 +20,7 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
 @Component({
   selector: 'tp-checkout-confirmation',
   standalone: true,
-  imports: [CommonModule, TpCardComponent, TpButtonDirective, TpSpinnerComponent, TpStatusPillComponent],
+  imports: [CommonModule, TpCardComponent, TpButtonDirective, TpSpinnerComponent, TpStatusPillComponent, TicketQrCardComponent],
   template: `
     <div class="tp-page tp-confirmation-page">
       @if (loading()) {
@@ -59,9 +62,12 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
                 <span class="tp-ticket-card__seat">Seat {{ t.seatNumberSnapshot }}</span>
                 <tp-status-pill [status]="t.status" />
               </div>
-              <p class="tp-ticket-card__number">{{ t.ticketNumber }}</p>
-              <p class="tp-ticket-card__fare">{{ t.finalFare | number: '1.2-2' }} {{ b.currency }}</p>
-              <div class="tp-ticket-card__qr">{{ t.qrCodePayload }}</div>
+              <tp-ticket-qr-card [ticket]="t" (qrReady)="setQr(t.id, $event)" />
+              <div class="tp-ticket-card__actions">
+                <button tpButton variant="secondary" type="button" (click)="downloadPdf(t)" [disabled]="!qrs()[t.id] || downloadingId() === t.id">
+                  {{ downloadingId() === t.id ? 'Preparing PDF…' : 'Download PDF' }}
+                </button>
+              </div>
             </tp-card>
           }
         </div>
@@ -112,7 +118,7 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
 
       .tp-ticket-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        grid-template-columns: 1fr;
         gap: var(--tp-space-4);
         margin-bottom: var(--tp-space-5);
       }
@@ -129,26 +135,12 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
         font-size: 15px;
       }
 
-      .tp-ticket-card__number {
-        font-family: monospace;
-        font-size: 13px;
-        color: var(--tp-text-muted);
-        margin: 0 0 var(--tp-space-2);
-      }
-
-      .tp-ticket-card__fare {
-        font-weight: 600;
-        margin-bottom: var(--tp-space-3);
-      }
-
-      .tp-ticket-card__qr {
-        font-family: monospace;
-        font-size: 10px;
-        word-break: break-all;
-        background: var(--tp-bg-soft);
-        border-radius: var(--tp-radius-sm);
-        padding: var(--tp-space-2);
-        color: var(--tp-text-muted);
+      .tp-ticket-card__actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: var(--tp-space-3);
+        padding-top: var(--tp-space-3);
+        border-top: 1px dashed var(--tp-border);
       }
 
       .tp-confirmation-page__actions {
@@ -158,7 +150,8 @@ import { TripDisplayContext, TripDisplayService } from '../../services/trip-disp
       }
 
       @media print {
-        .tp-confirmation-page__actions {
+        .tp-confirmation-page__actions,
+        .tp-ticket-card__actions {
           display: none;
         }
       }
@@ -174,7 +167,11 @@ export class ConfirmationComponent implements OnInit {
 
   protected readonly loading = signal(true);
   protected readonly booking = signal<Booking | null>(null);
-  protected readonly tickets = signal<Ticket[]>([]);
+  // GET /tickets returns TicketResponseDto (passenger/trip/bus context included) - that is what TicketView models.
+  protected readonly tickets = signal<TicketView[]>([]);
+  // QR data URL per ticket id, filled in by <tp-ticket-qr-card> (qrReady) and reused for the PDF download.
+  protected readonly qrs = signal<Record<string, string | null>>({});
+  protected readonly downloadingId = signal<string | null>(null);
   protected readonly context = signal<TripDisplayContext | null>(null);
 
   ngOnInit(): void {
@@ -186,7 +183,7 @@ export class ConfirmationComponent implements OnInit {
 
     forkJoin({
       booking: this.api.get<Booking>(`bookings/${bookingId}`),
-      tickets: this.api.get<Ticket[]>('tickets'),
+      tickets: this.api.get<TicketView[]>('tickets'),
     }).subscribe({
       next: ({ booking, tickets }) => {
         this.booking.set(booking);
@@ -204,6 +201,21 @@ export class ConfirmationComponent implements OnInit {
 
   print(): void {
     window.print();
+  }
+
+  protected setQr(ticketId: string, dataUrl: string | null): void {
+    this.qrs.update((m) => ({ ...m, [ticketId]: dataUrl }));
+  }
+
+  protected async downloadPdf(ticket: TicketView): Promise<void> {
+    const qr = this.qrs()[ticket.id];
+    if (!qr) return;
+    this.downloadingId.set(ticket.id);
+    try {
+      await downloadTicketPdf(ticket, qr);
+    } finally {
+      this.downloadingId.set(null);
+    }
   }
 
   viewInMyBookings(bookingId: string): void {
