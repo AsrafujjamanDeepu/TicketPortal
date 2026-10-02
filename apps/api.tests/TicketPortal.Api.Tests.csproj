@@ -38,6 +38,11 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+    <!--
+      REALTIME_SIGNALR_PLAN Chunk 1: the real SignalR client, used by Integration/RealtimeHubTests.cs
+      to connect to the in-memory test server. Same 10.0.x line as the server it talks to.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
   </ItemGroup>
 
   <ItemGroup>

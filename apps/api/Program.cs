@@ -1,6 +1,7 @@
 using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Identity;
+using TicketPortal.Api.Realtime;
 using TicketPortal.Api.Services;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -128,6 +129,25 @@ builder.Services.AddAuthentication(options =>
     // Failing here returns a plain 401, which both front-ends already turn into "log in again".
     options.Events = new JwtBearerEvents
     {
+        // Real-time (SignalR) — Chunk 1. Browsers cannot attach an Authorization header to a
+        // WebSocket, so SignalR clients send the JWT as ?access_token=... instead. That is
+        // honored ONLY for paths under /hubs: every normal API endpoint keeps requiring the
+        // Authorization header, so a token that leaks into a URL (browser history, a copied
+        // link) can never be used against the REST API. The OnTokenValidated check below
+        // still runs for hub requests exactly as it does for any other request.
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+
+            if (!string.IsNullOrEmpty(accessToken)
+                && context.HttpContext.Request.Path.StartsWithSegments(RealtimeGroups.HubPathPrefix))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        },
+
         OnTokenValidated = async context =>
         {
             var userIdClaim = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -150,6 +170,11 @@ builder.Services.AddAuthentication(options =>
 
 
 builder.Services.AddAuthorization();
+
+// Real-time (SignalR) — see REALTIME_SIGNALR_PLAN.md. Chunk 1 only: the authenticated hub
+// endpoint. Switch the whole feature off with "Realtime": { "Enabled": false } in
+// appsettings (or the Realtime__Enabled environment variable).
+builder.Services.AddRealtime(builder.Configuration);
 
 
 // ============================================================
@@ -534,6 +559,11 @@ app.UseCors(AngularClientPolicy);
 
 app.UseAuthentication();
 
+// Real-time (SignalR): a hub request that carries a token which did NOT validate gets a 401
+// instead of silently becoming an anonymous connection. Needs the user populated by
+// UseAuthentication above, so it must stay right after it.
+app.UseRealtimeAuthGate();
+
 
 // ============================================================
 // 16. Authorization
@@ -547,6 +577,9 @@ app.UseAuthorization();
 // ============================================================
 
 app.MapControllers();
+
+// Real-time (SignalR) hub at /hubs/realtime. Not mapped at all when Realtime:Enabled is false.
+app.MapRealtimeHub();
 
 
 // ============================================================
