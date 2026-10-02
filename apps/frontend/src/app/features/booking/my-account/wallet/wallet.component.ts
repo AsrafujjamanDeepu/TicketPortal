@@ -1,6 +1,8 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { CustomerProfile, CustomerWalletTransaction } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { TpCardComponent, TpSpinnerComponent, TpTableColumn, TpTableComponent } from '../../../../shared/ui';
 import { AccountNavComponent } from '../account-nav/account-nav.component';
@@ -61,6 +63,8 @@ interface TransactionRow extends Record<string, unknown> {
 })
 export class WalletComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly balance = signal(0);
@@ -75,6 +79,12 @@ export class WalletComponent implements OnInit {
   ];
 
   ngOnInit(): void {
+    this.load();
+    // Refunds and top-ups land as wallet transactions and move the profile's balance.
+    liveRefresh(this.destroyRef, this.realtime, ['CustomerWalletTransactions', 'CustomerProfiles'], () => this.load());
+  }
+
+  private load(): void {
     this.api.get<CustomerProfile[]>('customerprofiles').subscribe({
       next: (profiles) => this.balance.set(profiles[0]?.walletBalance ?? 0),
     });

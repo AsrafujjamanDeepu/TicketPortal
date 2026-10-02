@@ -1,7 +1,9 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiError } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { parseUtc } from '../../../../core/utils/utc';
 import { TpCardComponent, TpEmptyStateComponent, TpSpinnerComponent, TpStatusPillComponent, TpTabsComponent } from '../../../../shared/ui';
@@ -63,6 +65,8 @@ import { TicketView, ticketRoute } from '../../../../shared/tickets/ticket.types
 })
 export class MyTicketsComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly error = signal('');
@@ -87,6 +91,11 @@ export class MyTicketsComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    this.load();
+    liveRefresh(this.destroyRef, this.realtime, ['Tickets'], () => this.load(true));
+  }
+
+  private load(silent = false): void {
     // TicketsController.GetAll is already scoped server-side to the caller's own tickets.
     this.api.get<TicketView[]>('tickets').subscribe({
       next: (tickets) => {
@@ -94,6 +103,7 @@ export class MyTicketsComponent implements OnInit {
         this.loading.set(false);
       },
       error: (err: ApiError) => {
+        if (silent) return; // keep showing the list we have
         this.error.set(err.message || 'Could not load your tickets.');
         this.loading.set(false);
       },

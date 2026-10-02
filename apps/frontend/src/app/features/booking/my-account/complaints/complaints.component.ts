@@ -1,7 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiError, Complaint } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../../shared/ui';
 import { AccountNavComponent } from '../account-nav/account-nav.component';
@@ -62,18 +64,26 @@ import { AccountNavComponent } from '../account-nav/account-nav.component';
 })
 export class MyComplaintsComponent implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly error = signal('');
   protected readonly complaints = signal<Complaint[]>([]);
 
   ngOnInit(): void {
+    this.load();
+    liveRefresh(this.destroyRef, this.realtime, ['Complaints'], () => this.load(true));
+  }
+
+  private load(silent = false): void {
     this.api.get<Complaint[]>('complaints').subscribe({
       next: (list) => {
         this.complaints.set([...list].sort((a, b) => b.createdAtUtc.localeCompare(a.createdAtUtc)));
         this.loading.set(false);
       },
       error: (err: ApiError) => {
+        if (silent) return; // keep showing the list we have
         this.error.set(err.message || 'Could not load your complaints.');
         this.loading.set(false);
       },

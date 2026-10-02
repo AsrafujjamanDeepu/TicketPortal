@@ -1,7 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { Booking, BookingStatus } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { TpButtonDirective, TpStatusPillComponent, TpTableColumn, TpTableComponent, TpTabsComponent } from '../../../../shared/ui';
 import { AccountNavComponent } from '../account-nav/account-nav.component';
@@ -50,6 +52,8 @@ interface BookingRow extends Record<string, unknown> {
 export class BookingHistoryComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly columns: TpTableColumn[] = [
     { key: 'pnr', label: 'PNR' },
@@ -74,6 +78,11 @@ export class BookingHistoryComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    this.load();
+    liveRefresh(this.destroyRef, this.realtime, ['Bookings', 'Payments', 'Tickets'], () => this.load());
+  }
+
+  private load(): void {
     this.api.get<Booking[]>('bookings').subscribe((bookings) => this.bookings.set(bookings));
   }
 

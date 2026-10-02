@@ -3,6 +3,7 @@ import { inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { catchError, throwError } from 'rxjs';
 import { AuthService } from '../services/auth.service';
+import { isSilentRequest } from '../realtime/silent-request';
 import { ToastService } from '../services/toast.service';
 import { ApiError } from '@ticketportal-mono/models';
 
@@ -20,6 +21,8 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
   const toast = inject(ToastService);
   const router = inject(Router);
+  // Decided now, while the request is being started — not inside catchError, which runs much later.
+  const silent = isSilentRequest(req);
 
   return next(req).pipe(
     catchError((err: unknown) => {
@@ -41,6 +44,9 @@ export const errorInterceptor: HttpInterceptorFn = (req, next) => {
         authService.logout();
         toast.error('Your session has expired. Please log in again.');
         router.navigate(['/auth/login'], { queryParams: { returnUrl: router.url } });
+      } else if (silent) {
+        // A live (SignalR-triggered) refresh that failed: nobody clicked anything, so don't toast. The screen
+        // keeps what it already shows and the next change signal, or the reconnect resync, tries again.
       } else if (apiError.status === 403) {
         toast.error("You don't have permission to do that.");
       } else if (apiError.status === 0) {

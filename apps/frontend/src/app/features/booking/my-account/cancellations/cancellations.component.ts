@@ -1,7 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { CancellationRequest, Refund } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { TpButtonDirective, TpStatusPillComponent, TpTableColumn, TpTableComponent } from '../../../../shared/ui';
 import { AccountNavComponent } from '../account-nav/account-nav.component';
@@ -73,6 +75,8 @@ interface RefundRow extends Record<string, unknown> {
 export class CancellationsComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly cancellationColumns: TpTableColumn[] = [
     { key: 'requestedDisplay', label: 'Requested' },
@@ -86,6 +90,15 @@ export class CancellationsComponent implements OnInit {
   protected readonly refundRows = signal<RefundRow[]>([]);
 
   ngOnInit(): void {
+    this.loadRequests();
+    this.loadRefunds();
+
+    // A staff member approving or rejecting a request, or a refund being paid, updates this page by itself.
+    liveRefresh(this.destroyRef, this.realtime, ['CancellationRequests'], () => this.loadRequests());
+    liveRefresh(this.destroyRef, this.realtime, ['Refunds'], () => this.loadRefunds());
+  }
+
+  private loadRequests(): void {
     this.api.get<CancellationRequest[]>('cancellationrequests').subscribe((requests) => {
       this.cancellationRows.set(
         requests
@@ -100,7 +113,9 @@ export class CancellationsComponent implements OnInit {
           })),
       );
     });
+  }
 
+  private loadRefunds(): void {
     this.api.get<Refund[]>('refunds').subscribe((refunds) => {
       this.refundRows.set(
         refunds

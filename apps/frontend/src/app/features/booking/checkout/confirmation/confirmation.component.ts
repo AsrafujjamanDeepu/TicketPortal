@@ -1,8 +1,10 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { Booking } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { TpButtonDirective, TpCardComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../../shared/ui';
 import { downloadTicketPdf } from '../../../../shared/tickets/ticket-pdf';
@@ -164,6 +166,8 @@ export class ConfirmationComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly tripDisplay = inject(TripDisplayService);
   private readonly checkoutState = inject(CheckoutStateService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly booking = signal<Booking | null>(null);
@@ -181,14 +185,28 @@ export class ConfirmationComponent implements OnInit {
       return;
     }
 
+    this.load(bookingId);
+
+    // A payment can settle a moment after the customer lands here (gateway callback): follow the booking
+    // and its tickets so "Pending" turns into "Confirmed" and the tickets appear without a reload.
+    liveRefresh(this.destroyRef, this.realtime, ['Payments', 'Bookings', 'Tickets'], () => this.load(bookingId, true));
+  }
+
+  private load(bookingId: string, silent = false): void {
     forkJoin({
       booking: this.api.get<Booking>(`bookings/${bookingId}`),
       tickets: this.api.get<TicketView[]>('tickets'),
     }).subscribe({
       next: ({ booking, tickets }) => {
         this.booking.set(booking);
-        this.tickets.set(tickets.filter((t) => t.bookingId === booking.id));
+
+        // Keep the same array when nothing changed: each <tp-ticket-qr-card> redraws its QR whenever its
+        // ticket object changes, so an identical re-fetch must not hand it new objects.
+        const mine = tickets.filter((t) => t.bookingId === booking.id);
+        if (!silent || JSON.stringify(mine) !== JSON.stringify(this.tickets())) this.tickets.set(mine);
         this.loading.set(false);
+        if (silent) return;
+
         // The checkout wizard is done — clear the in-progress state so a stray back-navigation
         // can't re-enter checkout/passengers or checkout/payment with a stale hold.
         this.checkoutState.reset();

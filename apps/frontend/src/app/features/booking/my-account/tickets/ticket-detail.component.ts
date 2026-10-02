@@ -1,6 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiError } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../../shared/ui';
@@ -57,6 +59,8 @@ import { TicketView, ticketRoute } from '../../../../shared/tickets/ticket.types
   `],
 })
 export class TicketDetailComponent implements OnInit {
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
   private readonly route$ = inject(ActivatedRoute);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
@@ -74,13 +78,25 @@ export class TicketDetailComponent implements OnInit {
       this.loading.set(false);
       return;
     }
+    this.load(id);
+
+    // Checked in at the gate, cancelled, refunded … the ticket on screen follows.
+    liveRefresh(this.destroyRef, this.realtime, ['Tickets'], () => this.load(id, true));
+  }
+
+  private load(id: string, silent = false): void {
     // TicketsController.GetById returns 403/404 for a ticket that is not the caller's own.
     this.api.get<TicketView>(`tickets/${id}`).subscribe({
       next: (ticket) => {
+        // Another of the customer's tickets changing re-fetches this one too; skip the re-render (and the
+        // QR card's re-draw) when nothing about this ticket actually differs.
+        const current = this.ticket();
+        if (silent && current && JSON.stringify(current) === JSON.stringify(ticket)) return;
         this.ticket.set(ticket);
         this.loading.set(false);
       },
       error: (err: ApiError) => {
+        if (silent) return; // keep showing the ticket we have
         this.error.set(err.status === 404 || err.status === 403 ? 'This ticket was not found on your account.' : err.message || 'Could not load this ticket.');
         this.loading.set(false);
       },

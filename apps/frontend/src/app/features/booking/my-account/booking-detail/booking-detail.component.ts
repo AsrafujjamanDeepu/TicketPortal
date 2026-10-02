@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -15,6 +15,8 @@ import {
   ReviewUpdateRequest,
   Ticket,
 } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpModalComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../../shared/ui';
@@ -271,6 +273,8 @@ export class BookingDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
   private readonly tripDisplay = inject(TripDisplayService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly booking = signal<Booking | null>(null);
@@ -302,9 +306,21 @@ export class BookingDetailComponent implements OnInit {
       return;
     }
     this.loadAll();
+
+    // Payment confirmed, ticket issued, cancellation approved, refund paid — the page follows along.
+    liveRefresh(
+      this.destroyRef,
+      this.realtime,
+      ['Bookings', 'Payments', 'Tickets', 'CancellationRequests', 'Refunds'],
+      () => this.loadAll(true),
+    );
   }
 
-  private loadAll(): void {
+  /**
+   * `silent` = a live refresh: sections update in place; an open modal, and what has been typed into it, is
+   * left alone; a failed re-fetch keeps the page as it is instead of navigating away.
+   */
+  private loadAll(silent = false): void {
     forkJoin({
       booking: this.api.get<Booking>(`bookings/${this.bookingId}`),
       tickets: this.api.get<Ticket[]>('tickets'),
@@ -322,19 +338,25 @@ export class BookingDetailComponent implements OnInit {
         this.cancellationRequests.set(cancellationRequests.filter((c) => c.bookingId === booking.id));
         this.refunds.set(refunds.filter((r) => r.bookingId === booking.id));
 
-        const existingReview = reviews.find((r) => r.bookingId === booking.id) ?? null;
-        this.myReview.set(existingReview);
-        if (existingReview) {
-          this.reviewRating.set(existingReview.rating);
-          this.reviewComment.set(existingReview.comment ?? '');
+        // While the review modal is open on a live refresh, leave the review (and its rowVersion, which the
+        // save sends) exactly as it was when the modal opened.
+        if (!(silent && this.reviewModalOpen())) {
+          const existingReview = reviews.find((r) => r.bookingId === booking.id) ?? null;
+          this.myReview.set(existingReview);
+          if (existingReview) {
+            this.reviewRating.set(existingReview.rating);
+            this.reviewComment.set(existingReview.comment ?? '');
+          }
         }
 
         this.loading.set(false);
-        this.tripDisplay.loadContext(booking.tripId).subscribe((ctx) => this.context.set(ctx));
+        if (!silent || !this.context()) {
+          this.tripDisplay.loadContext(booking.tripId).subscribe((ctx) => this.context.set(ctx));
+        }
       },
       error: () => {
         this.loading.set(false);
-        this.router.navigate(['/my-bookings']);
+        if (!silent) this.router.navigate(['/my-bookings']);
       },
     });
   }

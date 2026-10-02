@@ -9,3 +9,4 @@ export * from './spinner/tp-spinner.component';
 export * from './empty-state/tp-empty-state.component';
 export * from './tabs/tp-tabs.component';
 export * from './table/tp-table.component';
+export * from './realtime-badge/tp-realtime-badge.component';

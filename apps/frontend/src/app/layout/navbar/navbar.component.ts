@@ -5,6 +5,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { AuthService } from '../../core/services/auth.service';
 import { TpButtonDirective } from '../../shared/ui/button/tp-button.directive';
 import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
+import { TpRealtimeBadgeComponent } from '../../shared/ui/realtime-badge/tp-realtime-badge.component';
 
 /**
  * Shows different nav links depending on the logged-in user's role. Add a
@@ -14,7 +15,7 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
 @Component({
   selector: 'tp-navbar',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, TpButtonDirective, TpLogoComponent, MatMenuModule, MatIconModule],
+  imports: [RouterLink, RouterLinkActive, TpButtonDirective, TpLogoComponent, TpRealtimeBadgeComponent, MatMenuModule, MatIconModule],
   template: `
     <header class="tp-navbar tp-glass">
       <div class="tp-navbar__inner">
@@ -44,6 +45,7 @@ import { TpLogoComponent } from '../../shared/ui/logo/tp-logo.component';
         </nav>
 
         <div class="tp-navbar__actions">
+          <tp-realtime-badge />
           @if (auth.isAuthenticated()) {
             <button type="button" class="tp-navbar__account" [matMenuTriggerFor]="accountMenu">
               <span class="tp-navbar__avatar">{{ initial() }}</span>

@@ -1,7 +1,9 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Trip, TripSearchResult, TripSeat } from '@ticketportal-mono/models';
+import { liveSeats } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ApiService } from '../../../core/services/api.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
@@ -229,6 +231,8 @@ export class TripSeatMapComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
   private readonly searchApi = inject(SearchApiService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly holding = signal(false);
@@ -279,6 +283,13 @@ export class TripSeatMapComponent implements OnInit {
     }
 
     this.loadTrip(tripId, !hasFastState);
+
+    // Joins this trip's group on the server while the page is open (public: anonymous visitors too) and
+    // re-fetches the seat grid when a seat is held, booked or released — no click needed. Not while the
+    // page is loading or this visitor's own hold request is in flight (that path re-fetches on failure).
+    liveSeats(this.destroyRef, this.realtime, tripId, () => this.refreshSeats(tripId), {
+      skipWhile: () => this.loading() || this.holding(),
+    });
   }
 
   isSelected(seat: TripSeat): boolean {
@@ -327,6 +338,28 @@ export class TripSeatMapComponent implements OnInit {
         this.selectedSeatIds.set([]);
         this.loadTrip(trip.id, false);
       },
+    });
+  }
+
+  /** Silent re-fetch of the seat grid. A seat this visitor had ticked that just went away is dropped, with a heads-up. */
+  private refreshSeats(tripId: string): void {
+    this.searchApi.getTrip(tripId).subscribe({
+      next: (fresh) => {
+        const before = this.trip();
+        const lost = this.selectedSeatIds().filter(
+          (id) => fresh.tripSeats.find((seat) => seat.id === id)?.status !== 'Available',
+        );
+
+        this.trip.set(fresh);
+        if (lost.length === 0) return;
+
+        const numbers = lost.map((id) => before?.tripSeats.find((seat) => seat.id === id)?.seatNumber ?? id);
+        this.selectedSeatIds.update((ids) => ids.filter((id) => !lost.includes(id)));
+        this.toast.warning(
+          `Seat ${numbers.join(', ')} ${numbers.length === 1 ? 'was' : 'were'} just taken — please choose another.`,
+        );
+      },
+      error: () => undefined, // keep showing the last grid; the next signal (or reconnect) tries again
     });
   }
 
