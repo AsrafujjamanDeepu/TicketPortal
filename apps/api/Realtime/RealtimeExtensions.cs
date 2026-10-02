@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using TicketPortal.Api.Hubs;
 
@@ -22,7 +23,34 @@ namespace TicketPortal.Api.Realtime
                 hub.MaximumReceiveMessageSize = options.MaxReceiveMessageSizeBytes;
             });
 
+            // Chunk 2 — automatic change capture. Singletons: none of them holds per-request
+            // state (the tracker keeps its per-DbContext buffers in a weak table), which is also
+            // what EF Core expects of an interceptor. Registered even when the kill switch is
+            // off, like SignalR itself, so the service graph is identical either way; whether the
+            // interceptors are actually ATTACHED to AppDbContext is decided by
+            // AddRealtimeInterceptors below.
+            services.AddSingleton<RealtimeConnectionTracker>();
+            services.AddSingleton<RealtimeChangeTracker>();
+            services.AddSingleton<IRealtimeNotifier, RealtimeNotifier>();
+            services.AddSingleton<RealtimeSaveChangesInterceptor>();
+            services.AddSingleton<RealtimeTransactionInterceptor>();
+
             return services;
+        }
+
+        // Chunk 2 — attaches the two change-capture interceptors to a DbContext. Called from the
+        // (serviceProvider, options) overload of AddDbContext in Program.cs. With
+        // Realtime:Enabled=false nothing is attached at all (plan principle 7), so a switched-off
+        // feature costs the data layer exactly nothing.
+        public static DbContextOptionsBuilder AddRealtimeInterceptors(
+            this DbContextOptionsBuilder builder, IServiceProvider services)
+        {
+            if (!services.GetRequiredService<IOptions<RealtimeOptions>>().Value.Enabled)
+                return builder;
+
+            return builder.AddInterceptors(
+                services.GetRequiredService<RealtimeSaveChangesInterceptor>(),
+                services.GetRequiredService<RealtimeTransactionInterceptor>());
         }
 
         // Browsers cannot send an Authorization header on a WebSocket, so SignalR clients put

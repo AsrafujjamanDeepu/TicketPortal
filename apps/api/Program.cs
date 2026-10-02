@@ -24,10 +24,12 @@ var builder = WebApplication.CreateBuilder(args);
 // 1. DbContext
 // ============================================================
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection")
-    ));
+// Real-time Chunk 2: the (serviceProvider, options) overload, so the change-capture interceptors
+// can be attached. AddRealtimeInterceptors attaches nothing when Realtime:Enabled is false.
+builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+    options
+        .UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"))
+        .AddRealtimeInterceptors(serviceProvider));
 
 
 // ============================================================
@@ -171,9 +173,10 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// Real-time (SignalR) — see REALTIME_SIGNALR_PLAN.md. Chunk 1 only: the authenticated hub
-// endpoint. Switch the whole feature off with "Realtime": { "Enabled": false } in
-// appsettings (or the Realtime__Enabled environment variable).
+// Real-time (SignalR) — see REALTIME_SIGNALR_PLAN.md. Chunk 1: the authenticated hub endpoint.
+// Chunk 2: the change-capture services (attached to the DbContext in section 1). Switch the
+// whole feature off with "Realtime": { "Enabled": false } in appsettings (or the
+// Realtime__Enabled environment variable).
 builder.Services.AddRealtime(builder.Configuration);
 
 

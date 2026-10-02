@@ -26,6 +26,7 @@ namespace TicketPortal.Api.Hubs
         ICurrentActorService actors,
         AppDbContext db,
         IOptions<RealtimeOptions> options,
+        RealtimeConnectionTracker connections,
         ILogger<RealtimeHub> logger) : Hub
     {
         private const string StateKey = "realtime.connection-state";
@@ -54,6 +55,25 @@ namespace TicketPortal.Api.Hubs
 
         public override async Task OnConnectedAsync()
         {
+            // Chunk 2: count this connection BEFORE anything else, so the change-capture code
+            // knows somebody may be listening. Removed again in OnDisconnectedAsync — and here
+            // if connecting itself fails, because SignalR does not promise a disconnect callback
+            // for a connection whose OnConnectedAsync threw.
+            connections.Add(Context.ConnectionId);
+
+            try
+            {
+                await ConnectCoreAsync();
+            }
+            catch
+            {
+                connections.Remove(Context.ConnectionId);
+                throw;
+            }
+        }
+
+        private async Task ConnectCoreAsync()
+        {
             var state = State;
 
             try
@@ -79,6 +99,18 @@ namespace TicketPortal.Api.Hubs
             }
 
             await base.OnConnectedAsync();
+        }
+
+        public override async Task OnDisconnectedAsync(Exception? exception)
+        {
+            try
+            {
+                connections.Remove(Context.ConnectionId);
+            }
+            finally
+            {
+                await base.OnDisconnectedAsync(exception);
+            }
         }
 
         // Anonymous visitors get no fixed groups at all; they can only JoinTrip.
