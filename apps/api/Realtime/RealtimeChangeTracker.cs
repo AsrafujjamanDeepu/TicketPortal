@@ -83,6 +83,43 @@ namespace TicketPortal.Api.Realtime
             }
         }
 
+        // Chunk 3 — bulk-SQL changes (ExecuteUpdateAsync) never pass through SavingChanges, so they
+        // are handed in directly, and follow exactly the same commit rule as a save:
+        //   no transaction  -> returned for immediate release (the statement committed by itself)
+        //   in a transaction -> parked with whatever that transaction's saves already parked, so it
+        //                       is released by Committed() or dropped by RolledBack()
+        public IReadOnlyList<CapturedChange> Enqueue(
+            object owner, Guid? currentTransactionId, IReadOnlyList<CapturedChange> changes)
+        {
+            if (changes.Count == 0)
+                return None;
+
+            if (currentTransactionId is not { } transactionId)
+                return changes;
+
+            var buffer = _buffers.GetValue(owner, _ => new ContextBuffer());
+            lock (buffer.Gate)
+            {
+                // Same housekeeping as Capture: anything parked for a transaction that is not the
+                // one running now belongs to one that ended without a commit event.
+                if (buffer.AwaitingCommit is { Count: > 0 })
+                {
+                    foreach (var stale in buffer.AwaitingCommit.Keys.Where(key => key != transactionId).ToList())
+                        buffer.AwaitingCommit.Remove(stale);
+                }
+
+                buffer.AwaitingCommit ??= new Dictionary<Guid, List<CapturedChange>>();
+                if (!buffer.AwaitingCommit.TryGetValue(transactionId, out var parked))
+                {
+                    parked = new List<CapturedChange>();
+                    buffer.AwaitingCommit[transactionId] = parked;
+                }
+
+                parked.AddRange(changes);
+                return None;
+            }
+        }
+
         // SaveChangesFailed / SaveChangesCanceled: nothing was written.
         public void SaveFailed(object owner)
         {

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Hubs;
@@ -18,6 +19,7 @@ namespace TicketPortal.Api.Realtime
         IHostApplicationLifetime lifetime,
         IOptions<RealtimeOptions> options,
         RealtimeConnectionTracker connections,
+        RealtimeChangeTracker tracker,
         ILogger<RealtimeNotifier> logger) : IRealtimeNotifier
     {
         // Off when the kill switch is set, off until the host has fully started, and off while
@@ -25,7 +27,7 @@ namespace TicketPortal.Api.Realtime
         // write thousands of rows before any client can possibly be connected. The third is
         // principle 7 ("no listeners, no work"): without a connected client there is nobody to
         // tell, so not even the scope lookups run.
-        private bool IsLive =>
+        public bool IsLive =>
             options.Value.Enabled
             && connections.HasListeners
             && lifetime.ApplicationStarted.IsCancellationRequested
@@ -76,6 +78,32 @@ namespace TicketPortal.Api.Realtime
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Realtime: could not queue seat-availability signal; continuing.");
+            }
+
+            return Task.CompletedTask;
+        }
+
+        // Chunk 3 — see IRealtimeNotifier.EntityChangedAsync. The commit rule lives in
+        // RealtimeChangeTracker.Enqueue; the actual send is the same Publish path every EF save
+        // uses, so scope resolution, routing and collapsing behave identically.
+        public Task EntityChangedAsync(DbContext owner, IEnumerable<CapturedChange> changes)
+        {
+            try
+            {
+                if (!IsLive)
+                    return Task.CompletedTask;
+
+                var list = changes.ToList();
+                if (list.Count == 0)
+                    return Task.CompletedTask;
+
+                var releasable = tracker.Enqueue(owner, owner.Database.CurrentTransaction?.TransactionId, list);
+                if (releasable.Count > 0)
+                    Publish(releasable);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Realtime: could not announce a bulk change; continuing.");
             }
 
             return Task.CompletedTask;

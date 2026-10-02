@@ -2,6 +2,7 @@ using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Bookings;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Scheduling;
+using TicketPortal.Api.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Services
@@ -39,11 +40,71 @@ namespace TicketPortal.Api.Services
     {
         private readonly AppDbContext _db;
         private readonly IConfiguration _configuration;
+        private readonly IRealtimeNotifier _notifier;
 
-        public SeatHoldService(AppDbContext db, IConfiguration configuration)
+        // The notifier is optional on purpose: DemoDataSeeder builds this class by hand
+        // (`new SeatHoldService(db, configuration)`), and that call site must keep compiling and
+        // simply announce nothing. With DI the registered notifier is injected.
+        public SeatHoldService(AppDbContext db, IConfiguration configuration, IRealtimeNotifier? notifier = null)
         {
             _db = db;
             _configuration = configuration;
+            _notifier = notifier ?? NullRealtimeNotifier.Instance;
+        }
+
+        // Realtime Chunk 3 (REALTIME_SIGNALR_PLAN.md).
+        //
+        // Every seat change in this class is a bulk ExecuteUpdateAsync, which EF Core's change
+        // tracker (and therefore Chunk 2's SaveChanges capture) never sees. So each method reports
+        // what it changed through RealtimeBulkChanges, using AnnounceAsync below. Two things make
+        // that safe and quiet:
+        //   * Every report is made while the method's transaction is still open. The notifier parks
+        //     it until that transaction commits and drops it if it rolls back, so a client never
+        //     re-fetches before the change is visible, and never hears about one that was undone.
+        //   * HoldSeatsAsync, ReleaseHoldAsync and ConvertHoldToBookingAsync also save a tracked
+        //     SeatHold in the same transaction, which Chunk 2 already announces. The parked bulk
+        //     change and those saved rows are released together as ONE batch, and the router sends
+        //     one SeatAvailability per trip per batch — so a seat-map viewer gets a single signal,
+        //     not two. What the bulk report adds there is the TripSeats signal for the admin pages.
+        private async Task AnnounceAsync(IEnumerable<CapturedChange> changes)
+        {
+            try
+            {
+                await _notifier.EntityChangedAsync(_db, changes);
+            }
+            catch (Exception)
+            {
+                // Best-effort by design — a realtime problem must never change a booking outcome.
+            }
+        }
+
+        // The Draft/PendingPayment bookings a bulk UPDATE is about to move (to Expired or
+        // Cancelled) must be read BEFORE it runs: afterwards the status filter no longer matches
+        // them. Skipped entirely (no query) when nobody is listening.
+        private async Task<List<RealtimeBulkChanges.BookingScope>> SnapshotBookingsAsync(IQueryable<Booking> bookings)
+        {
+            if (!_notifier.IsLive)
+            {
+                return new List<RealtimeBulkChanges.BookingScope>();
+            }
+
+            try
+            {
+                var rows = await bookings
+                    .AsNoTracking()
+                    .Select(b => new { b.Id, b.TripId, b.BusOperatorId, b.CustomerProfileId })
+                    .ToListAsync();
+
+                return rows
+                    .Select(b => new RealtimeBulkChanges.BookingScope(b.Id, b.TripId, b.BusOperatorId, b.CustomerProfileId))
+                    .ToList();
+            }
+            catch (Exception)
+            {
+                // Best-effort by design: without the snapshot those booking screens simply catch
+                // up on their next refresh.
+                return new List<RealtimeBulkChanges.BookingScope>();
+            }
         }
 
         // Step 1 of checkout: the customer has picked their seats on the seat map, and we now
@@ -163,6 +224,9 @@ namespace TicketPortal.Api.Services
                     "One or more selected seats were just taken by another customer. Please reselect.");
             }
 
+            // Realtime Chunk 3: the seats just moved Available -> Held with a bulk UPDATE.
+            await AnnounceAsync(RealtimeBulkChanges.Seats(new[] { tripId }));
+
             // Now that the hold has definitely won all the seats, record each one, with a
             // frozen copy of today's price so it can't change under the customer mid-checkout.
             var seatFares = await _db.TripSeats
@@ -203,6 +267,9 @@ namespace TicketPortal.Api.Services
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(ts => ts.Status, TripSeatStatus.Available)
                     .SetProperty(ts => ts.CurrentSeatHoldId, (Guid?)null));
+
+            // Realtime Chunk 3: the seats just went back to Available with a bulk UPDATE.
+            await AnnounceAsync(RealtimeBulkChanges.Seats(new[] { hold.TripId }));
 
             hold.Status = SeatHoldStatus.Released;
             await _db.SaveChangesAsync();
@@ -259,6 +326,9 @@ namespace TicketPortal.Api.Services
                 throw new InvalidOperationException("Held seats are no longer available. Payment must be refunded.");
             }
 
+            // Realtime Chunk 3: the seats just moved Held -> Booked with a bulk UPDATE.
+            await AnnounceAsync(RealtimeBulkChanges.Seats(new[] { hold.TripId }));
+
             hold.Status = SeatHoldStatus.ConvertedToBooking;
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
@@ -283,13 +353,38 @@ namespace TicketPortal.Api.Services
                 return 0;
             }
 
-            return await _db.TripSeats
+            var released = await _db.TripSeats
                 .Where(ts => ts.BookingId == bookingId
                     && tripSeatIds.Contains(ts.Id)
                     && ts.Status == TripSeatStatus.Booked)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(ts => ts.Status, TripSeatStatus.Available)
                     .SetProperty(ts => ts.BookingId, (Guid?)null));
+
+            // Realtime Chunk 3: the seats are back on sale, so tell that trip's seat-map viewers.
+            // Both callers (CancellationProcessingService.ApproveAsync and ExternalBookingSyncService)
+            // run this inside their own transaction; the announcement is parked until it commits
+            // (see AnnounceAsync), so this method needs no knowledge of who owns the transaction.
+            if (released > 0 && _notifier.IsLive)
+            {
+                try
+                {
+                    var tripIds = await _db.TripSeats
+                        .AsNoTracking()
+                        .Where(ts => tripSeatIds.Contains(ts.Id))
+                        .Select(ts => ts.TripId)
+                        .Distinct()
+                        .ToListAsync();
+
+                    await AnnounceAsync(RealtimeBulkChanges.Seats(tripIds));
+                }
+                catch (Exception)
+                {
+                    // Best-effort by design — never fail a cancellation over a realtime lookup.
+                }
+            }
+
+            return released;
         }
 
         // Chunk 5's trip-cancel cascade needs this trip-scoped sibling to
@@ -337,14 +432,27 @@ namespace TicketPortal.Api.Services
                 ? "Trip was cancelled by the operator."
                 : reason;
 
-            await _db.Bookings
+            var stuckBookings = _db.Bookings
                 .Where(b => b.SeatHoldId != null
                     && activeHoldIds.Contains(b.SeatHoldId.Value)
-                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment));
+
+            var cancelledBookings = await SnapshotBookingsAsync(stuckBookings);
+
+            await stuckBookings
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(b => b.Status, BookingStatus.Cancelled)
                     .SetProperty(b => b.CancelledAtUtc, DateTime.UtcNow)
                     .SetProperty(b => b.CancellationReason, cancellationReason));
+
+            // Realtime Chunk 3: the freed seats, the closed holds and the cancelled bookings are
+            // all bulk changes. Announced inside the transaction, so they go out only on commit.
+            if (_notifier.IsLive)
+            {
+                await AnnounceAsync(RealtimeBulkChanges.Seats(new[] { tripId })
+                    .Concat(RealtimeBulkChanges.SeatHolds(tripId, activeHoldIds))
+                    .Concat(RealtimeBulkChanges.Bookings(cancelledBookings)));
+            }
 
             await transaction.CommitAsync();
             return activeHoldIds.Count;
@@ -360,17 +468,21 @@ namespace TicketPortal.Api.Services
         {
             var now = DateTime.UtcNow;
 
-            var expiredHoldIds = await _db.SeatHolds
+            // Realtime Chunk 3: each hold's TripId is read as well as its id, so the trips whose
+            // seats this sweep frees can be announced to their seat-map viewers.
+            var expiredHolds = await _db.SeatHolds
                 .Where(h => h.Status == SeatHoldStatus.Active && h.HoldExpiresAtUtc <= now)
                 .OrderBy(h => h.HoldExpiresAtUtc)
                 .Take(batchSize)
-                .Select(h => h.Id)
+                .Select(h => new { h.Id, h.TripId })
                 .ToListAsync();
 
-            if (expiredHoldIds.Count == 0)
+            if (expiredHolds.Count == 0)
             {
                 return 0;
             }
+
+            var expiredHoldIds = expiredHolds.Select(h => h.Id).ToList();
 
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
@@ -394,12 +506,26 @@ namespace TicketPortal.Api.Services
             // Booking row stuck at Draft/PendingPayment forever, even though its seats and hold
             // are already gone — Confirmed/later bookings are untouched since their hold was
             // already ConvertedToBooking, not Active, so they were never in expiredHoldIds.
-            await _db.Bookings
+            var abandonedBookings = _db.Bookings
                 .Where(b => b.SeatHoldId != null
                     && expiredHoldIds.Contains(b.SeatHoldId.Value)
-                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment));
+
+            var expiredBookings = await SnapshotBookingsAsync(abandonedBookings);
+
+            await abandonedBookings
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(b => b.Status, BookingStatus.Expired));
+
+            // Realtime Chunk 3: announced inside the transaction, so it goes out only on commit.
+            // Seats -> every affected trip's seat map; holds -> the admin Seat Holds page;
+            // bookings -> the customer's booking views and the operator/admin Bookings lists.
+            if (_notifier.IsLive)
+            {
+                await AnnounceAsync(RealtimeBulkChanges.Seats(expiredHolds.Select(h => h.TripId))
+                    .Concat(RealtimeBulkChanges.SeatHolds(expiredHolds.Select(h => (HoldId: h.Id, h.TripId))))
+                    .Concat(RealtimeBulkChanges.Bookings(expiredBookings)));
+            }
 
             await transaction.CommitAsync();
             return expiredHoldIds.Count;

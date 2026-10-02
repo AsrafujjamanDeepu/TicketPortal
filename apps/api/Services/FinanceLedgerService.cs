@@ -1,6 +1,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Finance;
+using TicketPortal.Api.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Services
@@ -20,10 +21,15 @@ namespace TicketPortal.Api.Services
     public class FinanceLedgerService
     {
         private readonly AppDbContext _db;
+        private readonly IRealtimeNotifier _notifier;
 
-        public FinanceLedgerService(AppDbContext db)
+        // The notifier is optional on purpose: FinanceLedgerServiceTests and DemoDataSeeder build
+        // this class by hand (`new FinanceLedgerService(db)`), and those call sites must keep
+        // compiling and simply announce nothing. With DI the registered notifier is injected.
+        public FinanceLedgerService(AppDbContext db, IRealtimeNotifier? notifier = null)
         {
             _db = db;
+            _notifier = notifier ?? NullRealtimeNotifier.Instance;
         }
 
         // Call this once, right after an ONLINE booking's payment is confirmed successful.
@@ -302,6 +308,20 @@ namespace TicketPortal.Api.Services
             {
                 throw new InvalidOperationException(
                     $"No OperatorWallet exists for operator {busOperatorId}. Create one when the operator is onboarded.");
+            }
+
+            // Realtime Chunk 3: that wallet update is a bulk UPDATE EF's change tracker never sees
+            // (the ledger rows saved alongside it are announced by Chunk 2's capture; the wallet
+            // numbers are not). All four public posting methods call this inside their own
+            // transaction, so the announcement is parked until that transaction commits and
+            // dropped if it rolls back — no timing logic needed here.
+            try
+            {
+                await _notifier.EntityChangedAsync(_db, RealtimeBulkChanges.OperatorWallet(busOperatorId));
+            }
+            catch (Exception)
+            {
+                // Best-effort by design — a realtime problem must never fail a ledger posting.
             }
         }
     }

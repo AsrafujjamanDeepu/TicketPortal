@@ -1,6 +1,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
+using TicketPortal.Api.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Services
@@ -15,10 +16,13 @@ namespace TicketPortal.Api.Services
     public class CustomerWalletService
     {
         private readonly AppDbContext _db;
+        private readonly IRealtimeNotifier _notifier;
 
-        public CustomerWalletService(AppDbContext db)
+        // Optional so a hand-built instance (DemoDataSeeder) keeps compiling and announces nothing.
+        public CustomerWalletService(AppDbContext db, IRealtimeNotifier? notifier = null)
         {
             _db = db;
+            _notifier = notifier ?? NullRealtimeNotifier.Instance;
         }
 
         // Add money to a customer's wallet (a top-up, or a refund paid back into the wallet
@@ -109,6 +113,20 @@ namespace TicketPortal.Api.Services
             });
 
             await _db.SaveChangesAsync();
+
+            // Realtime Chunk 3: the balance moved with a bulk UPDATE EF's change tracker never saw
+            // (the CustomerWalletTransaction row above is announced by Chunk 2's capture, the
+            // balance on CustomerProfile is not). Reported inside the transaction: parked until it
+            // commits, dropped if it rolls back.
+            try
+            {
+                await _notifier.EntityChangedAsync(_db, RealtimeBulkChanges.CustomerProfile(customerProfileId));
+            }
+            catch (Exception)
+            {
+                // Best-effort by design — never fail a wallet posting over a realtime problem.
+            }
+
             await transaction.CommitAsync();
         }
     }

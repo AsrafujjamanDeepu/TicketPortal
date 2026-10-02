@@ -1,6 +1,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Finance;
+using TicketPortal.Api.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Services
@@ -32,10 +33,15 @@ namespace TicketPortal.Api.Services
     public class SettlementGenerationService
     {
         private readonly AppDbContext _db;
+        private readonly IRealtimeNotifier _notifier;
 
-        public SettlementGenerationService(AppDbContext db)
+        // The notifier is optional on purpose: SettlementGenerationServiceTests and DemoDataSeeder
+        // build this class by hand (`new SettlementGenerationService(db)`), and those call sites
+        // must keep compiling and simply announce nothing.
+        public SettlementGenerationService(AppDbContext db, IRealtimeNotifier? notifier = null)
         {
             _db = db;
+            _notifier = notifier ?? NullRealtimeNotifier.Instance;
         }
 
         // Given an operator and a date range: pulls every PlatformLedger row for that operator
@@ -231,6 +237,19 @@ namespace TicketPortal.Api.Services
                     .SetProperty(w => w.AvailablePayoutBalance, w => w.AvailablePayoutBalance + payoutDelta)
                     .SetProperty(w => w.LastSettlementDateUtc, w => now)
                     .SetProperty(w => w.LastStatementDateUtc, w => now));
+
+            // Realtime Chunk 3: the wallet update above is a bulk UPDATE EF's change tracker never
+            // sees (the settlement, statement and invoice rows are announced by Chunk 2's
+            // capture). Reported inside the transaction: parked until it commits, dropped if it
+            // rolls back.
+            try
+            {
+                await _notifier.EntityChangedAsync(_db, RealtimeBulkChanges.OperatorWallet(busOperatorId));
+            }
+            catch (Exception)
+            {
+                // Best-effort by design — never fail a settlement over a realtime problem.
+            }
 
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();

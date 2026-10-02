@@ -1,6 +1,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Finance;
+using TicketPortal.Api.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Services
@@ -17,10 +18,29 @@ namespace TicketPortal.Api.Services
     public class PayoutProcessingService
     {
         private readonly AppDbContext _db;
+        private readonly IRealtimeNotifier _notifier;
 
-        public PayoutProcessingService(AppDbContext db)
+        // Optional so a hand-built instance (DemoDataSeeder) keeps compiling and announces nothing.
+        public PayoutProcessingService(AppDbContext db, IRealtimeNotifier? notifier = null)
         {
             _db = db;
+            _notifier = notifier ?? NullRealtimeNotifier.Instance;
+        }
+
+        // Realtime Chunk 3: create / complete / fail / cancel all move OperatorWallet numbers with a
+        // bulk UPDATE that EF's change tracker never sees (the OperatorPayout row itself is
+        // announced by Chunk 2's capture). Called inside each method's transaction, so the
+        // announcement is parked until it commits and dropped if it rolls back.
+        private async Task AnnounceWalletChangedAsync(Guid busOperatorId)
+        {
+            try
+            {
+                await _notifier.EntityChangedAsync(_db, RealtimeBulkChanges.OperatorWallet(busOperatorId));
+            }
+            catch (Exception)
+            {
+                // Best-effort by design — never fail a payout over a realtime problem.
+            }
         }
 
         public async Task<OperatorPayout> CreateAsync(
@@ -48,6 +68,8 @@ namespace TicketPortal.Api.Services
                     ? $"Operator {busOperatorId} does not have {amount} {currency} available to pay out."
                     : $"No OperatorWallet exists for operator {busOperatorId}.");
             }
+
+            await AnnounceWalletChangedAsync(busOperatorId);
 
             var payout = new OperatorPayout
             {
@@ -116,6 +138,8 @@ namespace TicketPortal.Api.Services
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(w => w.WithdrawnAmount, w => w.WithdrawnAmount + payout.Amount));
 
+            await AnnounceWalletChangedAsync(payout.BusOperatorId);
+
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
         }
@@ -147,6 +171,8 @@ namespace TicketPortal.Api.Services
                 .Where(w => w.BusOperatorId == payout.BusOperatorId)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(w => w.AvailablePayoutBalance, w => w.AvailablePayoutBalance + payout.Amount));
+
+            await AnnounceWalletChangedAsync(payout.BusOperatorId);
 
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();

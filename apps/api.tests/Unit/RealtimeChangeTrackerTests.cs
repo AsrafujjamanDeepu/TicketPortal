@@ -172,5 +172,119 @@ namespace TicketPortal.Api.Tests.Unit
 
             Assert.Empty(tracker.Saved(context, null));
         }
+
+        // ---- Chunk 3: bulk-SQL changes handed in with Enqueue follow the same commit rule ----
+
+        [Fact]
+        public void BulkChangeWithoutATransaction_IsReleasedImmediately()
+        {
+            // The ExecuteUpdateAsync statement already committed on its own.
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+
+            var released = tracker.Enqueue(context, null, Changes(2));
+
+            Assert.Equal(2, released.Count);
+        }
+
+        [Fact]
+        public void BulkChangeInsideATransaction_IsHeldUntilCommit()
+        {
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+            var transactionId = Guid.NewGuid();
+
+            Assert.Empty(tracker.Enqueue(context, transactionId, Changes(3)));
+
+            Assert.Equal(3, tracker.Committed(context, transactionId).Count);
+        }
+
+        [Fact]
+        public void BulkChangeInsideATransaction_ThatRollsBack_ReleasesNothing()
+        {
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+            var transactionId = Guid.NewGuid();
+
+            tracker.Enqueue(context, transactionId, Changes(3));
+            tracker.RolledBack(context, transactionId);
+
+            Assert.Empty(tracker.Committed(context, transactionId));
+        }
+
+        [Fact]
+        public void BulkChangeAndSavesInOneTransaction_AreReleasedTogetherOnCommit()
+        {
+            // The normal shape of a service method: a tracked save, then a bulk update, then commit.
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+            var transactionId = Guid.NewGuid();
+
+            tracker.Capture(context, transactionId, Changes(2));
+            tracker.Saved(context, transactionId);
+            tracker.Enqueue(context, transactionId, Changes(3));
+            tracker.Capture(context, transactionId, Changes(1));
+            tracker.Saved(context, transactionId);
+
+            Assert.Equal(6, tracker.Committed(context, transactionId).Count);
+        }
+
+        [Fact]
+        public void BulkChangeFollowedByAFailedSave_IsStillReleasedOnCommit()
+        {
+            // A save that fails inside the transaction discards only ITS OWN pending rows; the bulk
+            // change reported earlier is untouched (whether the transaction then commits is the
+            // caller's decision, and the commit event is what releases it).
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+            var transactionId = Guid.NewGuid();
+
+            tracker.Enqueue(context, transactionId, Changes(2));
+            tracker.Capture(context, transactionId, Changes(5));
+            tracker.SaveFailed(context);
+
+            Assert.Equal(2, tracker.Committed(context, transactionId).Count);
+        }
+
+        [Fact]
+        public void EnqueueingNothing_ReleasesNothing()
+        {
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+            var transactionId = Guid.NewGuid();
+
+            Assert.Empty(tracker.Enqueue(context, null, new List<CapturedChange>()));
+            Assert.Empty(tracker.Enqueue(context, transactionId, new List<CapturedChange>()));
+            Assert.Empty(tracker.Committed(context, transactionId));
+        }
+
+        [Fact]
+        public void BulkChangeInATransactionThatEndedWithoutACommitEvent_IsDroppedByTheNextOne()
+        {
+            var tracker = new RealtimeChangeTracker();
+            var context = new object();
+            var abandoned = Guid.NewGuid();
+            var current = Guid.NewGuid();
+
+            tracker.Enqueue(context, abandoned, Changes(3));
+            tracker.Enqueue(context, current, Changes(1));
+
+            Assert.Empty(tracker.Committed(context, abandoned));
+            Assert.Single(tracker.Committed(context, current));
+        }
+
+        [Fact]
+        public void BulkChangesDoNotShareBuffersBetweenContexts()
+        {
+            var tracker = new RealtimeChangeTracker();
+            var first = new object();
+            var second = new object();
+            var transactionId = Guid.NewGuid();
+
+            tracker.Enqueue(first, transactionId, Changes(2));
+
+            Assert.Empty(tracker.Committed(second, transactionId));
+            Assert.Equal(2, tracker.Committed(first, transactionId).Count);
+        }
     }
 }

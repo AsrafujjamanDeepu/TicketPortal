@@ -14,18 +14,13 @@ namespace TicketPortal.Api.Tests.Unit
     // both must be. No database is opened — only the DbContext OPTIONS are built.
     public class RealtimeInterceptorRegistrationTests
     {
-        private sealed class NullNotifier : IRealtimeNotifier
-        {
-            public void Publish(IReadOnlyList<CapturedChange> changes) { }
-
-            public Task SeatsChangedAsync(IEnumerable<Guid> tripIds) => Task.CompletedTask;
-        }
-
         private static IServiceProvider BuildServices(bool enabled)
         {
             var connections = new RealtimeConnectionTracker();
             var tracker = new RealtimeChangeTracker();
-            var notifier = new NullNotifier();
+            // Chunk 3 added members to IRealtimeNotifier; the shared null object keeps this test
+            // from needing an edit every time the interface grows.
+            var notifier = NullRealtimeNotifier.Instance;
 
             var services = new ServiceCollection();
             services.AddSingleton<IOptions<RealtimeOptions>>(Options.Create(new RealtimeOptions { Enabled = enabled }));
