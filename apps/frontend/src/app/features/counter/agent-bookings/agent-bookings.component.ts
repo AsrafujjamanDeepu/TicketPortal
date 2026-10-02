@@ -1,7 +1,9 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Agent } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpModalComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../shared/ui';
@@ -249,6 +251,8 @@ export class AgentBookingsComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -270,6 +274,9 @@ export class AgentBookingsComponent implements OnInit {
 
   ngOnInit(): void {
     this.refresh();
+
+    // The screen lists the agent roster, so it follows the Agents table.
+    liveRefresh(this.destroyRef, this.realtime, ['Agents'], () => this.refresh(true));
   }
 
   protected openCreate(): void {
@@ -359,8 +366,8 @@ export class AgentBookingsComponent implements OnInit {
     });
   }
 
-  private refresh(): void {
-    this.loading.set(true);
+  private refresh(silent = false): void {
+    if (!silent) this.loading.set(true);
     this.agentsService.list().subscribe({
       next: (agents) => {
         this.agents.set(agents);

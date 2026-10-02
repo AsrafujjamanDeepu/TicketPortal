@@ -1,7 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { Component, ElementRef, ViewChild, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, ViewChild, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiError } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ApiService } from '../../../core/services/api.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpStatusPillComponent } from '../../../shared/ui';
@@ -134,6 +136,8 @@ export class BoardingComponent {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   @ViewChild('ticketInput') private readonly ticketInput?: ElementRef<HTMLInputElement>;
 
@@ -143,6 +147,13 @@ export class BoardingComponent {
   protected readonly checkInMessage = signal('');
   protected readonly ticket = signal<BoardingTicketLookup | null>(null);
   protected readonly form = this.fb.nonNullable.group({ ticketNumber: ['', Validators.required] });
+
+  constructor() {
+    // Another gate may check the ticket on screen in — keep the shown status honest.
+    liveRefresh(this.destroyRef, this.realtime, ['Tickets'], () => this.refreshShownTicket(), {
+      skipWhile: () => this.loading() || this.checkingIn() || !this.ticket(),
+    });
+  }
 
   lookup(): void {
     if (this.form.invalid) return;
@@ -187,6 +198,19 @@ export class BoardingComponent {
         this.checkInMessage.set(err.message || 'Could not check in this ticket.');
         this.checkingIn.set(false);
       },
+    });
+  }
+
+  /** Silent re-lookup of the ticket on screen; the last check-in message stays as it is. */
+  private refreshShownTicket(): void {
+    const shown = this.ticket();
+    if (!shown) return;
+
+    this.api.get<BoardingTicketLookup>(`tickets/verify/${encodeURIComponent(shown.ticketNumber)}`).subscribe({
+      next: (fresh) => {
+        if (this.ticket()?.ticketNumber === fresh.ticketNumber && !this.checkingIn()) this.ticket.set(fresh);
+      },
+      error: () => undefined,
     });
   }
 

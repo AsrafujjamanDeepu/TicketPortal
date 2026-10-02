@@ -1,6 +1,8 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { StaffAttendance, StaffProfile, StaffRole, StaffSalary } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpModalComponent, TpSpinnerComponent, TpStatusPillComponent, TpTabsComponent } from '../../../shared/ui';
@@ -389,6 +391,8 @@ export class StaffHrComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly staffRoles = STAFF_ROLES;
   protected tabIndex = 0;
@@ -401,7 +405,9 @@ export class StaffHrComponent implements OnInit {
   protected readonly salaries = signal<StaffSalary[]>([]);
 
   protected readonly saving = signal(false);
-  protected readonly modal = signal<{ kind: ModalKind; editing: string | null } | null>(null);
+  // rowVersion is captured when an edit modal OPENS, so a live refresh of the lists behind it can neither
+  // swap in a newer version (silently defeating the concurrency check) nor remove the row being edited.
+  protected readonly modal = signal<{ kind: ModalKind; editing: string | null; rowVersion?: string } | null>(null);
 
   protected readonly profileForm = this.fb.nonNullable.group({
     userId: [''],
@@ -435,6 +441,10 @@ export class StaffHrComponent implements OnInit {
     this.refreshProfiles();
     this.refreshAttendance();
     this.refreshSalaries();
+
+    liveRefresh(this.destroyRef, this.realtime, ['StaffProfiles'], () => this.refreshProfiles(true));
+    liveRefresh(this.destroyRef, this.realtime, ['StaffAttendances'], () => this.refreshAttendance(true));
+    liveRefresh(this.destroyRef, this.realtime, ['StaffSalaries'], () => this.refreshSalaries(true));
   }
 
   protected profileLabel(staffProfileId: string): string {
@@ -476,7 +486,7 @@ export class StaffHrComponent implements OnInit {
       totalTripsCompleted: profile.totalTripsCompleted,
       isActive: profile.isActive,
     });
-    this.modal.set({ kind: 'profile', editing: profile.id });
+    this.modal.set({ kind: 'profile', editing: profile.id, rowVersion: profile.rowVersion });
   }
 
   protected deleteProfile(profile: StaffProfile): void {
@@ -500,7 +510,7 @@ export class StaffHrComponent implements OnInit {
       status: record.status,
       remarks: record.remarks ?? '',
     });
-    this.modal.set({ kind: 'attendance', editing: record.id });
+    this.modal.set({ kind: 'attendance', editing: record.id, rowVersion: record.rowVersion });
   }
 
   protected deleteAttendance(record: StaffAttendance): void {
@@ -533,7 +543,7 @@ export class StaffHrComponent implements OnInit {
       isPaid: salary.isPaid,
       paymentReference: salary.paymentReference ?? '',
     });
-    this.modal.set({ kind: 'salary', editing: salary.id });
+    this.modal.set({ kind: 'salary', editing: salary.id, rowVersion: salary.rowVersion });
   }
 
   protected deleteSalary(salary: StaffSalary): void {
@@ -566,7 +576,7 @@ export class StaffHrComponent implements OnInit {
             address: raw.address || undefined,
             totalTripsCompleted: raw.totalTripsCompleted,
             isActive: raw.isActive,
-            rowVersion: this.profiles().find((p) => p.id === m.editing)!.rowVersion,
+            rowVersion: m.rowVersion!,
           })
         : this.staffService.createProfile({
             userId: raw.userId,
@@ -600,7 +610,7 @@ export class StaffHrComponent implements OnInit {
             attendanceDate: raw.attendanceDate,
             status: raw.status as StaffAttendance['status'],
             remarks: raw.remarks || undefined,
-            rowVersion: this.attendance().find((a) => a.id === m.editing)!.rowVersion,
+            rowVersion: m.rowVersion!,
           })
         : this.staffService.createAttendance({
             staffProfileId: raw.staffProfileId,
@@ -631,7 +641,7 @@ export class StaffHrComponent implements OnInit {
             amount: raw.amount,
             isPaid: raw.isPaid,
             paymentReference: raw.paymentReference || undefined,
-            rowVersion: this.salaries().find((s) => s.id === m.editing)!.rowVersion,
+            rowVersion: m.rowVersion!,
           })
         : this.staffService.createSalary({
             staffProfileId: raw.staffProfileId,
@@ -653,8 +663,8 @@ export class StaffHrComponent implements OnInit {
     }
   }
 
-  private refreshProfiles(): void {
-    this.loadingProfiles.set(true);
+  private refreshProfiles(silent = false): void {
+    if (!silent) this.loadingProfiles.set(true);
     this.staffService.listProfiles().subscribe({
       next: (profiles) => {
         this.profiles.set(profiles);
@@ -664,8 +674,8 @@ export class StaffHrComponent implements OnInit {
     });
   }
 
-  private refreshAttendance(): void {
-    this.loadingAttendance.set(true);
+  private refreshAttendance(silent = false): void {
+    if (!silent) this.loadingAttendance.set(true);
     this.staffService.listAttendance().subscribe({
       next: (records) => {
         this.attendance.set(records);
@@ -675,8 +685,8 @@ export class StaffHrComponent implements OnInit {
     });
   }
 
-  private refreshSalaries(): void {
-    this.loadingSalaries.set(true);
+  private refreshSalaries(silent = false): void {
+    if (!silent) this.loadingSalaries.set(true);
     this.staffService.listSalaries().subscribe({
       next: (salaries) => {
         this.salaries.set(salaries);

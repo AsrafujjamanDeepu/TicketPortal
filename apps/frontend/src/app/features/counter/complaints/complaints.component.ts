@@ -1,7 +1,9 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Booking, Complaint, ComplaintStatus } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpModalComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../shared/ui';
 import { BookingsLookupService } from '../services/bookings-lookup.service';
@@ -228,6 +230,8 @@ export class ComplaintsComponent implements OnInit {
   private readonly bookingsLookup = inject(BookingsLookupService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly statuses = STATUSES;
   protected readonly loading = signal(true);
@@ -256,6 +260,8 @@ export class ComplaintsComponent implements OnInit {
       this.bookingsById.set(new Map(bookings.map((b) => [b.id, b])));
     });
     this.refresh();
+
+    liveRefresh(this.destroyRef, this.realtime, ['Complaints'], () => this.refresh(true));
   }
 
   protected bookingLabel(bookingId: string): string {
@@ -307,8 +313,8 @@ export class ComplaintsComponent implements OnInit {
     });
   }
 
-  private refresh(): void {
-    this.loading.set(true);
+  private refresh(silent = false): void {
+    if (!silent) this.loading.set(true);
     this.complaintsService.list().subscribe({
       next: (complaints) => {
         this.complaints.set(complaints);

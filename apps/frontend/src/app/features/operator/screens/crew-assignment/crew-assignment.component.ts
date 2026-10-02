@@ -1,6 +1,8 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { CrewRole, StaffProfile, Trip, TripCrew } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpModalComponent, TpTableColumn, TpTableComponent } from '../../../../shared/ui';
 import { CrewService } from '../../services/crew.service';
@@ -23,6 +25,8 @@ export class CrewAssignmentComponent implements OnInit {
   private readonly tripsService = inject(TripsService);
   private readonly ctx = inject(OperatorContextService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly crewRoles = CREW_ROLES;
 
@@ -69,6 +73,8 @@ export class CrewAssignmentComponent implements OnInit {
       this.tripsService.listTrips(opId).subscribe((trips) => this.trips.set(trips));
       this.crewService.listAssignableStaff().subscribe((s) => this.staff.set(s));
     });
+
+    liveRefresh(this.destroyRef, this.realtime, ['TripCrews'], () => this.loadCrews());
   }
 
   selectTrip(tripId: string): void {
@@ -78,6 +84,13 @@ export class CrewAssignmentComponent implements OnInit {
     } else {
       this.crews.set([]);
     }
+  }
+
+  /** Re-reads the crew of the trip currently selected (nothing to do until one is picked). */
+  private loadCrews(): void {
+    const tripId = this.selectedTripId();
+    if (!tripId) return;
+    this.crewService.listTripCrews([tripId]).subscribe((crews) => this.crews.set(crews));
   }
 
   openAssignModal(): void {

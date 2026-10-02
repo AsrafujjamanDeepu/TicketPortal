@@ -2,7 +2,10 @@ import { DatePipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { Gender, PassengerType, PaymentMethod, SalesCounter, Terminal, Trip, TripSeat, TripSearchResult } from '@ticketportal-mono/models';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
+import { runSilently } from '../../../core/realtime/silent-request';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpSpinnerComponent } from '../../../shared/ui';
 import { SalesCountersService } from '../services/sales-counters.service';
@@ -523,6 +526,7 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
   private readonly walkIn = inject(WalkInBookingService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(ToastService);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly paymentMethods = PAYMENT_METHODS;
   protected readonly stepOrder: Step[] = ['counter', 'search', 'seats', 'details', 'done'];
@@ -558,6 +562,8 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
   protected readonly hold = signal<SeatHoldLike | null>(null);
   protected readonly secondsRemaining = signal(0);
   private timerHandle?: ReturnType<typeof setInterval>;
+  /** Live seat map for the trip being sold from (joined while a trip is open, left when it isn't). */
+  private seatWatch?: Subscription;
 
   protected readonly detailsForm: FormGroup = this.fb.group({
     contactName: ['', Validators.required],
@@ -591,6 +597,7 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.clearTimer();
+    this.stopSeatWatch();
   }
 
   protected stepIndex(step: Step): number {
@@ -624,6 +631,7 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
   protected selectTrip(result: TripSearchResult): void {
     this.loadingTrip.set(true);
     this.step.set('seats');
+    this.watchSeats(result.tripId);
     this.walkIn.getTrip(result.tripId).subscribe({
       next: (trip) => {
         this.selectedTrip.set(trip);
@@ -632,8 +640,46 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
       },
       error: () => {
         this.loadingTrip.set(false);
+        this.stopSeatWatch();
         this.step.set('search');
       },
+    });
+  }
+
+  /**
+   * Live seat map: while a trip is open, a seat taken (or freed) by another counter or an online customer
+   * refreshes the grid within about a second. Only the seat-picking step re-fetches — on the details step
+   * this clerk's own hold owns those seats, and re-loading would only race the sale in progress.
+   */
+  private watchSeats(tripId: string): void {
+    this.stopSeatWatch();
+    this.seatWatch = this.realtime.watchSeats(tripId).subscribe(() => {
+      if (this.step() !== 'seats' || this.loadingTrip() || this.holding()) return;
+      runSilently(() => this.refreshSeats(tripId));
+    });
+  }
+
+  private stopSeatWatch(): void {
+    this.seatWatch?.unsubscribe();
+    this.seatWatch = undefined;
+  }
+
+  private refreshSeats(tripId: string): void {
+    this.walkIn.getTrip(tripId).subscribe((trip) => {
+      const before = this.selectedTrip();
+      if (before?.id !== tripId) return; // the clerk moved on to another trip meanwhile
+
+      const picked = this.selectedSeatIds();
+      const stillFree = picked.filter((id) => trip.tripSeats.find((seat) => seat.id === id)?.status === 'Available');
+      this.selectedTrip.set(trip);
+      if (stillFree.length === picked.length) return;
+
+      // A seat the clerk had ticked was just taken elsewhere — drop it from the selection and say which.
+      const taken = picked
+        .filter((id) => !stillFree.includes(id))
+        .map((id) => before.tripSeats.find((seat) => seat.id === id)?.seatNumber ?? id);
+      this.selectedSeatIds.set(stillFree);
+      this.toast.warning(`Seat ${taken.join(', ')} was just taken — please choose another.`);
     });
   }
 
@@ -647,6 +693,7 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
   }
 
   protected backToSearch(): void {
+    this.stopSeatWatch();
     this.selectedTrip.set(null);
     this.selectedSeatIds.set([]);
     this.step.set('search');
@@ -808,6 +855,7 @@ export class WalkInBookingComponent implements OnInit, OnDestroy {
   }
 
   protected newSale(): void {
+    this.stopSeatWatch();
     this.selectedTrip.set(null);
     this.selectedSeatIds.set([]);
     this.hold.set(null);

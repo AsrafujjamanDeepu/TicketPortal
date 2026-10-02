@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   BusRoute,
@@ -9,6 +9,8 @@ import {
   FareRule,
   SeatType,
 } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpModalComponent, TpTableColumn, TpTableComponent } from '../../../../shared/ui';
 import { BusOperatorProfileService } from '../../services/bus-operator-profile.service';
@@ -31,6 +33,8 @@ export class FarePolicyComponent implements OnInit {
   private readonly profileService = inject(BusOperatorProfileService);
   private readonly ctx = inject(OperatorContextService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly busTypes = BUS_TYPES;
   protected readonly seatTypes = SEAT_TYPES;
@@ -116,6 +120,9 @@ export class FarePolicyComponent implements OnInit {
       this.loadPolicies();
       this.profileService.listBusRoutes().subscribe((r) => this.busRoutes.set(r));
     });
+
+    liveRefresh(this.destroyRef, this.realtime, ['FareRules'], () => this.loadFareRules());
+    liveRefresh(this.destroyRef, this.realtime, ['CancellationPolicies'], () => this.loadPolicies());
   }
 
   private loadFareRules(): void {

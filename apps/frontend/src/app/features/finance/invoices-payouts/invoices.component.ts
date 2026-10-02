@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { OperatorInvoice, OperatorStatement, SettlementDirection } from '@ticketportal-mono/models';
 import {
@@ -11,6 +11,8 @@ import {
   TpTableColumn,
   TpTableComponent,
 } from '../../../shared/ui';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import { OperatorLookupService } from '../services/operator-lookup.service';
@@ -278,6 +280,8 @@ export class InvoicesComponent implements OnInit {
   protected readonly operatorLookup = inject(OperatorLookupService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly directions = DIRECTIONS;
   protected readonly formatMoney = formatMoney;
@@ -338,7 +342,10 @@ export class InvoicesComponent implements OnInit {
   ngOnInit(): void {
     this.operatorLookup.ensureLoaded();
     this.load();
-    this.financeApi.listStatements().subscribe({ next: (statements) => this.statements.set(statements) });
+    this.loadStatements();
+
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorInvoices'], () => this.load(true));
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorStatements'], () => this.loadStatements());
   }
 
   /** Plain method (not a computed signal) since it derives from a FormControl's live value, not a signal. */
@@ -347,8 +354,12 @@ export class InvoicesComponent implements OnInit {
     return this.statements().filter((s) => s.busOperatorId === operatorId);
   }
 
-  private load(): void {
-    this.loading.set(true);
+  private loadStatements(): void {
+    this.financeApi.listStatements().subscribe({ next: (statements) => this.statements.set(statements) });
+  }
+
+  private load(silent = false): void {
+    if (!silent) this.loading.set(true);
     this.financeApi.listInvoices(this.operatorFilter()).subscribe({
       next: (invoices) => {
         this.invoices.set(invoices);

@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   Currency,
@@ -19,6 +19,8 @@ import {
   TpTableComponent,
   TpTabsComponent,
 } from '../../../shared/ui';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import { formatMoney } from '../shared/money.util';
@@ -351,6 +353,8 @@ export class SystemConfigComponent implements OnInit {
   private readonly financeApi = inject(FinanceApiService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   activeTab = 0;
   protected readonly submitting = signal(false);
@@ -507,10 +511,15 @@ export class SystemConfigComponent implements OnInit {
     this.loadCurrencies();
     this.loadProviders();
     this.loadMethodConfigs();
+
+    liveRefresh(this.destroyRef, this.realtime, ['TaxRules'], () => this.loadTaxRules(true));
+    liveRefresh(this.destroyRef, this.realtime, ['Currencies'], () => this.loadCurrencies(true));
+    liveRefresh(this.destroyRef, this.realtime, ['PaymentProviders'], () => this.loadProviders(true));
+    liveRefresh(this.destroyRef, this.realtime, ['PaymentMethodConfigurations'], () => this.loadMethodConfigs(true));
   }
 
-  private loadTaxRules(): void {
-    this.taxRulesLoading.set(true);
+  private loadTaxRules(silent = false): void {
+    if (!silent) this.taxRulesLoading.set(true);
     this.financeApi.listTaxRules().subscribe({
       next: (rules) => {
         this.taxRules.set(rules);
@@ -520,8 +529,8 @@ export class SystemConfigComponent implements OnInit {
     });
   }
 
-  private loadCurrencies(): void {
-    this.currenciesLoading.set(true);
+  private loadCurrencies(silent = false): void {
+    if (!silent) this.currenciesLoading.set(true);
     this.financeApi.listCurrencies().subscribe({
       next: (currencies) => {
         this.currencies.set(currencies);
@@ -531,8 +540,8 @@ export class SystemConfigComponent implements OnInit {
     });
   }
 
-  private loadProviders(): void {
-    this.providersLoading.set(true);
+  private loadProviders(silent = false): void {
+    if (!silent) this.providersLoading.set(true);
     this.financeApi.listPaymentProviders().subscribe({
       next: (providers) => {
         this.providers.set(providers);
@@ -542,8 +551,8 @@ export class SystemConfigComponent implements OnInit {
     });
   }
 
-  private loadMethodConfigs(): void {
-    this.methodConfigsLoading.set(true);
+  private loadMethodConfigs(silent = false): void {
+    if (!silent) this.methodConfigsLoading.set(true);
     this.financeApi.listPaymentMethodConfigurations().subscribe({
       next: (configs) => {
         this.methodConfigs.set(configs);

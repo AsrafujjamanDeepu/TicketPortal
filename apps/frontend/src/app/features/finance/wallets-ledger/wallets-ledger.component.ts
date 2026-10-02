@@ -1,6 +1,8 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CustomerWalletTransaction, OperatorWallet, PlatformLedger } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { TpCardComponent, TpSpinnerComponent, TpTableColumn, TpTableComponent, TpTabsComponent } from '../../../shared/ui';
 import { FinanceApiService } from '../services/finance-api.service';
 import { OperatorLookupService } from '../services/operator-lookup.service';
@@ -130,6 +132,8 @@ interface CustomerWalletRow {
 export class WalletsLedgerComponent implements OnInit {
   private readonly financeApi = inject(FinanceApiService);
   protected readonly operatorLookup = inject(OperatorLookupService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   activeTab = 0;
 
@@ -212,10 +216,17 @@ export class WalletsLedgerComponent implements OnInit {
     this.operatorLookup.ensureLoaded();
     this.loadWallets();
     this.loadLedger();
+
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorWallets'], () => this.loadWallets(true));
+    liveRefresh(this.destroyRef, this.realtime, ['PlatformLedgers'], () => this.loadLedger(true));
+    // The customer-activity tab loads on first visit; once it has, keep it current too.
+    liveRefresh(this.destroyRef, this.realtime, ['CustomerWalletTransactions'], () => {
+      if (this.customerLoaded) this.loadCustomerActivity(true);
+    });
   }
 
-  private loadWallets(): void {
-    this.walletsLoading.set(true);
+  private loadWallets(silent = false): void {
+    if (!silent) this.walletsLoading.set(true);
     this.financeApi.listWallets().subscribe({
       next: (wallets) => {
         this.wallets.set(wallets);
@@ -225,8 +236,8 @@ export class WalletsLedgerComponent implements OnInit {
     });
   }
 
-  private loadLedger(): void {
-    this.ledgerLoading.set(true);
+  private loadLedger(silent = false): void {
+    if (!silent) this.ledgerLoading.set(true);
     this.financeApi.listLedgerEntries(this.ledgerOperatorId()).subscribe({
       next: (entries) => {
         this.ledgerEntries.set(entries);
@@ -236,9 +247,9 @@ export class WalletsLedgerComponent implements OnInit {
     });
   }
 
-  private loadCustomerActivity(): void {
+  private loadCustomerActivity(silent = false): void {
     this.customerLoaded = true;
-    this.customerLoading.set(true);
+    if (!silent) this.customerLoading.set(true);
     this.financeApi.listCustomerWalletTransactions().subscribe({
       next: (transactions) => {
         this.customerTransactions.set(transactions);

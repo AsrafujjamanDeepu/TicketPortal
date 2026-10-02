@@ -1,6 +1,8 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { BusOperator, SalesCounter, Terminal } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpModalComponent, TpSpinnerComponent, TpStatusPillComponent } from '../../../shared/ui';
@@ -221,6 +223,8 @@ export class CounterSetupComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly loading = signal(true);
   protected readonly saving = signal(false);
@@ -254,6 +258,8 @@ export class CounterSetupComponent implements OnInit {
       this.busOperatorsService.list().subscribe((operators) => this.busOperators.set(operators));
     }
     this.refresh();
+
+    liveRefresh(this.destroyRef, this.realtime, ['SalesCounters'], () => this.refresh(true));
   }
 
   protected terminalName(terminalId: string): string {
@@ -324,8 +330,8 @@ export class CounterSetupComponent implements OnInit {
     });
   }
 
-  private refresh(): void {
-    this.loading.set(true);
+  private refresh(silent = false): void {
+    if (!silent) this.loading.set(true);
     this.countersService.list().subscribe({
       next: (counters) => {
         this.counters.set(counters);

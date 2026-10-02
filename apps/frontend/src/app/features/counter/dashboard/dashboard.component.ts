@@ -1,7 +1,10 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CounterDashboard } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
+import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpSpinnerComponent } from '../../../shared/ui';
 import { DashboardService } from '../services/dashboard.service';
 
@@ -136,14 +139,36 @@ import { DashboardService } from '../services/dashboard.service';
 })
 export class DashboardComponent implements OnInit {
   private readonly dashboardService = inject(DashboardService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
+  private readonly toast = inject(ToastService);
 
   protected readonly loading = signal(true);
   protected readonly dashboard = signal<CounterDashboard | null>(null);
   protected readonly today = new Date().toDateString();
 
   ngOnInit(): void {
+    this.load();
+
+    // Counter sales touch bookings, payments and tickets; the two attention tiles also depend on
+    // cancellation requests and complaints.
+    liveRefresh(
+      this.destroyRef,
+      this.realtime,
+      ['Bookings', 'Payments', 'Tickets', 'CancellationRequests', 'Complaints'],
+      () => this.load(true),
+    );
+  }
+
+  /** `silent` = a live refresh: the figures stay on screen (no spinner) and a rise in tickets sold is announced. */
+  private load(silent = false): void {
     this.dashboardService.getDashboard().subscribe({
       next: (d) => {
+        const previous = this.dashboard();
+        if (silent && previous && d.ticketsSoldToday > previous.ticketsSoldToday) {
+          const sold = d.ticketsSoldToday - previous.ticketsSoldToday;
+          this.toast.info(`New counter sale — ${sold} ticket${sold === 1 ? '' : 's'} sold.`);
+        }
         this.dashboard.set(d);
         this.loading.set(false);
       },

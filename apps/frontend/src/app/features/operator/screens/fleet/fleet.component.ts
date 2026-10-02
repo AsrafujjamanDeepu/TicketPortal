@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   Bus,
@@ -15,6 +15,8 @@ import {
   SeatType,
   StaffProfile,
 } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpModalComponent, TpTableColumn, TpTableComponent } from '../../../../shared/ui';
@@ -38,6 +40,8 @@ export class FleetComponent implements OnInit {
   private readonly ctx = inject(OperatorContextService);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly busTypes = BUS_TYPES;
   protected readonly seatTypes = SEAT_TYPES;
@@ -194,6 +198,8 @@ export class FleetComponent implements OnInit {
       const opId = this.ctx.activeOperatorId();
       if (opId) this.fleet.listDrivers(opId).subscribe((d) => this.drivers.set(d));
     });
+
+    liveRefresh(this.destroyRef, this.realtime, ['Buses'], () => this.loadBuses());
   }
 
   private loadBuses(): void {

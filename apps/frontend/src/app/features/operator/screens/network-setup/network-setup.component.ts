@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   BusRoute,
@@ -9,6 +9,8 @@ import {
   RouteStop,
   Terminal,
 } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpModalComponent, TpTableColumn, TpTableComponent } from '../../../../shared/ui';
 import { BusOperatorProfileService } from '../../services/bus-operator-profile.service';
@@ -30,6 +32,8 @@ export class NetworkSetupComponent implements OnInit {
   private readonly profileService = inject(BusOperatorProfileService);
   private readonly ctx = inject(OperatorContextService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly inventoryOverrides = INVENTORY_OVERRIDES;
 
@@ -159,6 +163,12 @@ export class NetworkSetupComponent implements OnInit {
       this.profileService.listBusRoutes().subscribe((r) => this.busRoutes.set(r));
       this.loadOperatorRouteStops();
     });
+
+    // The operator's routes ride on the operator record itself, so refresh that, then the stops built from it.
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorRoutes'], () => {
+      this.ctx.refreshActiveOperator().subscribe(() => this.loadOperatorRouteStops());
+    });
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorRouteStops'], () => this.loadOperatorRouteStops());
   }
 
   private loadOperatorRouteStops(): void {

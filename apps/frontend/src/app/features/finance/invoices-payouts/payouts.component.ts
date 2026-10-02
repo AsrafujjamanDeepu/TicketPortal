@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { OperatorPayout, OperatorSettlement } from '@ticketportal-mono/models';
 import {
@@ -11,6 +11,8 @@ import {
   TpTableColumn,
   TpTableComponent,
 } from '../../../shared/ui';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import { OperatorLookupService } from '../services/operator-lookup.service';
@@ -257,6 +259,8 @@ export class PayoutsComponent implements OnInit {
   protected readonly operatorLookup = inject(OperatorLookupService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly formatMoney = formatMoney;
 
@@ -277,6 +281,9 @@ export class PayoutsComponent implements OnInit {
   protected readonly completeTarget = signal<OperatorPayout | null>(null);
   protected readonly releaseTarget = signal<OperatorPayout | null>(null);
   protected readonly releaseAction = signal<'fail' | 'cancel'>('fail');
+  /** When this user last clicked a payout action — their own clicks already toast, so live toasts stay quiet briefly after. */
+  private lastOwnActionAt = 0;
+  private readonly ownActionQuietMs = 5_000;
   protected readonly bankReference = this.fb.nonNullable.control('');
   protected readonly releaseReason = this.fb.nonNullable.control('');
 
@@ -308,18 +315,41 @@ export class PayoutsComponent implements OnInit {
   ngOnInit(): void {
     this.operatorLookup.ensureLoaded();
     this.load();
+    this.loadSettlements();
+
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorPayouts'], () => this.load(true));
+    // Approved settlements feed the "create payout" picker.
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorSettlements'], () => this.loadSettlements());
+  }
+
+  private loadSettlements(): void {
     this.financeApi.listSettlements().subscribe({ next: (settlements) => this.settlements.set(settlements) });
   }
 
-  private load(): void {
-    this.loading.set(true);
+  /** `silent` = a live refresh: keep the list on screen (no spinner) and announce payouts someone else moved forward. */
+  private load(silent = false): void {
+    if (!silent) this.loading.set(true);
     this.financeApi.listPayouts(this.operatorFilter()).subscribe({
       next: (payouts) => {
+        if (silent) this.announcePayoutProgress(payouts);
         this.payouts.set(payouts);
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
     });
+  }
+
+  /** Toast when a listed payout reaches Processing or Paid — the moments a finance person acts on or reports. */
+  private announcePayoutProgress(next: OperatorPayout[]): void {
+    if (Date.now() - this.lastOwnActionAt < this.ownActionQuietMs) return;
+
+    const statusBefore = new Map(this.payouts().map((payout) => [payout.id, payout.status]));
+    for (const payout of next) {
+      const was = statusBefore.get(payout.id);
+      if (was === undefined || was === payout.status) continue;
+      if (payout.status === 'Processing') this.toast.info(`Payout ${payout.payoutNo} is now processing.`);
+      else if (payout.status === 'Paid') this.toast.success(`Payout ${payout.payoutNo} has been paid.`);
+    }
   }
 
   /** Plain method (not a computed signal) since it derives from a FormControl's live value, not a signal. */
@@ -363,6 +393,7 @@ export class PayoutsComponent implements OnInit {
   }
 
   process(id: string): void {
+    this.lastOwnActionAt = Date.now();
     this.submitting.set(true);
     this.financeApi.processPayout(id).subscribe({
       next: () => {
@@ -384,6 +415,7 @@ export class PayoutsComponent implements OnInit {
     const target = this.completeTarget();
     if (!target || !this.bankReference.value.trim()) return;
 
+    this.lastOwnActionAt = Date.now();
     this.submitting.set(true);
     this.financeApi.completePayout(target.id, { bankTransactionReference: this.bankReference.value.trim() }).subscribe({
       next: () => {
@@ -408,6 +440,7 @@ export class PayoutsComponent implements OnInit {
     if (!target || !this.releaseReason.value.trim()) return;
     const reason = this.releaseReason.value.trim();
 
+    this.lastOwnActionAt = Date.now();
     this.submitting.set(true);
     const request$ =
       this.releaseAction() === 'fail'

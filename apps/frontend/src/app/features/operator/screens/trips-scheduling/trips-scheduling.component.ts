@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   Bus,
@@ -16,6 +16,8 @@ import {
   TripStatusHistory,
   TripUpdateRequest,
 } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { ToastService } from '../../../../core/services/toast.service';
 import {
   TpButtonDirective,
@@ -50,6 +52,8 @@ export class TripsSchedulingComponent implements OnInit {
   private readonly profileService = inject(BusOperatorProfileService);
   private readonly ctx = inject(OperatorContextService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly tripStatuses = TRIP_STATUSES;
   // Chunk 5: Cancelled is deliberately left out of the edit-modal's Status dropdown — the
@@ -211,6 +215,14 @@ export class TripsSchedulingComponent implements OnInit {
       this.network.listTerminals().subscribe((t) => this.terminals.set(t));
       this.loadSchedules();
     });
+
+    liveRefresh(this.destroyRef, this.realtime, ['Trips'], () => {
+      this.loadTrips();
+      // Status changes write history rows — keep the open trip's history current too.
+      const openTripId = this.selectedTripId();
+      if (openTripId) this.tripsService.listStatusHistory(openTripId).subscribe((h) => this.statusHistory.set(h));
+    });
+    liveRefresh(this.destroyRef, this.realtime, ['Schedules'], () => this.loadSchedules());
   }
 
   private loadTrips(): void {

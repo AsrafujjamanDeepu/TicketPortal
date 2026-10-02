@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import {
   OperatorBranch,
@@ -6,6 +6,8 @@ import {
   OperatorBranchUpdateRequest,
   OperatorInventoryMode,
 } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../../core/realtime/realtime.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { ApiService } from '../../../../core/services/api.service';
 import { ToastService } from '../../../../core/services/toast.service';
@@ -252,6 +254,8 @@ export class ProfileBranchesComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly inventoryModes = INVENTORY_MODES;
   protected readonly saving = signal(false);
@@ -305,6 +309,8 @@ export class ProfileBranchesComponent implements OnInit {
     if (!this.isAdmin()) {
       this.form.controls.inventoryMode.disable();
     }
+
+    liveRefresh(this.destroyRef, this.realtime, ['OperatorBranches'], () => this.loadBranches());
   }
 
   private hydrateFromOperator(): void {

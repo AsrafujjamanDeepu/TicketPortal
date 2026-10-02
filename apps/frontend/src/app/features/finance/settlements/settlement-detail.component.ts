@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { OperatorSettlementDetail } from '@ticketportal-mono/models';
@@ -12,6 +12,8 @@ import {
   TpTableColumn,
   TpTableComponent,
 } from '../../../shared/ui';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import { OperatorLookupService } from '../services/operator-lookup.service';
@@ -230,6 +232,8 @@ export class SettlementDetailComponent implements OnInit {
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
   private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly formatDate = formatDate;
   protected readonly formatMoney = formatMoney;
@@ -288,11 +292,14 @@ export class SettlementDetailComponent implements OnInit {
   ngOnInit(): void {
     this.operatorLookup.ensureLoaded();
     const id = this.route.snapshot.paramMap.get('id');
-    if (id) this.load(id);
+    if (id) {
+      this.load(id);
+      liveRefresh(this.destroyRef, this.realtime, ['OperatorSettlements'], () => this.load(id, true));
+    }
   }
 
-  private load(id: string): void {
-    this.loading.set(true);
+  private load(id: string, silent = false): void {
+    if (!silent) this.loading.set(true);
     this.financeApi.getSettlement(id).subscribe({
       next: (settlement) => {
         this.settlement.set(settlement);

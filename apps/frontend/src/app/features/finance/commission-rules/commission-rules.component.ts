@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { CommissionRule, CommissionType, SaleChannel } from '@ticketportal-mono/models';
 import {
@@ -10,6 +10,8 @@ import {
   TpTableColumn,
   TpTableComponent,
 } from '../../../shared/ui';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import { OperatorLookupService } from '../services/operator-lookup.service';
@@ -227,6 +229,8 @@ export class CommissionRulesComponent implements OnInit {
   protected readonly operatorLookup = inject(OperatorLookupService);
   private readonly toast = inject(ToastService);
   private readonly fb = inject(FormBuilder);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected readonly saleChannels = SALE_CHANNELS;
   protected readonly commissionTypes = COMMISSION_TYPES;
@@ -276,10 +280,12 @@ export class CommissionRulesComponent implements OnInit {
   ngOnInit(): void {
     this.operatorLookup.ensureLoaded();
     this.load();
+
+    liveRefresh(this.destroyRef, this.realtime, ['CommissionRules'], () => this.load(true));
   }
 
-  private load(): void {
-    this.loading.set(true);
+  private load(silent = false): void {
+    if (!silent) this.loading.set(true);
     this.financeApi.listCommissionRules().subscribe({
       next: (rules) => {
         this.rules.set(rules);

@@ -1,8 +1,10 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { Observable } from 'rxjs';
 import { Booking, CancellationRequest, Refund } from '@ticketportal-mono/models';
+import { liveRefresh } from '../../../core/realtime/live-refresh';
+import { RealtimeService } from '../../../core/realtime/realtime.service';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent, TpEmptyStateComponent, TpModalComponent, TpSpinnerComponent, TpStatusPillComponent, TpTabsComponent } from '../../../shared/ui';
 import { BookingsLookupService } from '../services/bookings-lookup.service';
@@ -255,6 +257,8 @@ export class CancellationsRefundsComponent implements OnInit {
   private readonly bookingsLookup = inject(BookingsLookupService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(ToastService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly realtime = inject(RealtimeService);
 
   protected tabIndex = 0;
 
@@ -264,6 +268,9 @@ export class CancellationsRefundsComponent implements OnInit {
   protected readonly refunds = signal<Refund[]>([]);
   private readonly bookingsById = signal<Map<string, Booking>>(new Map());
 
+  /** False until the first successful load, so the very first list never counts as "new requests". */
+  private cancellationsLoaded = false;
+
   protected readonly actionTarget = signal<ActionTarget | null>(null);
   protected readonly submitting = signal(false);
   protected readonly actionForm = this.fb.nonNullable.group({
@@ -272,11 +279,25 @@ export class CancellationsRefundsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.bookingsLookup.list().subscribe((bookings) => {
-      this.bookingsById.set(new Map(bookings.map((b) => [b.id, b])));
-    });
+    this.loadBookings();
     this.refreshCancellations();
     this.refreshRefunds();
+
+    liveRefresh(this.destroyRef, this.realtime, ['CancellationRequests'], () => {
+      // A request can belong to a booking made after this desk was opened — refresh the labels first.
+      this.loadBookings(() => this.refreshCancellations(true));
+    });
+    liveRefresh(this.destroyRef, this.realtime, ['Refunds'], () => this.refreshRefunds(true));
+  }
+
+  private loadBookings(then?: () => void): void {
+    this.bookingsLookup.list().subscribe({
+      next: (bookings) => {
+        this.bookingsById.set(new Map(bookings.map((b) => [b.id, b])));
+        then?.();
+      },
+      error: () => then?.(),
+    });
   }
 
   protected bookingLabel(bookingId: string): string {
@@ -360,10 +381,13 @@ export class CancellationsRefundsComponent implements OnInit {
     });
   }
 
-  private refreshCancellations(): void {
-    this.loadingCancellations.set(true);
+  /** `silent` = a live refresh: keep the list on screen (no spinner) and announce requests that just arrived. */
+  private refreshCancellations(silent = false): void {
+    if (!silent) this.loadingCancellations.set(true);
     this.cancellationsService.list().subscribe({
       next: (items) => {
+        if (silent && this.cancellationsLoaded) this.announceNewRequests(items);
+        this.cancellationsLoaded = true;
         this.cancellations.set(items);
         this.loadingCancellations.set(false);
       },
@@ -371,8 +395,21 @@ export class CancellationsRefundsComponent implements OnInit {
     });
   }
 
-  private refreshRefunds(): void {
-    this.loadingRefunds.set(true);
+  /** Toast only for something a person has to act on: a request that wasn't listed before and is still waiting. */
+  private announceNewRequests(items: CancellationRequest[]): void {
+    const known = new Set(this.cancellations().map((c) => c.id));
+    const fresh = items.filter((c) => !known.has(c.id) && c.status === 'Requested');
+    if (fresh.length === 0) return;
+    if (fresh.length > 1) {
+      this.toast.info(`${fresh.length} new cancellation requests.`);
+      return;
+    }
+    const booking = this.bookingsById().get(fresh[0].bookingId);
+    this.toast.info(booking ? `New cancellation request — ${booking.pnr} (${booking.contactName}).` : 'New cancellation request.');
+  }
+
+  private refreshRefunds(silent = false): void {
+    if (!silent) this.loadingRefunds.set(true);
     this.refundsService.list().subscribe({
       next: (items) => {
         this.refunds.set(items);
