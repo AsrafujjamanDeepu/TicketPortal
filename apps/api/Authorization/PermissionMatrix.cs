@@ -56,6 +56,30 @@ namespace TicketPortal.Api.Authorization
             },
         };
 
+        // MUST stay declared ABOVE OperatorScope: C# runs static field initializers in the order
+        // they are written, so if this sat below OperatorScope (which reads it) the dictionary
+        // would capture null for Manager/Operator/BusOwner, and every HasPermission(...) call
+        // for those roles would throw ArgumentNullException ("Parameter 'source'") — surfacing
+        // as a 400 from the global exception handler.
+        private static readonly string[] OperatorManagerPermissions =
+        {
+            Permissions.FleetRead, Permissions.FleetManage,
+            Permissions.NetworkRead, Permissions.NetworkManage, Permissions.FarePolicyManage,
+            Permissions.TripsRead, Permissions.TripsManage, Permissions.TripsCancel, Permissions.CrewManage,
+            Permissions.CounterRead, Permissions.CounterConfigure, Permissions.CounterSell, Permissions.CounterCancel,
+            Permissions.StaffRead, Permissions.StaffManage,
+            Permissions.BookingRead, Permissions.ReportsRead,
+            Permissions.FinanceReadOwnOperator,
+            // RBAC Amendment v3 §8 (Chunk 8): "An operator manager may receive a redacted
+            // status/read view for their own integration if useful, but never endpoint
+            // secrets, test-connection controls, or mapping administration." IntegrationsRead
+            // is scoped by CanManageOperator on the one endpoint that checks it
+            // (OperatorIntegrationsController.GetStatus) — it does NOT unlock the full
+            // OperatorIntegrationResponseDto/IntegrationSyncLogsController/mapping controllers,
+            // which all still require IntegrationsManage (Admin-only).
+            Permissions.IntegrationsRead,
+        };
+
         // Operator-scoped staff: StaffProfile.BusOperatorId == <that operator's Id>.
         private static readonly IReadOnlyDictionary<StaffRole, string[]> OperatorScope = new Dictionary<StaffRole, string[]>
         {
@@ -100,25 +124,6 @@ namespace TicketPortal.Api.Authorization
             // crew login is a real requirement.
             [StaffRole.Driver] = Array.Empty<string>(),
             [StaffRole.Helper] = Array.Empty<string>(),
-        };
-
-        private static readonly string[] OperatorManagerPermissions =
-        {
-            Permissions.FleetRead, Permissions.FleetManage,
-            Permissions.NetworkRead, Permissions.NetworkManage, Permissions.FarePolicyManage,
-            Permissions.TripsRead, Permissions.TripsManage, Permissions.TripsCancel, Permissions.CrewManage,
-            Permissions.CounterRead, Permissions.CounterConfigure, Permissions.CounterSell, Permissions.CounterCancel,
-            Permissions.StaffRead, Permissions.StaffManage,
-            Permissions.BookingRead, Permissions.ReportsRead,
-            Permissions.FinanceReadOwnOperator,
-            // RBAC Amendment v3 §8 (Chunk 8): "An operator manager may receive a redacted
-            // status/read view for their own integration if useful, but never endpoint
-            // secrets, test-connection controls, or mapping administration." IntegrationsRead
-            // is scoped by CanManageOperator on the one endpoint that checks it
-            // (OperatorIntegrationsController.GetStatus) — it does NOT unlock the full
-            // OperatorIntegrationResponseDto/IntegrationSyncLogsController/mapping controllers,
-            // which all still require IntegrationsManage (Admin-only).
-            Permissions.IntegrationsRead,
         };
 
         public static IReadOnlyCollection<string> Resolve(StaffRole jobRole, bool isPlatformScope)
