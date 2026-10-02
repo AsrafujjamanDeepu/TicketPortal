@@ -49,4 +49,15 @@
     <ProjectReference Include="..\api\TicketPortal.Api.csproj" />
   </ItemGroup>
 
+  <!--
+    The Integration tests call scope.ServiceProvider.GetRequiredService<AppDbContext>() without a
+    `using Microsoft.Extensions.DependencyInjection;`. The plain Microsoft.NET.Sdk's implicit
+    usings do not include that namespace (only the Web SDK's do), so the whole test project failed
+    to compile with CS1061 "IServiceProvider does not contain a definition for 'GetRequiredService'".
+    One global using here fixes every file instead of editing each one.
+  -->
+  <ItemGroup>
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
 </Project>
