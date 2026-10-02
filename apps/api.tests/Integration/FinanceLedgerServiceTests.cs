@@ -171,8 +171,13 @@ namespace TicketPortal.Api.Tests.Integration
             await ledger.PostCounterSaleRefundAsync(bookingId, refundId: null, operatorId, commissionToReverse: 80m);
 
             var wallet = await db.OperatorWallets.AsNoTracking().SingleAsync(w => w.BusOperatorId == operatorId);
-            Assert.Equal(0m, wallet.PlatformReceivableFromOperator); // Fully reversed.
-            Assert.Equal(0m, wallet.PendingSettlementBalance);
+            // PlatformReceivableFromOperator / OperatorReceivableFromPlatform are documented
+            // lifetime accumulators (see OperatorWallet) — ApplyWalletDeltaAsync only ever adds
+            // to them, so the 80 the operator once owed stays on the books and the reversal is
+            // recorded as 80 on the other side. The LIVE figure is PendingSettlementBalance.
+            Assert.Equal(80m, wallet.PlatformReceivableFromOperator); // Lifetime total, never reduced.
+            Assert.Equal(80m, wallet.OperatorReceivableFromPlatform); // The reversal, added on the other side.
+            Assert.Equal(0m, wallet.PendingSettlementBalance); // Net effect: fully reversed.
             Assert.Equal(0m, wallet.TotalCounterSalesAmount); // Reversed back out too.
         }
 

@@ -73,7 +73,9 @@ namespace TicketPortal.Api.Tests.Integration
             Assert.Equal(20m, settlement.GatewayCharge);
             Assert.Equal(120m, settlement.RefundAmount);
             Assert.Equal(SettlementStatus.Draft, settlement.Status);
-            Assert.Equal(4, settlement.Items.Count); // One item per ledger row.
+            // One item per ledger row: the online sale posts THREE rows (sale, commission,
+            // operator-borne gateway fee), plus the counter commission and the refund = 5.
+            Assert.Equal(5, settlement.Items.Count);
 
             var wallet = await db.OperatorWallets.AsNoTracking().SingleAsync(w => w.BusOperatorId == operatorId);
             Assert.Equal(0m, wallet.PendingSettlementBalance); // Fully swept — 710 (pending) - 710 (netAmount) = 0.

@@ -27,13 +27,30 @@ namespace TicketPortal.Api.Tests.Integration
         // A fully valid BusCreateDto — [ApiController] runs DataAnnotations validation (400)
         // BEFORE the action body's actor.HasPermission(...) check ever runs, so an incomplete
         // payload would give a false pass here (a 400 that looks like a security check working,
-        // but actually never reached it). BusOperatorId doesn't need to point at a real row:
-        // FleetManage is checked before the operator is even looked up.
-        private static object ValidBusPayload() => new
+        // but actually never reached it). "Fully valid" has to include everything BusCreateDto
+        // validates: TotalSeats is [Range(1, 100)] and Seats is [MinLength(1)], so a payload
+        // without them is rejected with 400 and never reaches the permission check at all.
+        // BusOperatorId doesn't need to point at a real row by default: FleetManage is checked
+        // before the operator is even looked up.
+        private static object ValidBusPayload(Guid? busOperatorId = null, string coachNumber = "TEST-COACH-1") => new
         {
-            BusOperatorId = Guid.NewGuid(),
+            BusOperatorId = busOperatorId ?? Guid.NewGuid(),
             RegistrationNumber = $"TEST-{Guid.NewGuid():N}"[..12],
-            CoachNumber = "TEST-COACH-1",
+            CoachNumber = coachNumber,
+            BusType = BusType.Ac,
+            TotalSeats = 1,
+            Seats = new[]
+            {
+                new
+                {
+                    SeatNumber = "1A",
+                    RowNumber = 1,
+                    ColumnNumber = 1,
+                    DeckLevel = 1,
+                    SeatType = SeatType.Regular,
+                    IsWindow = true,
+                },
+            },
         };
 
         [Fact]
@@ -89,12 +106,7 @@ namespace TicketPortal.Api.Tests.Integration
             Assert.NotEqual(greenLineOperatorId, shohaghOperatorId);
 
             var managerClient = await _factory.CreateAuthenticatedClientAsync(DemoAccounts.GreenLineManager, DemoAccounts.Password);
-            var payloadForAnotherOperator = new
-            {
-                BusOperatorId = shohaghOperatorId,
-                RegistrationNumber = $"TEST-{Guid.NewGuid():N}"[..12],
-                CoachNumber = "TEST-COACH-2",
-            };
+            var payloadForAnotherOperator = ValidBusPayload(shohaghOperatorId, "TEST-COACH-2");
 
             var response = await managerClient.PostAsJsonAsync("/api/buses", payloadForAnotherOperator);
 
@@ -156,7 +168,11 @@ namespace TicketPortal.Api.Tests.Integration
 
             var response = await managerClient.PutAsJsonAsync($"/api/staffprofiles/{staffProfileId}", selfPromotionAttempt);
 
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            // Include the body in the failure message: a 400 here means the request was
+            // rejected before the self-promotion guard ran, and the body names the field.
+            var responseBody = await response.Content.ReadAsStringAsync();
+            Assert.True(response.StatusCode == HttpStatusCode.Forbidden,
+                $"Expected 403 but got {(int)response.StatusCode} {response.StatusCode}: {responseBody}");
 
             using var verifyScope = _factory.CreateScope();
             var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();

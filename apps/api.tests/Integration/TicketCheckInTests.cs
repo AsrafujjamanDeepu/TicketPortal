@@ -46,6 +46,24 @@ namespace TicketPortal.Api.Tests.Integration
             return ticketNumber!;
         }
 
+        // For the denied-case tests below: Customer (403) and anonymous (401) are rejected on
+        // who they are, before the controller ever looks at the ticket, so they must NOT depend
+        // on an Issued ticket still existing. The shared seeded database means the supervisor
+        // test above flips a ticket to CheckedIn, and if it ran first these tests would find
+        // nothing left to use (xUnit doesn't guarantee test order within a class).
+        private async Task<string> FindAnyTicketNumberAsync()
+        {
+            using var scope = _factory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var ticketNumber = await db.Tickets
+                .Select(t => t.TicketNumber)
+                .FirstOrDefaultAsync();
+
+            Assert.True(!string.IsNullOrEmpty(ticketNumber), "No tickets at all in seeded demo data — has DemoDataSeeder changed?");
+            return ticketNumber!;
+        }
+
         private static Task<HttpResponseMessage> CheckInAsync(HttpClient client, string ticketNumber) =>
             client.PostAsync($"/api/tickets/{ticketNumber}/check-in", new StringContent(string.Empty));
 
@@ -97,7 +115,7 @@ namespace TicketPortal.Api.Tests.Integration
         [Fact]
         public async Task Customer_CannotCheckInATicket()
         {
-            var ticketNumber = await FindAnIssuedTicketForOperatorOfAsync(DemoAccounts.ShohaghSupervisor);
+            var ticketNumber = await FindAnyTicketNumberAsync();
             var customerClient = await _factory.CreateAuthenticatedClientAsync(DemoAccounts.Customer, DemoAccounts.Password);
 
             var response = await CheckInAsync(customerClient, ticketNumber);
@@ -108,7 +126,7 @@ namespace TicketPortal.Api.Tests.Integration
         [Fact]
         public async Task UnauthenticatedRequest_CannotCheckInATicket()
         {
-            var ticketNumber = await FindAnIssuedTicketForOperatorOfAsync(DemoAccounts.ShohaghSupervisor);
+            var ticketNumber = await FindAnyTicketNumberAsync();
             var anonymousClient = _factory.CreateClient();
 
             var response = await CheckInAsync(anonymousClient, ticketNumber);
