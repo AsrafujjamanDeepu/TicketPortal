@@ -1,5 +1,9 @@
 using System.Runtime.CompilerServices;
+using System.Reflection;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Xunit;
 
 namespace TicketPortal.Api.Tests.Architecture
@@ -17,42 +21,17 @@ namespace TicketPortal.Api.Tests.Architecture
     //   only that it isn't using this ONE specific anti-pattern. Full authorization
     //   correctness still needs the human review this amendment also calls for.
     //
-    // As of the current codebase (chunks 1-9 applied — this file is kept in sync as work
-    // lands; see docs/RBAC_MIGRATION_GAP_REPORT.md for the full writeup and history), 42
-    // controller files still contain the broad check; 37 of those have NO permission-catalogue
-    // check anywhere in the file (fully unmigrated); 5 (Bookings, OperatorSettlements,
-    // Payments, Tickets, TripCrews) are partially migrated — some actions already use
-    // HasPermission, at least one other spot in the same file still doesn't. This baseline is
-    // the ratchet: shrink it as files get migrated, NEVER grow it, and never add a file to it
-    // to make this test pass — that defeats the entire point of a review gate.
+    // The current gap baseline is empty: all controller source files are free of this broad
+    // role-check pattern. Keep the set as an explicit migration ratchet for any documented,
+    // temporary exception, but do not add entries merely to make the gate pass.
     public class NoBroadRoleChecksTests
     {
         private static readonly Regex BroadRoleCheckPattern =
             new(@"IsInRole\(\s*""(Staff|Operator)""\s*\)", RegexOptions.Compiled);
 
-        // Keep this list alphabetical so a diff against docs/RBAC_MIGRATION_GAP_REPORT.md's
+        // Keep this list alphabetical so a diff against docs/03-Remaining-Fix-Plan.md's
         // own list is trivial to eyeball.
-        private static readonly HashSet<string> KnownGapFiles = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "ActivityLogsController.cs", "AdminController.cs", "AgentsController.cs",
-            "AuditLogsController.cs", "BookingsController.cs", "BusImagesController.cs",
-            "BusMaintenanceLogsController.cs", "BusOperatorsController.cs",
-            "CancellationPoliciesController.cs", "CancellationRequestsController.cs",
-            "ComplaintsController.cs", "CouponUsagesController.cs", "CustomerAddressesController.cs",
-            "CustomerProfilesController.cs", "CustomerWalletTransactionsController.cs",
-            "DriverLicensesController.cs", "EmergencyContactsController.cs", "FareRulesController.cs",
-            "IntegrationSyncLogsController.cs", "IntegrationWebhookLogsController.cs",
-            "LoginHistoriesController.cs", "NotificationLogsController.cs",
-            "OperatorBranchesController.cs", "OperatorRouteStopsController.cs",
-            "OperatorSettlementsController.cs", "OperatorStatementItemsController.cs",
-            "OperatorStatementsController.cs",
-            "PaymentHistoriesController.cs", "PaymentWebhookEventsController.cs",
-            "PaymentsController.cs", "PlatformLedgersController.cs", "RefundHistoriesController.cs",
-            "RefundsController.cs", "ReviewsController.cs", "SchedulesController.cs",
-            "SeatHoldItemsController.cs", "SeatHoldsController.cs", "StaffAttendancesController.cs",
-            "StaffSalariesController.cs", "TicketsController.cs", "TripCrewsController.cs",
-            "TripStatusHistoriesController.cs",
-        };
+        private static readonly HashSet<string> KnownGapFiles = new(StringComparer.OrdinalIgnoreCase);
 
         private static string GetControllersDirectory([CallerFilePath] string thisFilePath = "")
         {
@@ -81,7 +60,7 @@ namespace TicketPortal.Api.Tests.Architecture
                 var fileName = Path.GetFileName(filePath);
                 if (KnownGapFiles.Contains(fileName))
                 {
-                    continue; // Tracked, pre-existing debt — see docs/RBAC_MIGRATION_GAP_REPORT.md.
+                    continue; // Tracked, pre-existing debt — see docs/03-Remaining-Fix-Plan.md.
                 }
 
                 var content = File.ReadAllText(filePath);
@@ -97,13 +76,13 @@ namespace TicketPortal.Api.Tests.Architecture
                 "authorize via the Permissions catalogue (actor.HasPermission(...)) instead. " +
                 $"Offending file(s): {string.Join(", ", offendingFiles)}. If this file is a NEW, " +
                 "deliberate addition to the known gap list (it should not be — fix the check " +
-                "instead), that decision belongs in docs/RBAC_MIGRATION_GAP_REPORT.md with a " +
+                "instead), that decision belongs in docs/03-Remaining-Fix-Plan.md with a " +
                 "reason, not a silent edit to this test.");
         }
 
         // Informational ratchet check, not a hard failure: confirms the gap list here still
         // matches reality. If this fails because the count went DOWN, that's good news —
-        // shrink KnownGapFiles (and update docs/RBAC_MIGRATION_GAP_REPORT.md) to match. If it
+        // shrink KnownGapFiles (and update docs/03-Remaining-Fix-Plan.md) to match. If it
         // fails because a file that WAS clean now has a broad check again, that's a real
         // regression the test above should also have caught.
         [Fact]
@@ -119,13 +98,46 @@ namespace TicketPortal.Api.Tests.Architecture
             var newSinceBaseline = actualGapFiles.Except(KnownGapFiles!).ToList();
 
             Assert.True(fixedSinceBaseline.Count == 0 && newSinceBaseline.Count == 0,
-                "docs/RBAC_MIGRATION_GAP_REPORT.md's list is out of date. " +
+                "docs/03-Remaining-Fix-Plan.md's list is out of date. " +
                 (fixedSinceBaseline.Count > 0
                     ? $"Migrated since baseline (remove from KnownGapFiles + the doc): {string.Join(", ", fixedSinceBaseline)}. "
                     : "") +
                 (newSinceBaseline.Count > 0
                     ? $"New/regressed (the test above should also be failing): {string.Join(", ", newSinceBaseline)}."
                     : ""));
+        }
+
+        [Fact]
+        public void EveryRoutedControllerActionDeclaresAuthorizationOrAnonymousAccess()
+        {
+            var controllers = typeof(TicketPortal.Api.Controllers.AccountController).Assembly
+                .GetTypes()
+                .Where(type => !type.IsAbstract && typeof(ControllerBase).IsAssignableFrom(type));
+            var unprotectedActions = new List<string>();
+
+            foreach (var controller in controllers)
+            {
+                var controllerHasAuthorization = controller.IsDefined(typeof(AuthorizeAttribute), inherit: true)
+                    || controller.IsDefined(typeof(AllowAnonymousAttribute), inherit: true);
+
+                foreach (var action in controller.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
+                {
+                    var isRoutedAction = action.GetCustomAttributes(inherit: true)
+                        .Any(attribute => attribute is IActionHttpMethodProvider or RouteAttribute);
+                    if (!isRoutedAction) continue;
+
+                    var actionHasAuthorization = action.IsDefined(typeof(AuthorizeAttribute), inherit: true)
+                        || action.IsDefined(typeof(AllowAnonymousAttribute), inherit: true);
+                    if (!controllerHasAuthorization && !actionHasAuthorization)
+                    {
+                        unprotectedActions.Add($"{controller.Name}.{action.Name}");
+                    }
+                }
+            }
+
+            Assert.True(unprotectedActions.Count == 0,
+                "Routed controller action(s) lack both [Authorize] and explicit [AllowAnonymous]: " +
+                string.Join(", ", unprotectedActions));
         }
     }
 }

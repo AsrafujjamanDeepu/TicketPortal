@@ -48,4 +48,4 @@ dotnet ef database drop --force --project "$api_project" --startup-project "$api
 
 echo
 echo "Database dropped. Start the API ('npx nx run api:serve') — it will recreate the"
-echo "database, apply migrations, and reseed every demo account listed in DEMO_ACCOUNTS.md."
+echo "database, apply migrations, and reseed the demo accounts listed in docs/01-Run-and-Manual-Test-Guide.md."

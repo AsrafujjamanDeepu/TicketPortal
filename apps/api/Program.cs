@@ -6,7 +6,9 @@ using TicketPortal.Api.Services;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Formatters;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -15,6 +17,7 @@ using Microsoft.OpenApi;
 
 using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,15 +44,9 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
     options.Password.RequiredLength = 6;
     options.User.RequireUniqueEmail = true;
 
-    // Piece 4: brute-force protection. Before this, AccountController.Login only ever
-    // returned a plain 401 no matter how many times a password was guessed — nothing ever
-    // slowed an attacker down. Five wrong attempts now locks the account for 15 minutes
-    // regardless of how many more guesses arrive during that window; see
-    // AccountController.Login for where this actually gets enforced
-    // (IsLockedOutAsync / AccessFailedAsync / ResetAccessFailedCountAsync).
-    options.Lockout.MaxFailedAccessAttempts = 5;
-    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-    options.Lockout.AllowedForNewUsers = true;
+    // Login is throttled by source IP and normalized username below. Avoid per-account hard
+    // lockouts here because remote attempts must not be able to lock a privileged user out.
+    options.Lockout.AllowedForNewUsers = false;
 })
 .AddEntityFrameworkStores<AppDbContext>()
 .AddDefaultTokenProviders();
@@ -64,7 +61,8 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
 // running with ASPNETCORE_ENVIRONMENT unset to something other than Development) must supply a
 // real key via user-secrets or the JWT__SigningKey environment variable, or the API refuses to
 // start at all rather than silently issue tokens nobody can trust.
-if (!builder.Environment.IsDevelopment())
+var isTestEnvironment = builder.Environment.IsEnvironment("Testing");
+if (!builder.Environment.IsDevelopment() && !isTestEnvironment)
 {
     var signingKey = builder.Configuration["JWT:SigningKey"];
     var looksLikeAPlaceholder = string.IsNullOrWhiteSpace(signingKey)
@@ -78,8 +76,22 @@ if (!builder.Environment.IsDevelopment())
             "JWT:SigningKey is missing, a placeholder, or shorter than 32 characters. Set a real " +
             "value via 'dotnet user-secrets set \"JWT:SigningKey\" \"...\"' or the JWT__SigningKey " +
             "environment variable before starting the API outside Development. See " +
-            "SETUP_AND_DEMO_GUIDE.md, \"First-time secrets setup\".");
+            "docs/01-Run-and-Manual-Test-Guide.md, \"First-time secrets setup\".");
     }
+}
+
+var accessTokenMinutes = builder.Configuration.GetValue<int?>("Auth:AccessTokenMinutes") ?? 15;
+if (accessTokenMinutes is < 1 or > 60)
+{
+    throw new InvalidOperationException("Auth:AccessTokenMinutes must be between 1 and 60.");
+}
+
+if (builder.Environment.IsProduction()
+    && builder.Configuration.GetValue("Payments:DemoMode", false)
+    && !builder.Configuration.GetValue("Payments:AllowDemoInProduction", false))
+{
+    throw new InvalidOperationException(
+        "Payments:DemoMode cannot be enabled in Production unless Payments:AllowDemoInProduction is explicitly true.");
 }
 
 // ============================================================
@@ -162,9 +174,25 @@ builder.Services.AddAuthentication(options =>
             var userManager = context.HttpContext.RequestServices
                 .GetRequiredService<UserManager<ApplicationUser>>();
             var user = await userManager.FindByIdAsync(userId.ToString());
-            if (user is null || !user.IsActive)
+            var tokenSecurityStamp = context.Principal?.FindFirstValue("security_stamp");
+            var currentSecurityStamp = user is null
+                ? null
+                : await userManager.GetSecurityStampAsync(user);
+
+            if (user is null || !user.IsActive
+                || string.IsNullOrWhiteSpace(tokenSecurityStamp)
+                || !string.Equals(tokenSecurityStamp, currentSecurityStamp, StringComparison.Ordinal))
             {
-                context.Fail("The account for this token no longer exists or has been disabled.");
+                context.Fail("The account or security state for this token is no longer valid.");
+                return;
+            }
+
+            var requiresBootstrapPasswordChange = context.Principal?.HasClaim(
+                DbSeeder.MustChangeBootstrapPasswordClaim, "true") == true;
+            if (requiresBootstrapPasswordChange
+                && !context.Request.Path.Equals("/api/account/change-password", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Fail("The bootstrap password must be changed before using the application.");
             }
         }
     };
@@ -172,6 +200,61 @@ builder.Services.AddAuthentication(options =>
 
 
 builder.Services.AddAuthorization();
+
+builder.Services.AddRateLimiter(options =>
+{
+    // Integration tests share an in-memory server IP and seeded demo users across parallel
+    // tests. Keep the middleware and policies active there, but avoid cross-test throttling;
+    // production and developer-host limits remain the configured values below.
+    var testPermitMultiplier = isTestEnvironment ? 1000 : 1;
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            title = "Too many requests",
+            status = StatusCodes.Status429TooManyRequests,
+            detail = "Please wait before trying again."
+        }, cancellationToken);
+    };
+
+    static FixedWindowRateLimiterOptions Window(int permitLimit, TimeSpan window) => new()
+    {
+        PermitLimit = permitLimit,
+        Window = window,
+        QueueLimit = 0,
+        AutoReplenishment = true
+    };
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
+    {
+        var ip = http.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown";
+        var isLogin = http.Request.Path.Equals("/api/account/login", StringComparison.OrdinalIgnoreCase);
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"{(isLogin ? "login" : "general")}:{ip}",
+            // Keep a broad source-IP ceiling for shared networks and test hosts; the much
+            // tighter per-normalized-username policy below is the primary login-abuse control.
+            _ => Window((isLogin ? 120 : 600) * testPermitMultiplier, TimeSpan.FromMinutes(1)));
+    });
+
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
+        $"login-user:{context.Items["TicketPortal.LoginRateLimitName"] ?? "unknown"}",
+        _ => Window(10 * testPermitMultiplier, TimeSpan.FromMinutes(10))));
+
+    options.AddPolicy("register", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown",
+        _ => Window(5 * testPermitMultiplier, TimeSpan.FromMinutes(1))));
+    options.AddPolicy("password-reset", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown",
+        _ => Window(3 * testPermitMultiplier, TimeSpan.FromMinutes(10))));
+    options.AddPolicy("holds", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown",
+        _ => Window(30 * testPermitMultiplier, TimeSpan.FromMinutes(1))));
+    options.AddPolicy("anonymous-read", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown",
+        _ => Window(120 * testPermitMultiplier, TimeSpan.FromMinutes(1))));
+});
 
 // Real-time (SignalR) — see REALTIME_SIGNALR_PLAN.md. Chunk 1: the authenticated hub endpoint.
 // Chunk 2: the change-capture services (attached to the DbContext in section 1). Switch the
@@ -360,8 +443,9 @@ app.UseExceptionHandler(errorApp =>
         var (statusCode, message) = exception switch
         {
             SeatsUnavailableException ex => (StatusCodes.Status409Conflict, ex.Message),
-            ArgumentException ex => (StatusCodes.Status400BadRequest, ex.Message),
-            InvalidOperationException ex => (StatusCodes.Status400BadRequest, ex.Message),
+            TicketPortal.Api.Services.BusinessRuleException ex => (ex.StatusCode, ex.Message),
+            ArgumentException => (StatusCodes.Status400BadRequest, "The request is invalid."),
+            InvalidOperationException => (StatusCodes.Status400BadRequest, "The request cannot be completed."),
             DbUpdateException => (StatusCodes.Status500InternalServerError,
                 "A database error occurred while saving your changes."),
             _ => (StatusCodes.Status500InternalServerError,
@@ -376,9 +460,16 @@ app.UseExceptionHandler(errorApp =>
         }
 
         context.Response.StatusCode = statusCode;
-        context.Response.ContentType = "application/json";
-
-        await context.Response.WriteAsJsonAsync(new { message });
+        context.Response.ContentType = "application/problem+json";
+        var problem = new ProblemDetails
+        {
+            Status = statusCode,
+            Title = statusCode >= 500 ? "Server error" : "Request error",
+            Detail = message,
+            Instance = context.Request.Path
+        };
+        problem.Extensions["traceId"] = System.Diagnostics.Activity.Current?.Id ?? context.TraceIdentifier;
+        await context.Response.WriteAsJsonAsync(problem);
     });
 });
 
@@ -409,6 +500,12 @@ using (var scope = app.Services.CreateScope())
     {
         await db.Database.MigrateAsync();
 
+        await PassengerIdPhotoMigration.MoveToPrivateStorageAsync(
+            db,
+            scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>(),
+            app.Configuration,
+            startupLogger);
+
         await DbSeeder.SeedReferenceDataAsync(db);
 
         // Piece 1: real roles + a bootstrap Admin account. Must run in this order — the Admin
@@ -417,16 +514,27 @@ using (var scope = app.Services.CreateScope())
         // Development: also repairs a stale/locked/re-passworded "admin" row left in a reused
         // local database (see DbSeeder.SeedAdminUserAsync). Never true in Production, so a
         // real admin's rotated password is never reset.
-        await DbSeeder.SeedAdminUserAsync(
-            userManager,
-            startupLogger,
-            repairDevelopmentCredentials: app.Environment.IsDevelopment());
+        if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+        {
+            await DbSeeder.SeedAdminUserAsync(
+                userManager,
+                startupLogger,
+                repairDevelopmentCredentials: true);
+        }
+        else
+        {
+            await DbSeeder.SeedConfiguredBootstrapAdminAsync(
+                userManager,
+                app.Configuration,
+                startupLogger);
+            await DbSeeder.EnsureNoDefaultBootstrapPasswordAsync(userManager);
+        }
 
         // Rich demo dataset (operators, fleets, staff, trips, bookings, the finance cycle,
         // marketing, integrations, etc.) so the whole app can be clicked through end-to-end.
         // Only runs in Development, and only if BusOperators is still empty - see
         // DemoDataSeeder.SeedAsync for the exact guard.
-        if (app.Environment.IsDevelopment())
+        if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
         {
             await DemoDataSeeder.SeedAsync(db, userManager, app.Configuration);
         }
@@ -507,7 +615,7 @@ contentTypeProvider.Mappings[".svg"] = "image/svg+xml";
 // 11. Swagger
 // ============================================================
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 {
     app.UseSwagger();
 
@@ -530,6 +638,16 @@ app.UseHttpsRedirection();
 // ============================================================
 // 13. Static Files
 // ============================================================
+
+// Older national-ID uploads used this predictable public prefix. Block requests immediately,
+// including during the first startup before the idempotent move below finishes.
+app.UseWhen(
+    context => context.Request.Path.StartsWithSegments("/images/passenger_", StringComparison.OrdinalIgnoreCase),
+    branch => branch.Run(context =>
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return Task.CompletedTask;
+    }));
 
 app.UseStaticFiles(
     new StaticFileOptions
@@ -554,6 +672,54 @@ app.UseStaticFiles(
 // that preflight carries no JWT, so if UseCors ran any later than this, the preflight itself
 // would get rejected and Angular would never even get to send the real, authenticated request.
 app.UseCors(AngularClientPolicy);
+
+// Rate-limit login by both source address and submitted username. Buffer only this small JSON
+// request so the endpoint model binder still receives the original body.
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path.Equals("/api/account/login", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Items["TicketPortal.LoginRateLimitName"] = "unknown";
+        if (context.Request.ContentLength is > 8192)
+        {
+            context.Items["TicketPortal.LoginRateLimitName"] = "oversized";
+        }
+        else
+        {
+            context.Request.EnableBuffering(bufferThreshold: 8192, bufferLimit: 8192);
+        try
+        {
+            using var document = await System.Text.Json.JsonDocument.ParseAsync(context.Request.Body);
+            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    if (!property.Name.Equals("userName", StringComparison.OrdinalIgnoreCase)
+                        || property.Value.ValueKind != System.Text.Json.JsonValueKind.String)
+                        continue;
+
+                    var normalized = property.Value.GetString()?.Trim().ToUpperInvariant() ?? "unknown";
+                    context.Items["TicketPortal.LoginRateLimitName"] = normalized[..Math.Min(128, normalized.Length)];
+                    break;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is System.Text.Json.JsonException or IOException)
+        {
+            context.Items["TicketPortal.LoginRateLimitName"] = "invalid";
+        }
+        finally
+        {
+            context.Request.Body.Position = 0;
+        }
+        }
+    }
+
+    await next();
+});
+
+app.UseRateLimiter();
 
 
 // ============================================================

@@ -8,6 +8,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TicketPortal.Api.Models.Bookings;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.StaticFiles;
+using TicketPortal.Api.Services;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -37,7 +40,11 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class BookingsController(AppDbContext db, IWebHostEnvironment env, ICurrentActorService currentActor) : ControllerBase
+    public class BookingsController(
+        AppDbContext db,
+        IWebHostEnvironment env,
+        ICurrentActorService currentActor,
+        IConfiguration configuration) : ControllerBase
     {
         // See BusesController.GetAll for why materializing (.ToListAsync()) has to happen
         // BEFORE mapping with ToResponseDto — EF Core can't translate that method into SQL.
@@ -51,24 +58,20 @@ namespace TicketPortal.Api.Controllers
         {
             var query = db.Bookings.Include(b => b.Passengers).AsQueryable();
 
-            if (User.IsInRole("Admin"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasAnyPermission(Permissions.BookingRead, Permissions.BookingManage))
             {
-                // No restriction.
-            }
-            else if (User.IsInRole("Staff") || User.IsInRole("Operator"))
-            {
-                var operatorId = await GetCallerBusOperatorIdAsync();
-                if (operatorId.HasValue)
+                if (!actor.IsAdmin && actor.BusOperatorId.HasValue)
                 {
-                    query = query.Where(b => b.BusOperatorId == operatorId.Value);
+                    query = query.Where(b => b.BusOperatorId == actor.BusOperatorId.Value);
                 }
-                // null => platform staff, no restriction.
             }
-            else
+            else if (actor.Type == ActorType.Customer)
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId);
             }
+            else return Ok(Array.Empty<BookingResponseDto>());
 
             var bookings = await query.ToListAsync();
             return Ok(bookings.Select(ToResponseDto));
@@ -86,7 +89,7 @@ namespace TicketPortal.Api.Controllers
 
                 if (booking == null) return NotFound();
 
-                if (!await CanAccessBookingAsync(booking)) return Forbid();
+                if (!await CanAccessBookingAsync(booking, requireManage: false)) return Forbid();
 
                 return Ok(ToResponseDto(booking));
               }
@@ -125,6 +128,7 @@ namespace TicketPortal.Api.Controllers
             // =========================================================
             var hold = await db.SeatHolds
                 .Include(h => h.Items)
+                    .ThenInclude(item => item.TripSeat)
                 .FirstOrDefaultAsync(h => h.HoldToken == dto.HoldToken);
 
             if (hold == null)
@@ -142,6 +146,17 @@ namespace TicketPortal.Api.Controllers
                 return Forbid();
             }
 
+            // Idempotent request replay: once a booking has been created, its hold is no
+            // longer Active. Return the existing resource before validating the hold's current
+            // state so a lost HTTP response or client retry does not look like a failed create.
+            var existingBooking = await db.Bookings
+                .Include(b => b.Passengers)
+                .FirstOrDefaultAsync(b => b.SeatHoldId == hold.Id);
+            if (existingBooking != null)
+            {
+                return Ok(ToResponseDto(existingBooking));
+            }
+
             if (hold.Status != SeatHoldStatus.Active || hold.HoldExpiresAtUtc <= DateTime.UtcNow)
             {
                 return Conflict(new { message = "This seat hold has expired or is no longer active. Please reselect seats and try again." });
@@ -150,12 +165,6 @@ namespace TicketPortal.Api.Controllers
             if (hold.Items.Count == 0)
             {
                 return Conflict(new { message = "This seat hold has no seats attached." });
-            }
-
-            var alreadyBooked = await db.Bookings.AnyAsync(b => b.SeatHoldId == hold.Id);
-            if (alreadyBooked)
-            {
-                return Conflict(new { message = "This seat hold has already been converted into a booking." });
             }
 
             // =========================================================
@@ -172,8 +181,29 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
+            var requestedSeatIds = dto.Passengers.Select(p => p.TripSeatId).ToList();
+            List<Guid> passengerSeatIds;
+            if (requestedSeatIds.Any(id => id.HasValue))
+            {
+                if (requestedSeatIds.Any(id => id is null)
+                    || requestedSeatIds.Select(id => id!.Value).Distinct().Count() != requestedSeatIds.Count
+                    || !requestedSeatIds.Select(id => id!.Value).ToHashSet()
+                        .SetEquals(hold.Items.Select(item => item.TripSeatId)))
+                {
+                    return BadRequest(new { message = "Each passenger must reference a different seat from this hold." });
+                }
+                passengerSeatIds = requestedSeatIds.Select(id => id!.Value).ToList();
+            }
+            else
+            {
+                // Backward compatibility for clients that have not yet started sending a seat
+                // reference. Freeze a deterministic assignment at booking creation time.
+                passengerSeatIds = hold.Items.OrderBy(item => item.TripSeat.SeatNumber, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.TripSeatId).Select(item => item.TripSeatId).ToList();
+            }
+
             var subTotal = hold.Items.Sum(i => i.FareAtHold);
-            var taxAmount = await ResolveTaxAsync(subTotal);
+            var taxAmount = await BookingTaxCalculator.CalculateAsync(db, subTotal);
 
             // =========================================================
             // 4. Counter sale (concept doc §3.1/§6.2): only reachable by Staff/Admin for the
@@ -268,8 +298,9 @@ namespace TicketPortal.Api.Controllers
                 RequiresExternalConfirmation = trip.InventoryMode != OperatorInventoryMode.PlatformManaged,
                 ExpiresAtUtc = hold.HoldExpiresAtUtc,
 
-                Passengers = dto.Passengers.Select(p => new BookingPassenger
+                Passengers = dto.Passengers.Select((p, index) => new BookingPassenger
                 {
+                    TripSeatId = passengerSeatIds[index],
                     FullName = p.FullName,
                     Phone = p.Phone,
                     Email = p.Email,
@@ -287,17 +318,37 @@ namespace TicketPortal.Api.Controllers
 
             db.Bookings.Add(booking);
 
-            try
+            for (var pnrAttempt = 0; ; pnrAttempt++)
             {
-                await db.SaveChangesAsync();
-            }
-            catch (DbUpdateException ex)
-            {
-                return Conflict(new
+                try
                 {
-                    message = "Could not save this Booking — check BoardingTerminalId/DroppingTerminalId are valid.",
-                    detail = ex.InnerException?.Message
-                });
+                    await db.SaveChangesAsync();
+                    break;
+                }
+                catch (DbUpdateException ex) when (pnrAttempt < 4
+                    && ex.GetBaseException().Message.Contains("IX_Bookings_Pnr", StringComparison.OrdinalIgnoreCase))
+                {
+                    booking.Pnr = GeneratePnr();
+                }
+                catch (DbUpdateException ex) when (
+                    ex.GetBaseException().Message.Contains("IX_Bookings_SeatHoldId", StringComparison.OrdinalIgnoreCase))
+                {
+                    // The filtered unique index is part of the existing schema. The read
+                    // above handles ordinary retries; this recovers the concurrent-create race.
+                    var winner = await db.Bookings
+                        .Include(b => b.Passengers)
+                        .FirstOrDefaultAsync(b => b.SeatHoldId == hold.Id);
+                    if (winner != null) return Ok(ToResponseDto(winner));
+                    throw;
+                }
+                catch (DbUpdateException ex)
+                {
+                    return Conflict(new
+                    {
+                        message = "Could not save this Booking — check BoardingTerminalId/DroppingTerminalId are valid.",
+                        detail = ex.InnerException?.Message
+                    });
+                }
             }
 
             return CreatedAtAction(nameof(GetById), new { id = booking.Id }, ToResponseDto(booking));
@@ -321,7 +372,7 @@ namespace TicketPortal.Api.Controllers
             // ----------------------------------------
             // Authorization — ownership/operator scoping
             // ----------------------------------------
-            if (!await CanAccessBookingAsync(booking))
+            if (!await CanAccessBookingAsync(booking, requireManage: true))
             {
                 return Forbid();
             }
@@ -479,7 +530,7 @@ namespace TicketPortal.Api.Controllers
             var booking = await db.Bookings.Include(b => b.Passengers).FirstOrDefaultAsync(b => b.Id == id);
             if (booking == null) return NotFound();
 
-            if (!await CanAccessBookingAsync(booking)) return Forbid();
+            if (!await CanAccessBookingAsync(booking, requireManage: true)) return Forbid();
 
             // BookingPassenger is a pure detail of this Booking — Restrict never cascades it.
             db.BookingPassengers.RemoveRange(booking.Passengers);
@@ -510,7 +561,7 @@ namespace TicketPortal.Api.Controllers
             var booking = await db.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId);
             if (booking == null) return NotFound();
 
-            if (!await CanAccessBookingAsync(booking)) return Forbid();
+            if (!await CanAccessBookingAsync(booking, requireManage: true)) return Forbid();
 
             var passenger = await db.BookingPassengers
                 .FirstOrDefaultAsync(p => p.Id == passengerId && p.BookingId == bookingId);
@@ -519,20 +570,54 @@ namespace TicketPortal.Api.Controllers
             var validationError = TicketPortal.Api.Extensions.FileUploadValidation.Validate(file);
             if (validationError != null) return validationError;
 
-            var fileName = $"passenger_{passengerId}_{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
-            var path = Path.Combine(env.WebRootPath!, "images", fileName);
+            var fileName = $"{Guid.NewGuid():N}{Path.GetExtension(file.FileName).ToLowerInvariant()}";
+            var privateRoot = TicketPortal.Api.Services.PassengerIdPhotoMigration.ResolvePrivateRoot(configuration, env);
+            Directory.CreateDirectory(privateRoot);
+            var path = Path.Combine(privateRoot, fileName);
             await using (var stream = System.IO.File.Create(path))
             {
                 await file.CopyToAsync(stream);
             }
 
-            passenger.NationalIdPhotoUrl = $"/images/{fileName}";
+            passenger.NationalIdPhotoUrl = $"private/{fileName}";
             await db.SaveChangesAsync();
-            return Ok(new { imageUrl = passenger.NationalIdPhotoUrl });
+            return Ok(new { imageUrl = $"/api/bookings/{bookingId}/passengers/{passengerId}/images" });
         }
 
-        private static string GeneratePnr() =>
-            "PNR" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        [HttpGet("{bookingId}/passengers/{passengerId}/images")]
+        public async Task<IActionResult> GetPassengerIdPhoto(Guid bookingId, Guid passengerId)
+        {
+            var booking = await db.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId);
+            if (booking == null) return NotFound();
+            if (!await CanAccessBookingAsync(booking, requireManage: false)) return Forbid();
+
+            var passenger = await db.BookingPassengers
+                .FirstOrDefaultAsync(p => p.Id == passengerId && p.BookingId == bookingId);
+            if (passenger?.NationalIdPhotoUrl is not { } reference
+                || !reference.StartsWith("private/", StringComparison.Ordinal))
+                return NotFound();
+
+            var fileName = Path.GetFileName(reference);
+            if (string.IsNullOrWhiteSpace(fileName) || fileName is "." or "..") return NotFound();
+            var path = Path.Combine(
+                TicketPortal.Api.Services.PassengerIdPhotoMigration.ResolvePrivateRoot(configuration, env),
+                fileName);
+            if (!System.IO.File.Exists(path)) return NotFound();
+
+            var types = new FileExtensionContentTypeProvider();
+            if (!types.TryGetContentType(fileName, out var contentType)) return NotFound();
+            Response.Headers.CacheControl = "private, no-store";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return PhysicalFile(path, contentType);
+        }
+
+        private static string GeneratePnr()
+        {
+            const string alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+            var reference = string.Concat(Enumerable.Range(0, 10)
+                .Select(_ => alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)]));
+            return "TP" + reference;
+        }
 
         // A booking is always made by a customer, so this is the right place to lazily
         // provision a CustomerProfile — nothing does it at registration time, since
@@ -559,33 +644,6 @@ namespace TicketPortal.Api.Controllers
             return profile.Id;
         }
 
-        // Modeled on PaymentConfirmationService.ResolveCommissionAsync's shape (find the
-        // applicable configuration, compute an amount off a base figure) — but adapted to what
-        // TaxRule actually stores. Unlike CommissionRule, TaxRule carries no BusOperatorId /
-        // BusRouteId / EffectiveFrom-EffectiveTo window (see Models/Payments/TaxRule.cs) — it's
-        // a flat, platform-wide reference table with just Name/Percentage/IsActive. So there's
-        // no "route-specific beats general" to resolve yet: every currently-active TaxRule is
-        // taken to apply to every booking, and their percentages stack (e.g. a VAT rule and a
-        // separate travel-tax rule can both be active at once). If tax ever needs to vary by
-        // operator or route, TaxRule needs those columns first — this only resolves what the
-        // schema supports today. No matching rule (table empty / nothing active) intentionally
-        // returns 0m, the same effective behavior as before this was wired in.
-        private async Task<decimal> ResolveTaxAsync(decimal subTotal)
-        {
-            var activePercentages = await db.TaxRules
-                .Where(t => t.IsActive)
-                .Select(t => t.Percentage)
-                .ToListAsync();
-
-            if (activePercentages.Count == 0)
-            {
-                return 0m;
-            }
-
-            var combinedPercentage = activePercentages.Sum();
-            return Math.Round(subTotal * (combinedPercentage / 100m), 2);
-        }
-
         // =========================================================
         // Auth helpers — duplicated per-controller (see the same note in TripsController)
         // until Piece 1 introduces a shared ClaimsPrincipalExtensions.GetBusOperatorId helper.
@@ -597,30 +655,21 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private async Task<Guid?> GetCallerBusOperatorIdAsync()
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return null;
-
-            return await db.StaffProfiles
-                .Where(sp => sp.UserId == userId.Value)
-                .Select(sp => sp.BusOperatorId)
-                .FirstOrDefaultAsync();
-        }
-
         // Admin: any booking. Staff scoped to one operator: only that operator's bookings
         // (BusOperatorId, resolved server-side from the Trip at Create time — see above).
         // Platform Staff (StaffProfile.BusOperatorId == null): any booking, same as Admin.
         // Everyone else: only a booking tied to their own CustomerProfile.
-        private async Task<bool> CanAccessBookingAsync(Booking booking)
+        private async Task<bool> CanAccessBookingAsync(Booking booking, bool requireManage)
         {
-            if (User.IsInRole("Admin")) return true;
-
-            if (User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (actor.Type == ActorType.Staff)
             {
-                var operatorId = await GetCallerBusOperatorIdAsync();
-                return operatorId == null || operatorId == booking.BusOperatorId;
+                return (requireManage ? actor.HasPermission(Permissions.BookingManage)
+                        : actor.HasAnyPermission(Permissions.BookingRead, Permissions.BookingManage))
+                    && actor.CanManageOperator(booking.BusOperatorId);
             }
+            if (actor.Type != ActorType.Customer) return false;
 
             var userId = GetCurrentUserId();
             if (userId == null || booking.CustomerProfileId == null) return false;
@@ -638,14 +687,17 @@ namespace TicketPortal.Api.Controllers
         // same as everywhere else.
         private async Task<bool> CanAccessHoldAsync(SeatHold hold)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.BookingManage))
             {
                 var operatorId = await db.Trips
                     .Where(t => t.Id == hold.TripId)
                     .Select(t => (Guid?)t.BusOperatorId)
                     .FirstOrDefaultAsync();
-                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+                return operatorId != null && actor.CanManageOperator(operatorId.Value);
             }
+
+            if (actor.Type != ActorType.Customer) return false;
 
             var userId = GetCurrentUserId();
             return userId != null && hold.HeldByUserId == userId;
@@ -690,6 +742,7 @@ namespace TicketPortal.Api.Controllers
          .Select(p => new BookingPassengerResponseDto
          {
              Id = p.Id,
+             TripSeatId = p.TripSeatId,
              FullName = p.FullName,
              Phone = p.Phone,
              Email = p.Email,
@@ -697,7 +750,9 @@ namespace TicketPortal.Api.Controllers
              PassengerType = p.PassengerType,
              Age = p.Age,
              NationalIdNumber = p.NationalIdNumber,
-             NationalIdPhotoUrl = p.NationalIdPhotoUrl
+              NationalIdPhotoUrl = p.NationalIdPhotoUrl == null
+                  ? null
+                  : $"/api/bookings/{booking.Id}/passengers/{p.Id}/images"
          })
          .ToList(),
 

@@ -82,6 +82,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(OperatorPayoutCreateDto dto)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.PayoutRequest)) return Forbid();
             if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId)) return Forbid();
 
             try
@@ -187,7 +188,8 @@ namespace TicketPortal.Api.Controllers
             var exists = await db.OperatorPayouts.AnyAsync(p => p.Id == payoutId);
             if (!exists) return AccessResult.NotFound;
 
-            return await User.IsPlatformStaffOrAdminAsync(db)
+            if (!await User.IsPlatformStaffOrAdminAsync(db)) return AccessResult.Forbidden;
+            return await User.HasPermissionAsync(db, Permissions.PayoutProcess)
                 ? AccessResult.Ok
                 : AccessResult.Forbidden;
         }

@@ -40,6 +40,12 @@ namespace TicketPortal.Api.Services
                     $"Booking {bookingId} is {booking.Status} and can no longer have a coupon applied.");
             }
 
+            if (await _db.Payments.AnyAsync(p => p.BookingId == bookingId))
+            {
+                throw new InvalidOperationException(
+                    $"Booking {bookingId} already has a payment attempt; its total can no longer be changed.");
+            }
+
             if (!coupon.IsActive)
             {
                 throw new InvalidOperationException($"Coupon '{coupon.Code}' is not active.");
@@ -90,7 +96,7 @@ namespace TicketPortal.Api.Services
             var discount = coupon.Type switch
             {
                 CouponType.FixedAmount => coupon.DiscountAmount ?? 0m,
-                CouponType.Percentage => booking.GrandTotal * ((coupon.DiscountPercentage ?? 0m) / 100m),
+                CouponType.Percentage => booking.SubTotal * ((coupon.DiscountPercentage ?? 0m) / 100m),
                 _ => 0m
             };
 
@@ -99,9 +105,9 @@ namespace TicketPortal.Api.Services
                 discount = Math.Min(discount, coupon.MaxDiscountAmount.Value);
             }
 
-            // A discount can never exceed what the booking is actually worth — guards against
-            // a large FixedAmount coupon pushing the effective total negative.
-            discount = Math.Round(Math.Min(discount, booking.GrandTotal), 2);
+            // Demo coupons are operator-funded fare discounts, so they cannot discount tax or
+            // make the fare base negative.
+            discount = Math.Round(Math.Max(0m, Math.Min(discount, booking.SubTotal)), 2, MidpointRounding.AwayFromZero);
 
             var usage = new CouponUsage
             {
@@ -123,6 +129,8 @@ namespace TicketPortal.Api.Services
             // TaxAmount, kept in one place so the two pricing paths can't drift apart.
             booking.CouponId = couponId;
             booking.DiscountAmount = discount;
+            booking.TaxAmount = await BookingTaxCalculator.CalculateAsync(
+                _db, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
             booking.RecomputeTotals();
 
             try

@@ -123,6 +123,9 @@ interface ActionTarget {
                         @if (item.status === 'Approved') {
                           <button tpButton variant="primary" size="sm" (click)="processRefund(item)">Process</button>
                         }
+                        @if (item.status === 'Failed') {
+                          <button tpButton variant="primary" size="sm" (click)="retryRefund(item)">Retry</button>
+                        }
                         @if (item.status === 'PendingManualPayout') {
                           <button tpButton variant="primary" size="sm" (click)="openAction('manualPayout', item.id)">Manual Payout</button>
                         }
@@ -377,6 +380,13 @@ export class CancellationsRefundsComponent implements OnInit {
   protected processRefund(item: Refund): void {
     this.refundsService.process(item.id).subscribe(() => {
       this.toast.success('Refund processed.');
+      this.refreshRefunds();
+    });
+  }
+
+  protected retryRefund(item: Refund): void {
+    this.refundsService.retry(item.id).subscribe(() => {
+      this.toast.success('Refund retry is ready to process.');
       this.refreshRefunds();
     });
   }

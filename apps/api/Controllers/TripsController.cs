@@ -6,6 +6,7 @@ using TicketPortal.Api.Models.Scheduling;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using TicketPortal.Api.Models.Enums;
@@ -116,6 +117,7 @@ namespace TicketPortal.Api.Controllers
 
     [AllowAnonymous]
         [HttpGet("search")]
+        [EnableRateLimiting("anonymous-read")]
         public async Task<IActionResult> Search(
             [FromQuery] Guid fromTerminalId,
             [FromQuery] Guid toTerminalId,

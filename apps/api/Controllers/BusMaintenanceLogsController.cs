@@ -4,6 +4,7 @@
 // Admin/Staff/Operator role-gate note.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.BusFleet;
@@ -21,7 +22,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            if (!await User.HasPermissionAsync(db, Permissions.FleetRead))
             {
                 return Ok(Array.Empty<BusMaintenanceLogResponseDto>());
             }
@@ -41,7 +42,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FleetRead)) return Forbid();
 
             var item = await db.BusMaintenanceLogs.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
@@ -68,7 +69,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(BusMaintenanceLogCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FleetManage)) return Forbid();
 
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
@@ -105,7 +106,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, BusMaintenanceLogUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FleetManage)) return Forbid();
 
             var item = await db.BusMaintenanceLogs.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "BusMaintenanceLog not found." });
@@ -173,7 +174,7 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FleetManage)) return Forbid();
 
             var item = await db.BusMaintenanceLogs.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

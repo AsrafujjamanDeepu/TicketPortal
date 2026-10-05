@@ -298,7 +298,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripId", "Status");
 
-                    b.ToTable("Bookings");
+                    b.ToTable("Bookings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.BookingPassenger", b =>
@@ -365,6 +365,9 @@ namespace TicketPortal.Api.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
+                    b.Property<Guid?>("TripSeatId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("datetime2");
 
@@ -375,7 +378,9 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BookingId");
 
-                    b.ToTable("BookingPassengers");
+                    b.HasIndex("TripSeatId");
+
+                    b.ToTable("BookingPassengers", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.CancellationPolicy", b =>
@@ -440,7 +445,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId");
 
-                    b.ToTable("CancellationPolicies");
+                    b.ToTable("CancellationPolicies", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.CancellationPolicyRule", b =>
@@ -497,7 +502,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("CancellationPolicyId");
 
-                    b.ToTable("CancellationPolicyRules");
+                    b.ToTable("CancellationPolicyRules", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.CancellationRequest", b =>
@@ -584,7 +589,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TicketId");
 
-                    b.ToTable("CancellationRequests");
+                    b.ToTable("CancellationRequests", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.SeatHold", b =>
@@ -659,7 +664,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripId", "Status", "HoldExpiresAtUtc");
 
-                    b.ToTable("SeatHolds");
+                    b.ToTable("SeatHolds", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.SeatHoldItem", b =>
@@ -712,7 +717,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("SeatHoldId", "TripSeatId")
                         .IsUnique();
 
-                    b.ToTable("SeatHoldItems");
+                    b.ToTable("SeatHoldItems", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.Ticket", b =>
@@ -786,6 +791,10 @@ namespace TicketPortal.Api.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("TicketNumber")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -817,7 +826,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("TripSeatId")
                         .HasFilter("[Status] <> 5 AND [Status] <> 6");
 
-                    b.ToTable("Tickets");
+                    b.ToTable("Tickets", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.Bus", b =>
@@ -918,7 +927,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusOperatorId", "RegistrationNumber")
                         .IsUnique();
 
-                    b.ToTable("Buses");
+                    b.ToTable("Buses", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.BusAmenity", b =>
@@ -968,7 +977,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("BusAmenities");
+                    b.ToTable("BusAmenities", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.BusAmenityMapping", b =>
@@ -990,7 +999,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusId", "BusAmenityId")
                         .IsUnique();
 
-                    b.ToTable("BusAmenityMappings");
+                    b.ToTable("BusAmenityMappings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.BusCategory", b =>
@@ -1040,7 +1049,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("BusCategories");
+                    b.ToTable("BusCategories", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.BusImage", b =>
@@ -1098,7 +1107,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusId");
 
-                    b.ToTable("BusImages");
+                    b.ToTable("BusImages", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.BusMaintenanceLog", b =>
@@ -1167,7 +1176,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusId");
 
-                    b.ToTable("BusMaintenanceLogs");
+                    b.ToTable("BusMaintenanceLogs", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.BusFleet.Seat", b =>
@@ -1238,7 +1247,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusId", "SeatNumber")
                         .IsUnique();
 
-                    b.ToTable("Seats");
+                    b.ToTable("Seats", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.BusOperator", b =>
@@ -1350,7 +1359,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("BusOperators");
+                    b.ToTable("BusOperators", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.BusRoute", b =>
@@ -1431,7 +1440,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("OriginTerminalId", "DestinationTerminalId")
                         .IsUnique();
 
-                    b.ToTable("BusRoutes");
+                    b.ToTable("BusRoutes", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.OperatorBranch", b =>
@@ -1499,7 +1508,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId");
 
-                    b.ToTable("OperatorBranches");
+                    b.ToTable("OperatorBranches", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.OperatorRoute", b =>
@@ -1566,7 +1575,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusOperatorId", "OperatorRouteCode")
                         .IsUnique();
 
-                    b.ToTable("OperatorRoutes");
+                    b.ToTable("OperatorRoutes", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.OperatorRouteStop", b =>
@@ -1636,7 +1645,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("OperatorRouteId", "TerminalId");
 
-                    b.ToTable("OperatorRouteStops");
+                    b.ToTable("OperatorRouteStops", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.OperatorSetting", b =>
@@ -1693,7 +1702,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId");
 
-                    b.ToTable("OperatorSettings");
+                    b.ToTable("OperatorSettings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.RouteStop", b =>
@@ -1761,7 +1770,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusRouteId", "StopOrder")
                         .IsUnique();
 
-                    b.ToTable("RouteStops");
+                    b.ToTable("RouteStops", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.CompanyNetwork.Terminal", b =>
@@ -1850,7 +1859,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("City", "District");
 
-                    b.ToTable("Terminals");
+                    b.ToTable("Terminals", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Configuration.Language", b =>
@@ -1907,7 +1916,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Languages");
+                    b.ToTable("Languages", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Configuration.SystemSetting", b =>
@@ -1959,7 +1968,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("SystemSettings");
+                    b.ToTable("SystemSettings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Diagnostics.ActivityLog", b =>
@@ -2019,7 +2028,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ActivityLogs");
+                    b.ToTable("ActivityLogs", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Diagnostics.AuditLog", b =>
@@ -2067,7 +2076,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("AuditLogs");
+                    b.ToTable("AuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Diagnostics.LoginHistory", b =>
@@ -2097,7 +2106,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("LoginHistories");
+                    b.ToTable("LoginHistories", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Diagnostics.NotificationLog", b =>
@@ -2181,7 +2190,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("NotificationLogs");
+                    b.ToTable("NotificationLogs", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.CommissionRule", b =>
@@ -2253,7 +2262,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId", "SaleChannel", "EffectiveFrom");
 
-                    b.ToTable("CommissionRules");
+                    b.ToTable("CommissionRules", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorContract", b =>
@@ -2321,7 +2330,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusOperatorId", "ContractNo")
                         .IsUnique();
 
-                    b.ToTable("OperatorContracts");
+                    b.ToTable("OperatorContracts", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorInvoice", b =>
@@ -2398,7 +2407,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("OperatorStatementId");
 
-                    b.ToTable("OperatorInvoices");
+                    b.ToTable("OperatorInvoices", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorPaymentReceipt", b =>
@@ -2461,7 +2470,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("OperatorInvoiceId");
 
-                    b.ToTable("OperatorPaymentReceipts");
+                    b.ToTable("OperatorPaymentReceipts", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorPayout", b =>
@@ -2540,7 +2549,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("PayoutNo")
                         .IsUnique();
 
-                    b.ToTable("OperatorPayouts");
+                    b.ToTable("OperatorPayouts", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorSettlement", b =>
@@ -2644,7 +2653,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("SettlementNo")
                         .IsUnique();
 
-                    b.ToTable("OperatorSettlements");
+                    b.ToTable("OperatorSettlements", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorSettlementItem", b =>
@@ -2728,7 +2737,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TicketId");
 
-                    b.ToTable("OperatorSettlementItems");
+                    b.ToTable("OperatorSettlementItems", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorStatement", b =>
@@ -2803,7 +2812,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("StatementNo")
                         .IsUnique();
 
-                    b.ToTable("OperatorStatements");
+                    b.ToTable("OperatorStatements", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorStatementItem", b =>
@@ -2894,7 +2903,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TicketId");
 
-                    b.ToTable("OperatorStatementItems");
+                    b.ToTable("OperatorStatementItems", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.OperatorWallet", b =>
@@ -2983,7 +2992,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusOperatorId")
                         .IsUnique();
 
-                    b.ToTable("OperatorWallets");
+                    b.ToTable("OperatorWallets", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Finance.PlatformLedger", b =>
@@ -3081,7 +3090,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId", "CreatedAtUtc");
 
-                    b.ToTable("PlatformLedgers");
+                    b.ToTable("PlatformLedgers", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Identity.ApplicationRole", b =>
@@ -3260,7 +3269,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("OperatorIntegrationId", "ExternalBookingKey")
                         .IsUnique();
 
-                    b.ToTable("ExternalBookingMappings");
+                    b.ToTable("ExternalBookingMappings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.ExternalRouteMapping", b =>
@@ -3321,7 +3330,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("OperatorIntegrationId", "OperatorRouteId")
                         .IsUnique();
 
-                    b.ToTable("ExternalRouteMappings");
+                    b.ToTable("ExternalRouteMappings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.ExternalSeatMapping", b =>
@@ -3382,7 +3391,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("OperatorIntegrationId", "TripSeatId")
                         .IsUnique();
 
-                    b.ToTable("ExternalSeatMappings");
+                    b.ToTable("ExternalSeatMappings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.ExternalTripMapping", b =>
@@ -3445,7 +3454,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("OperatorIntegrationId", "TripId")
                         .IsUnique();
 
-                    b.ToTable("ExternalTripMappings");
+                    b.ToTable("ExternalTripMappings", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.IntegrationSyncLog", b =>
@@ -3521,7 +3530,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("OperatorIntegrationId");
 
-                    b.ToTable("IntegrationSyncLogs");
+                    b.ToTable("IntegrationSyncLogs", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.IntegrationWebhookLog", b =>
@@ -3589,7 +3598,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("OperatorIntegrationId");
 
-                    b.ToTable("IntegrationWebhookLogs");
+                    b.ToTable("IntegrationWebhookLogs", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.OperatorIntegration", b =>
@@ -3663,7 +3672,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusOperatorId", "Name")
                         .IsUnique();
 
-                    b.ToTable("OperatorIntegrations");
+                    b.ToTable("OperatorIntegrations", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Integrations.OperatorIntegrationEndpoint", b =>
@@ -3724,7 +3733,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("OperatorIntegrationId");
 
-                    b.ToTable("OperatorIntegrationEndpoints");
+                    b.ToTable("OperatorIntegrationEndpoints", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Marketing.Complaint", b =>
@@ -3788,7 +3797,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("CustomerProfileId");
 
-                    b.ToTable("Complaints");
+                    b.ToTable("Complaints", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Marketing.Coupon", b =>
@@ -3875,7 +3884,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Coupons");
+                    b.ToTable("Coupons", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Marketing.CouponUsage", b =>
@@ -3932,7 +3941,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("CustomerProfileId");
 
-                    b.ToTable("CouponUsages");
+                    b.ToTable("CouponUsages", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Marketing.Offer", b =>
@@ -3993,7 +4002,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId");
 
-                    b.ToTable("Offers");
+                    b.ToTable("Offers", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Marketing.PromoBanner", b =>
@@ -4046,7 +4055,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PromoBanners");
+                    b.ToTable("PromoBanners", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Marketing.Review", b =>
@@ -4106,7 +4115,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripId");
 
-                    b.ToTable("Reviews");
+                    b.ToTable("Reviews", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.Currency", b =>
@@ -4167,7 +4176,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Currencies");
+                    b.ToTable("Currencies", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.FareRule", b =>
@@ -4239,7 +4248,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusRouteId");
 
-                    b.ToTable("FareRules");
+                    b.ToTable("FareRules", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.Payment", b =>
@@ -4339,7 +4348,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BookingId", "Status");
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.PaymentHistory", b =>
@@ -4392,7 +4401,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("PaymentId");
 
-                    b.ToTable("PaymentHistories");
+                    b.ToTable("PaymentHistories", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.PaymentMethodConfiguration", b =>
@@ -4454,7 +4463,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("PaymentProviderId");
 
-                    b.ToTable("PaymentMethodConfigurations");
+                    b.ToTable("PaymentMethodConfigurations", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.PaymentProvider", b =>
@@ -4525,7 +4534,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("PaymentProviders");
+                    b.ToTable("PaymentProviders", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.PaymentWebhookEvent", b =>
@@ -4604,7 +4613,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("ProviderEventId");
 
-                    b.ToTable("PaymentWebhookEvents");
+                    b.ToTable("PaymentWebhookEvents", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.Refund", b =>
@@ -4688,7 +4697,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("PaymentId");
 
-                    b.ToTable("Refunds");
+                    b.ToTable("Refunds", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.RefundHistory", b =>
@@ -4741,7 +4750,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("RefundId");
 
-                    b.ToTable("RefundHistories");
+                    b.ToTable("RefundHistories", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Payments.TaxRule", b =>
@@ -4791,7 +4800,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("TaxRules");
+                    b.ToTable("TaxRules", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.Agent", b =>
@@ -4870,7 +4879,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusOperatorId");
 
-                    b.ToTable("Agents");
+                    b.ToTable("Agents", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.CustomerAddress", b =>
@@ -4941,7 +4950,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("CustomerProfileId");
 
-                    b.ToTable("CustomerAddresses");
+                    b.ToTable("CustomerAddresses", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.CustomerProfile", b =>
@@ -5007,7 +5016,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("CustomerProfiles");
+                    b.ToTable("CustomerProfiles", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.CustomerWalletTransaction", b =>
@@ -5080,7 +5089,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("CustomerProfileId", "CreatedAtUtc");
 
-                    b.ToTable("CustomerWalletTransactions");
+                    b.ToTable("CustomerWalletTransactions", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.DriverLicense", b =>
@@ -5138,7 +5147,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("StaffProfileId")
                         .IsUnique();
 
-                    b.ToTable("DriverLicenses");
+                    b.ToTable("DriverLicenses", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.EmergencyContact", b =>
@@ -5195,7 +5204,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("CustomerProfileId");
 
-                    b.ToTable("EmergencyContacts");
+                    b.ToTable("EmergencyContacts", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.SalesCounter", b =>
@@ -5271,7 +5280,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TerminalId");
 
-                    b.ToTable("SalesCounters");
+                    b.ToTable("SalesCounters", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.StaffAttendance", b =>
@@ -5324,7 +5333,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("StaffProfileId");
 
-                    b.ToTable("StaffAttendances");
+                    b.ToTable("StaffAttendances", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.StaffProfile", b =>
@@ -5398,7 +5407,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("StaffProfiles");
+                    b.ToTable("StaffProfiles", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.StaffSalary", b =>
@@ -5461,7 +5470,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("StaffProfileId");
 
-                    b.ToTable("StaffSalaries");
+                    b.ToTable("StaffSalaries", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.People.StaffSalesCounterAssignment", b =>
@@ -5518,7 +5527,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("StaffProfileId", "IsActive");
 
-                    b.ToTable("StaffSalesCounterAssignments");
+                    b.ToTable("StaffSalesCounterAssignments", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Scheduling.Schedule", b =>
@@ -5609,7 +5618,7 @@ namespace TicketPortal.Api.Migrations
                     b.HasIndex("BusOperatorId", "ScheduleCode")
                         .IsUnique();
 
-                    b.ToTable("Schedules");
+                    b.ToTable("Schedules", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Scheduling.Trip", b =>
@@ -5740,7 +5749,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BusRouteId", "DepartureTimeUtc");
 
-                    b.ToTable("Trips");
+                    b.ToTable("Trips", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Scheduling.TripCrew", b =>
@@ -5794,7 +5803,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripId");
 
-                    b.ToTable("TripCrews");
+                    b.ToTable("TripCrews", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Scheduling.TripSeat", b =>
@@ -5881,7 +5890,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripId", "Status");
 
-                    b.ToTable("TripSeats");
+                    b.ToTable("TripSeats", (string)null);
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Scheduling.TripStatusHistory", b =>
@@ -5939,7 +5948,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripId");
 
-                    b.ToTable("TripStatusHistories");
+                    b.ToTable("TripStatusHistories", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
@@ -6071,7 +6080,14 @@ namespace TicketPortal.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("TicketPortal.Api.Models.Scheduling.TripSeat", "TripSeat")
+                        .WithMany()
+                        .HasForeignKey("TripSeatId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Booking");
+
+                    b.Navigation("TripSeat");
                 });
 
             modelBuilder.Entity("TicketPortal.Api.Models.Bookings.CancellationPolicy", b =>

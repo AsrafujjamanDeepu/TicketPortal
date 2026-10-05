@@ -37,6 +37,7 @@ using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Controllers
@@ -44,7 +45,10 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class StaffProfilesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
+    public class StaffProfilesController(
+        AppDbContext db,
+        ICurrentActorService currentActor,
+        UserManager<TicketPortal.Api.Models.Identity.ApplicationUser> userManager) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -189,6 +193,8 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
+            var securityStateChanged = item.Role != dto.Role || item.IsActive != dto.IsActive;
+
             db.Entry(item).Property(x => x.RowVersion).OriginalValue = dto.RowVersion;
 
             // UserId/BusOperatorId deliberately never touched here — see file header.
@@ -213,6 +219,12 @@ namespace TicketPortal.Api.Controllers
             {
                 var error = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
                 return Conflict(new { message = "Could not save StaffProfile.", details = error });
+            }
+
+            if (securityStateChanged)
+            {
+                var account = await userManager.FindByIdAsync(item.UserId.ToString());
+                if (account is not null) await userManager.UpdateSecurityStampAsync(account);
             }
 
             return Ok(ToResponseDto(item));
@@ -295,6 +307,9 @@ namespace TicketPortal.Api.Controllers
             {
                 return Conflict(new { message = "Cannot delete this StaffProfile — it is still referenced by other records." });
             }
+
+            var account = await userManager.FindByIdAsync(item.UserId.ToString());
+            if (account is not null) await userManager.UpdateSecurityStampAsync(account);
 
             return NoContent();
         }

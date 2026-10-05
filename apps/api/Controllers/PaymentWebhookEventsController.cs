@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Payments;
 using Microsoft.AspNetCore.Authorization;
@@ -19,12 +20,13 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class PaymentWebhookEventsController(AppDbContext db) : ControllerBase
+    public class PaymentWebhookEventsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.FinanceReadPlatform))
             {
                 return Ok(Array.Empty<PaymentWebhookEventResponseDto>());
             }
@@ -36,7 +38,8 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.FinanceReadPlatform)) return Forbid();
 
             var item = await db.PaymentWebhookEvents.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));

@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
@@ -20,12 +21,13 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class ActivityLogsController(AppDbContext db) : ControllerBase
+    public class ActivityLogsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.AuditRead))
             {
                 return Ok(Array.Empty<ActivityLogResponseDto>());
             }
@@ -37,7 +39,8 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.AuditRead)) return Forbid();
 
             var item = await db.ActivityLogs.FirstOrDefaultAsync(x => x.Id == id);
             return item == null ? NotFound() : Ok(ToResponseDto(item));

@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Payments;
@@ -19,23 +20,22 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class PaymentHistoriesController(AppDbContext db) : ControllerBase
+    public class PaymentHistoriesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.PaymentHistories.AsQueryable();
 
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform))
             {
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (callerOperatorId != null)
-                {
-                    query = query.Where(h => db.Payments.Any(p =>
-                        p.Id == h.PaymentId && db.Bookings.Any(b =>
-                            b.Id == p.BookingId && b.BusOperatorId == callerOperatorId)));
-                }
-                // else: platform Admin/Staff — no filter, see everything.
+                // Platform finance scope.
+            }
+            else if (actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue)
+            {
+                query = query.Where(h => db.Payments.Any(p => p.Id == h.PaymentId && db.Bookings.Any(b =>
+                    b.Id == p.BookingId && b.BusOperatorId == actor.BusOperatorId.Value)));
             }
             else
             {
@@ -55,7 +55,12 @@ namespace TicketPortal.Api.Controllers
             var item = await db.PaymentHistories.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform))
+            {
+                return Ok(ToResponseDto(item));
+            }
+            if (actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue)
             {
                 var bookingId = await db.Payments
                     .Where(p => p.Id == item.PaymentId)
@@ -65,7 +70,7 @@ namespace TicketPortal.Api.Controllers
                     .Where(b => b.Id == bookingId)
                     .Select(b => (Guid?)b.BusOperatorId)
                     .FirstOrDefaultAsync();
-                if (operatorId == null || !await User.CanManageOperatorAsync(db, operatorId.Value)) return Forbid();
+                if (operatorId == null || operatorId.Value != actor.BusOperatorId.Value) return Forbid();
             }
             else
             {

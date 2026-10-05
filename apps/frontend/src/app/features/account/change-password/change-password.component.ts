@@ -3,6 +3,7 @@ import { AbstractControl, FormBuilder, ReactiveFormsModule, ValidationErrors, Va
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { AuthService } from '../../../core/services/auth.service';
+import { Router } from '@angular/router';
 import { ToastService } from '../../../core/services/toast.service';
 import { TpButtonDirective, TpCardComponent } from '../../../shared/ui';
 
@@ -84,6 +85,7 @@ export class ChangePasswordComponent {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
+  private readonly router = inject(Router);
 
   protected readonly saving = signal(false);
 
@@ -104,7 +106,9 @@ export class ChangePasswordComponent {
       next: () => {
         this.saving.set(false);
         this.form.reset();
-        this.toast.success('Password updated.');
+        this.auth.logout();
+        this.toast.success('Password updated. Please log in again.');
+        this.router.navigate(['/auth/login']);
       },
       error: () => this.saving.set(false),
     });

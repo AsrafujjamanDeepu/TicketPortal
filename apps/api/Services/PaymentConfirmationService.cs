@@ -3,6 +3,7 @@ using TicketPortal.Api.Models.Bookings;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Finance;
 using TicketPortal.Api.Models.Payments;
+using TicketPortal.Api.Models.Scheduling;
 using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Services
@@ -84,7 +85,14 @@ namespace TicketPortal.Api.Services
                 throw new InvalidOperationException("This hold does not belong to this booking.");
             }
 
-            var gateway = PaymentGateway.None;
+            if (hold.Status != SeatHoldStatus.Active || hold.HoldExpiresAtUtc <= DateTime.UtcNow)
+            {
+                throw new InvalidOperationException("The booking's seat hold has expired or is no longer active.");
+            }
+
+            var gateway = _configuration.GetValue("Payments:DemoMode", true)
+                ? PaymentGateway.Demo
+                : PaymentGateway.None;
             if (paymentProviderId.HasValue)
             {
                 var provider = await _db.PaymentProviders
@@ -102,7 +110,20 @@ namespace TicketPortal.Api.Services
                     throw new InvalidOperationException("The selected payment method is not available from that provider.");
                 }
 
-                gateway = provider.Gateway;
+                if (!_configuration.GetValue("Payments:DemoMode", true))
+                    gateway = provider.Gateway;
+            }
+
+            var existingAttempt = await _db.Payments
+                .Where(p => p.BookingId == booking.Id && p.Status == PaymentStatus.Initiated)
+                .OrderByDescending(p => p.TransactionDateUtc)
+                .FirstOrDefaultAsync();
+            if (existingAttempt != null)
+            {
+                if (existingAttempt.Method == method && existingAttempt.PaymentProviderId == paymentProviderId)
+                    return existingAttempt;
+                throw new InvalidOperationException(
+                    "A payment attempt is already active for this booking. Finish or fail it before choosing another method.");
             }
 
             var payment = new Payment
@@ -168,7 +189,7 @@ namespace TicketPortal.Api.Services
                 // against the same payment, not to require a non-empty id in the first place.
                 if (string.Equals(payment.GatewayTransactionId ?? "", gatewayTransactionId ?? "", StringComparison.Ordinal))
                 {
-                    return await BuildIdempotentResultAsync(payment);
+                    return await BuildIdempotentResultAsync(payment, holdToken);
                 }
 
                 throw new InvalidOperationException(
@@ -253,7 +274,7 @@ namespace TicketPortal.Api.Services
                     // Detach our stale tracked copy (its RowVersion no longer matches what's on
                     // disk) so nothing later in this scope accidentally tries to save it again.
                     _db.Entry(payment).State = EntityState.Detached;
-                    return await BuildIdempotentResultAsync(reloaded);
+                    return await BuildIdempotentResultAsync(reloaded, holdToken);
                 }
             }
 
@@ -268,18 +289,8 @@ namespace TicketPortal.Api.Services
                 // Matches the rule already documented on SeatHoldService: money in, seats gone
                 // = refund case, never silently ignored. We stop here — no tickets, no ledger
                 // entry — for a booking that has no real seats behind it.
-                var refund = new Refund
-                {
-                    BookingId = booking.Id,
-                    PaymentId = payment.Id,
-                    Amount = payment.Amount,
-                    Currency = payment.Currency,
-                    Status = RefundStatus.Requested,
-                    Reason = $"Automatic refund: seats were lost before payment confirmation completed ({ex.Message})",
-                    RequestedAtUtc = DateTime.UtcNow,
-                };
-                _db.Refunds.Add(refund);
-                await _db.SaveChangesAsync();
+                var refund = await CreateAutomaticRefundAsync(payment, booking,
+                    $"Seats were lost before payment confirmation completed ({ex.Message})");
 
                 result.Outcome = PaymentConfirmationOutcome.PaidButSeatsLost;
                 result.AutoRefund = refund;
@@ -322,7 +333,7 @@ namespace TicketPortal.Api.Services
         // DbUpdateConcurrencyException race above it. Looks at what's actually on disk rather
         // than assuming "Succeeded" always means "Confirmed", since the seats-lost branch above
         // also leaves payment.Status at Succeeded.
-        private async Task<PaymentConfirmationResult> BuildIdempotentResultAsync(Payment payment)
+        private async Task<PaymentConfirmationResult> BuildIdempotentResultAsync(Payment payment, string? suppliedHoldToken = null)
         {
             var booking = await _db.Bookings.AsNoTracking()
                 .FirstOrDefaultAsync(b => b.Id == payment.BookingId);
@@ -362,6 +373,42 @@ namespace TicketPortal.Api.Services
                 };
             }
 
+            if (booking?.SeatHoldId is Guid seatHoldId
+                && booking.Status is BookingStatus.Draft or BookingStatus.PendingPayment)
+            {
+                var holdToken = await _db.SeatHolds.Where(h => h.Id == seatHoldId)
+                    .Select(h => h.HoldToken).FirstOrDefaultAsync();
+                if (holdToken != null && (suppliedHoldToken == null
+                    || string.Equals(suppliedHoldToken, holdToken, StringComparison.Ordinal)))
+                {
+                    var trackedBooking = await _db.Bookings.FirstAsync(b => b.Id == booking.Id);
+                    try
+                    {
+                        await _seatHoldService.ConvertHoldToBookingAsync(holdToken, trackedBooking.Id, seatHoldId);
+                        var issuedTickets = await ConfirmBookingAndIssueTicketsAsync(trackedBooking);
+                        return new PaymentConfirmationResult
+                        {
+                            Outcome = PaymentConfirmationOutcome.Confirmed,
+                            Payment = payment,
+                            Booking = trackedBooking,
+                            Tickets = issuedTickets,
+                        };
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        var refund = await CreateAutomaticRefundAsync(payment, trackedBooking,
+                            $"Automatic recovery could not restore the paid seats ({ex.Message})");
+                        return new PaymentConfirmationResult
+                        {
+                            Outcome = PaymentConfirmationOutcome.PaidButSeatsLost,
+                            Payment = payment,
+                            Booking = trackedBooking,
+                            AutoRefund = refund,
+                        };
+                    }
+                }
+            }
+
             // Payment succeeded but neither a confirmed booking nor an auto-refund exists yet —
             // the first confirm call's booking/ticket half is still genuinely in flight (a
             // concurrent retry landing mid-way through). Nothing has actually gone wrong; there
@@ -369,6 +416,26 @@ namespace TicketPortal.Api.Services
             // guessing at one.
             throw new InvalidOperationException(
                 $"Payment {payment.Id} has succeeded and is still being finalized. Please retry shortly.");
+        }
+
+        private async Task<Refund> CreateAutomaticRefundAsync(Payment payment, Booking booking, string reason)
+        {
+            var existing = await _db.Refunds.FirstOrDefaultAsync(r => r.PaymentId == payment.Id);
+            if (existing != null) return existing;
+
+            var refund = new Refund
+            {
+                BookingId = booking.Id,
+                PaymentId = payment.Id,
+                Amount = payment.Amount,
+                Currency = payment.Currency,
+                Status = RefundStatus.Requested,
+                Reason = $"Automatic refund: {reason}",
+                RequestedAtUtc = DateTime.UtcNow,
+            };
+            _db.Refunds.Add(refund);
+            await _db.SaveChangesAsync();
+            return refund;
         }
 
         // Piece 6: today, this endpoint just trusts whatever the caller says the gateway
@@ -426,6 +493,13 @@ namespace TicketPortal.Api.Services
 
             var bookingIds = candidates.Select(p => p.BookingId).ToList();
 
+            var unfinishedBookingIds = (await _db.Bookings
+                .Where(b => bookingIds.Contains(b.Id)
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                .Select(b => b.Id)
+                .ToListAsync())
+                .ToHashSet();
+
             var confirmedBookingIds = (await _db.Bookings
                 .Where(b => bookingIds.Contains(b.Id) && b.Status == BookingStatus.Confirmed)
                 .Select(b => b.Id)
@@ -442,6 +516,19 @@ namespace TicketPortal.Api.Services
             var flaggedCount = 0;
             foreach (var payment in candidates)
             {
+                if (unfinishedBookingIds.Contains(payment.BookingId))
+                {
+                    try
+                    {
+                        await BuildIdempotentResultAsync(payment);
+                        continue;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Still unresolved; record it below for Finance.
+                    }
+                }
+
                 var isFinalized = confirmedBookingIds.Contains(payment.BookingId)
                     && bookingIdsWithTickets.Contains(payment.BookingId);
                 if (isFinalized) continue;
@@ -536,7 +623,7 @@ namespace TicketPortal.Api.Services
 
             if (existingPayment != null)
             {
-                return await BuildIdempotentResultAsync(existingPayment);
+                return await BuildIdempotentResultAsync(existingPayment, holdToken);
             }
 
             if (booking.Status != BookingStatus.PendingPayment && booking.Status != BookingStatus.Draft)
@@ -604,7 +691,7 @@ namespace TicketPortal.Api.Services
             try
             {
                 var commissionRule = await ResolveCommissionRuleAsync(booking, SaleChannel.Counter);
-                var commission = ComputeCommission(commissionRule, booking.GrandTotal);
+                var commission = ComputeCommission(commissionRule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
                 await _financeLedgerService.PostCounterSaleCommissionAsync(
                     booking.Id, booking.BusOperatorId, commission, booking.Currency);
             }
@@ -627,19 +714,23 @@ namespace TicketPortal.Api.Services
         {
             await using var tx = await _db.Database.BeginTransactionAsync();
 
-            booking.Confirm(); // Booking's own method — throws if it's not in a confirmable state.
+            if (booking.Status != BookingStatus.Confirmed)
+                booking.Confirm(); // Booking's own method — throws if it's not in a confirmable state.
 
-            // BookingPassenger and TripSeat don't have a direct FK to each other in this
-            // schema (BookingCreateDto doesn't collect a per-passenger seat choice either), so
-            // passengers are paired to this booking's now-Booked seats in a fixed, deterministic
-            // order. Fine for the current demo-level checkout; a real "passenger picks seat X"
-            // flow would need an explicit link instead.
+            // Passengers are paired to their explicit TripSeatId when supplied at booking
+            // creation. Legacy passengers without that link use a fixed deterministic fallback.
             var passengers = await _db.BookingPassengers
                 .Where(p => p.BookingId == booking.Id)
                 .OrderBy(p => p.CreatedAtUtc)
                 .ToListAsync();
 
             var bookedSeats = await _db.TripSeats
+                // SeatHoldService converts seats with ExecuteUpdateAsync, which bypasses EF's
+                // change tracker. In the demo seeder and other same-scope workflows, tracked
+                // TripSeat instances may therefore still say BookingId=null/Status=Held even
+                // after the database committed BookingId and Status=Booked. This read must use
+                // fresh database values before ticket/seat ownership is validated.
+                .AsNoTracking()
                 .Where(ts => ts.BookingId == booking.Id)
                 .OrderBy(ts => ts.SeatNumber)
                 .ToListAsync();
@@ -651,22 +742,51 @@ namespace TicketPortal.Api.Services
                     "booked seat(s) — cannot safely pair them into tickets.");
             }
 
+            var existingTicketPassengerIds = await _db.Tickets
+                .Where(t => t.BookingId == booking.Id)
+                .Select(t => t.BookingPassengerId)
+                .ToListAsync();
+            var seatsById = bookedSeats.ToDictionary(seat => seat.Id);
+            var claimedSeatIds = new HashSet<Guid>();
+
             var tickets = new List<Ticket>();
-            for (int i = 0; i < passengers.Count; i++)
+            var fareAllocations = TicketFareAllocator.Allocate(booking, bookedSeats);
+            var legacySeats = bookedSeats.Where(seat => passengers.All(p => p.TripSeatId != seat.Id))
+                .OrderBy(seat => seat.SeatNumber, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(seat => seat.Id).ToList();
+            var legacySeatIndex = 0;
+            foreach (var passenger in passengers)
             {
-                var seat = bookedSeats[i];
+                if (existingTicketPassengerIds.Contains(passenger.Id)) continue;
+
+                TripSeat? seat = null;
+                if (passenger.TripSeatId is Guid linkedSeatId)
+                {
+                    if (seatsById.TryGetValue(linkedSeatId, out var linkedSeat)) seat = linkedSeat;
+                }
+                else if (legacySeatIndex < legacySeats.Count)
+                {
+                    seat = legacySeats[legacySeatIndex++];
+                    passenger.TripSeatId = seat.Id;
+                }
+
+                if (seat is null || seat.BookingId != booking.Id || !claimedSeatIds.Add(seat.Id))
+                    throw new InvalidOperationException(
+                        $"Booking passenger {passenger.Id} does not have a unique seat belonging to this booking.");
+
                 tickets.Add(new Ticket
                 {
                     BookingId = booking.Id,
-                    BookingPassengerId = passengers[i].Id,
+                    BookingPassengerId = passenger.Id,
                     TripId = booking.TripId,
                     TripSeatId = seat.Id,
                     TicketNumber = GenerateTicketNumber(),
                     SeatNumberSnapshot = seat.SeatNumber,
                     QrCodePayload = $"{booking.Pnr}|{seat.SeatNumber}|{Guid.NewGuid():N}",
                     Fare = seat.Fare,
-                    DiscountAmount = 0m,
-                    FinalFare = seat.Fare,
+                    DiscountAmount = fareAllocations[seat.Id].DiscountAmount,
+                    TaxAmount = fareAllocations[seat.Id].TaxAmount,
+                    FinalFare = fareAllocations[seat.Id].FinalFare,
                     Status = TicketStatus.Issued,
                     IssuedAtUtc = DateTime.UtcNow,
                 });
@@ -719,7 +839,7 @@ namespace TicketPortal.Api.Services
         private async Task<(decimal commission, GatewayFeeBearer feeBearer)> ResolveCommissionAsync(Booking booking)
         {
             var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Online);
-            var commission = ComputeCommission(rule, booking.GrandTotal);
+                var commission = ComputeCommission(rule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
 
             var feeBearer = await _db.OperatorContracts
                 .Where(c => c.BusOperatorId == booking.BusOperatorId && c.IsActive)
@@ -740,6 +860,11 @@ namespace TicketPortal.Api.Services
         // try/catch around this method's caller).
         private async Task<decimal> ComputeGatewayFeeAsync(Payment payment)
         {
+            if (payment.Gateway == PaymentGateway.Demo)
+            {
+                return 0m;
+            }
+
             if (payment.PaymentProviderId is null)
             {
                 return 0m;

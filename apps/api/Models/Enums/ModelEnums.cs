@@ -217,7 +217,8 @@ namespace TicketPortal.Api.Models.Enums
         PayPal = 7,
         Visa = 8,
         MasterCard = 9,
-        Manual = 10   // Recorded by staff by hand (e.g. a bank transfer confirmed manually).
+        Manual = 10,  // Recorded by staff by hand (e.g. a bank transfer confirmed manually).
+        Demo = 11      // Application-simulated payment; never a verified provider transaction.
     }
 
     // A broader family/category for a PaymentProvider row - lets us group "all mobile banking

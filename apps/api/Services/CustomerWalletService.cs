@@ -53,6 +53,13 @@ namespace TicketPortal.Api.Services
         {
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
+            if (refundId.HasValue && await _db.CustomerWalletTransactions.IgnoreQueryFilters().AnyAsync(t =>
+                    t.RefundId == refundId.Value && t.TransactionType == type))
+            {
+                await transaction.CommitAsync();
+                return;
+            }
+
             // Atomic check-and-update, matching PayoutProcessingService.CreateAsync's "reserve"
             // pattern: the balance check lives in the WHERE clause of the update itself, so two
             // concurrent debits for the same customer can't both read the same starting balance

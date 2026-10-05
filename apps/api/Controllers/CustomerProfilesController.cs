@@ -16,7 +16,9 @@
 //     anything and break that invariant permanently.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -28,18 +30,25 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class CustomerProfilesController(AppDbContext db) : ControllerBase
+    public class CustomerProfilesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.CustomerProfiles.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.Type == ActorType.Staff && actor.HasPermission(Permissions.CustomerDataRead)
+                && !actor.BusOperatorId.HasValue)
+            {
+                // Platform staff with CustomerDataRead.
+            }
+            else if (actor.Type == ActorType.Customer)
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(cp => cp.UserId == userId);
             }
+            else return Ok(Array.Empty<CustomerProfileResponseDto>());
 
             var items = await query.ToListAsync();
             return Ok(items.Select(ToResponseDto));
@@ -50,7 +59,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.CustomerProfiles.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!CanAccess(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: false)) return Forbid();
             return Ok(ToResponseDto(item));
         }
 
@@ -60,8 +69,10 @@ namespace TicketPortal.Api.Controllers
             var callerId = GetCurrentUserId();
             if (callerId == null) return Unauthorized();
 
-            var isStaffOrAdmin = User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator");
-            var targetUserId = isStaffOrAdmin ? dto.UserId : callerId.Value;
+            var actor = await currentActor.ResolveAsync(User);
+            var canManageCustomerData = actor.IsAdmin || actor.HasPermission(Permissions.CustomerDataManage);
+            if (!canManageCustomerData && actor.Type != ActorType.Customer) return Forbid();
+            var targetUserId = canManageCustomerData ? dto.UserId : callerId.Value;
 
             // One profile per login — same invariant CustomerProfile's own class comment
             // describes ("attached one-to-one to a login account").
@@ -94,7 +105,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.CustomerProfiles.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "CustomerProfile not found." });
-            if (!CanAccess(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -139,7 +150,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.CustomerProfiles.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!CanAccess(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -166,9 +177,14 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private bool CanAccess(CustomerProfile item)
+        private async Task<bool> CanAccessAsync(CustomerProfile item, bool requireManage)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (actor.Type == ActorType.Staff)
+                return !actor.BusOperatorId.HasValue
+                    && actor.HasPermission(requireManage ? Permissions.CustomerDataManage : Permissions.CustomerDataRead);
+            if (actor.Type != ActorType.Customer) return false;
             return item.UserId == GetCurrentUserId();
         }
 

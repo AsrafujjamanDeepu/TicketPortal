@@ -32,11 +32,11 @@ namespace TicketPortal.Api.Tests.Infrastructure
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            // Development, not Testing/Production: this is what makes Program.cs (a) accept
-            // the non-secret JWT signing key from appsettings.Development.json instead of
-            // failing fast, and (b) run DemoDataSeeder after migrating. See Program.cs's own
-            // comments on both gates before changing this.
-            builder.UseEnvironment("Development");
+            // Testing keeps the normal development seed but gives parallel tests isolated
+            // rate-limit capacity. Production-limit behavior is covered by dedicated checks.
+            builder.UseEnvironment("Testing");
+            builder.UseSetting("JWT:SigningKey", "Integration-Testing-Only-Signing-Key-At-Least-32-Chars");
+            builder.UseSetting("Storage:PrivateFilesRoot", Path.Combine(Path.GetTempPath(), $"TicketPortalPrivateFiles_{Guid.NewGuid():N}"));
 
             builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
 

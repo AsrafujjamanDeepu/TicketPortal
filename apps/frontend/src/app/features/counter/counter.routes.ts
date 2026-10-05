@@ -35,7 +35,7 @@ import { CounterShellComponent } from './counter-shell.component';
  * then 403s. 'agents' and 'complaints' are deliberately left without an
  * added permission — the fixed RBAC Amendment v3 catalogue has no
  * Agent.* / Complaints.* permission granted to any operator-scoped job role
- * yet (see AUTHORIZATION_DECISIONS.md), so gating them here would incorrectly
+ * yet (see docs/03-Remaining-Fix-Plan.md), so gating them here would incorrectly
  * lock every operator's staff out of screens they currently rely on. This is
  * an acknowledged Chunk 2 gap, not a decision that they're meant to be open.
  */

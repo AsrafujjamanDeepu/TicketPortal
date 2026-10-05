@@ -10,7 +10,7 @@ namespace TicketPortal.Api.Authorization
     // activity this project's fixed permission catalogue has no exact constant for (e.g.
     // "operator onboarding" — there is no BusOperators.* permission in the P0 catalogue),
     // that activity is deliberately left ungranted here rather than guessed at, and is called
-    // out in AUTHORIZATION_DECISIONS.md as a gap for whoever next touches BusOperatorsController.
+    // out in docs/03-Remaining-Fix-Plan.md as a gap for whoever next touches BusOperatorsController.
     //
     // StaffRole.Admin and StaffRole.SuperAdmin are NOT in this table on purpose — RBAC
     // Amendment v3 says those two values "must never imply the Identity Admin role" and are
@@ -30,19 +30,24 @@ namespace TicketPortal.Api.Authorization
                 Permissions.FleetRead, Permissions.NetworkRead,
                 Permissions.TripsRead, Permissions.TripsManage, Permissions.TripsCancel, Permissions.CrewManage,
                 Permissions.CancellationApprove,
-                Permissions.ComplaintsRead, Permissions.ComplaintsManage,
-                Permissions.ReportsRead, Permissions.BookingRead, Permissions.StaffRead,
+                Permissions.CancellationPolicyManage,
+                Permissions.RefundApprove,
+                Permissions.ComplaintsRead, Permissions.ComplaintsManage, Permissions.ReviewModerate,
+                Permissions.ReportsRead, Permissions.AuditRead, Permissions.CustomerDataRead,
+                Permissions.CustomerDataManage, Permissions.BookingRead, Permissions.StaffRead,
             },
 
             // "Platform Finance" row: finance read, reconciliation, settlement approval,
             // invoice/receipt and payout processing (this deployment's team decision — see
-            // AUTHORIZATION_DECISIONS.md — is to grant payout processing to Platform Finance).
+            // docs/03-Remaining-Fix-Plan.md — is to grant payout processing to Platform Finance).
             // Forbidden: fleet/trip/counter/HR configuration, user-role management, finance
             // CONFIGURATION (commission/tax/provider rules stay Admin-only).
             [StaffRole.Finance] = new[]
             {
                 Permissions.FinanceReadPlatform, Permissions.FinanceReconcile,
-                Permissions.SettlementApprove, Permissions.PayoutProcess,
+                Permissions.RefundApprove, Permissions.RefundProcess, Permissions.PaymentManage,
+                Permissions.SettlementGenerate, Permissions.SettlementApprove, Permissions.PayoutRequest, Permissions.PayoutProcess,
+                Permissions.AuditRead,
             },
 
             // "Platform Support" row: customer/booking lookup, complaints, support-side
@@ -53,6 +58,7 @@ namespace TicketPortal.Api.Authorization
             [StaffRole.Support] = new[]
             {
                 Permissions.BookingRead, Permissions.ComplaintsRead, Permissions.ComplaintsManage,
+                Permissions.CustomerDataRead,
             },
         };
 
@@ -67,8 +73,12 @@ namespace TicketPortal.Api.Authorization
             Permissions.NetworkRead, Permissions.NetworkManage, Permissions.FarePolicyManage,
             Permissions.TripsRead, Permissions.TripsManage, Permissions.TripsCancel, Permissions.CrewManage,
             Permissions.CounterRead, Permissions.CounterConfigure, Permissions.CounterSell, Permissions.CounterCancel,
-            Permissions.StaffRead, Permissions.StaffManage,
-            Permissions.BookingRead, Permissions.ReportsRead,
+                Permissions.StaffRead, Permissions.StaffManage,
+                Permissions.BookingRead, Permissions.ReportsRead,
+                Permissions.CancellationApprove, Permissions.CancellationPolicyManage,
+                Permissions.RefundApprove, Permissions.RefundProcess, Permissions.ReviewModerate,
+                Permissions.PaymentManage, Permissions.CouponRedeem, Permissions.SettlementGenerate,
+                Permissions.SalaryRead, Permissions.SalaryManage, Permissions.PayoutRequest,
             Permissions.FinanceReadOwnOperator,
             // RBAC Amendment v3 §8 (Chunk 8): "An operator manager may receive a redacted
             // status/read view for their own integration if useful, but never endpoint
@@ -86,7 +96,7 @@ namespace TicketPortal.Api.Authorization
             // "Operator Manager or Operator back-office" row. StaffRole.Operator is the
             // enum's existing "operator's own management/back-office staff" value;
             // StaffRole.BusOwner is treated the same way (not called out separately by the
-            // matrix — documented deviation, see AUTHORIZATION_DECISIONS.md).
+            // matrix — documented deviation, see docs/03-Remaining-Fix-Plan.md).
             [StaffRole.Manager] = OperatorManagerPermissions,
             [StaffRole.Operator] = OperatorManagerPermissions,
             [StaffRole.BusOwner] = OperatorManagerPermissions,
@@ -114,7 +124,7 @@ namespace TicketPortal.Api.Authorization
             // other operators.
             [StaffRole.Finance] = new[]
             {
-                Permissions.FinanceReadOwnOperator,
+                Permissions.FinanceReadOwnOperator, Permissions.PayoutRequest,
             },
 
             // "Driver or Helper" row: minimal assigned-trip manifest only, IF the product

@@ -19,8 +19,8 @@ export function LoginPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await login({ userName, password });
-      navigate('/', { replace: true });
+      const mustChangePassword = await login({ userName, password });
+      navigate(mustChangePassword ? '/change-password' : '/', { replace: true });
     } catch (err) {
       setError((err as ApiError).message ?? 'Login failed.');
     } finally {

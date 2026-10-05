@@ -104,28 +104,25 @@ namespace TicketPortal.Api.Data
                 new Language { Code = "en", Name = "English", IsDefault = true, IsActive = true },
                 new Language { Code = "bn", Name = "বাংলা", IsDefault = false, IsActive = true });
 
-            db.TaxRules.AddRange(
-                new TaxRule { Name = "VAT", Percentage = 5m, IsActive = true },
-                new TaxRule { Name = "Travel Surcharge", Percentage = 1m, IsActive = true },
-                new TaxRule { Name = "Old Service Tax (Deprecated)", Percentage = 2.5m, IsActive = false });
+            // Do not seed invented VAT/surcharge rates. The current TaxRule model is global
+            // and cannot represent the service-class exemptions and exceptions in Bangladesh.
+            // Demo bookings therefore have no tax unless a developer explicitly configures a
+            // simulation rule; that rule must not be treated as statutory tax advice.
 
-            var sslcommerz = new PaymentProvider
+            var demoCard = new PaymentProvider
             {
-                Name = "SSLCommerz", Code = "SSLCOMMERZ", ProviderKind = PaymentProviderKind.Gateway,
-                Gateway = PaymentGateway.SslCommerz, CheckoutBaseUrl = "https://sandbox.sslcommerz.com/gwprocess/v4/api.php",
-                WebhookUrl = "https://api.ticketportal.com.bd/webhooks/sslcommerz", SupportsRefund = true, IsActive = true,
+                Name = "Demo Card", Code = "DEMO_CARD", ProviderKind = PaymentProviderKind.Gateway,
+                Gateway = PaymentGateway.Demo, SupportsRefund = true, IsActive = true,
             };
-            var bkash = new PaymentProvider
+            var demoMobileA = new PaymentProvider
             {
-                Name = "bKash", Code = "BKASH", ProviderKind = PaymentProviderKind.MobileBanking,
-                Gateway = PaymentGateway.Bkash, CheckoutBaseUrl = "https://checkout.pay.bka.sh/v1.2.0-beta",
-                WebhookUrl = "https://api.ticketportal.com.bd/webhooks/bkash", SupportsRefund = true, IsActive = true,
+                Name = "Demo Mobile Payment A", Code = "DEMO_MOBILE_A", ProviderKind = PaymentProviderKind.MobileBanking,
+                Gateway = PaymentGateway.Demo, SupportsRefund = true, IsActive = true,
             };
-            var nagad = new PaymentProvider
+            var demoMobileB = new PaymentProvider
             {
-                Name = "Nagad", Code = "NAGAD", ProviderKind = PaymentProviderKind.MobileBanking,
-                Gateway = PaymentGateway.Nagad, CheckoutBaseUrl = "https://api.mynagad.com/api/dfs",
-                SupportsRefund = true, IsActive = true,
+                Name = "Demo Mobile Payment B", Code = "DEMO_MOBILE_B", ProviderKind = PaymentProviderKind.MobileBanking,
+                Gateway = PaymentGateway.Demo, SupportsRefund = true, IsActive = true,
             };
             var cashCounter = new PaymentProvider
             {
@@ -137,14 +134,14 @@ namespace TicketPortal.Api.Data
                 Name = "In-App Wallet", Code = "WALLET", ProviderKind = PaymentProviderKind.Wallet,
                 Gateway = PaymentGateway.None, SupportsRefund = false, IsActive = true,
             };
-            db.PaymentProviders.AddRange(sslcommerz, bkash, nagad, cashCounter, wallet);
+            db.PaymentProviders.AddRange(demoCard, demoMobileA, demoMobileB, cashCounter, wallet);
             await db.SaveChangesAsync();
 
             db.PaymentMethodConfigurations.AddRange(
-                new PaymentMethodConfiguration { PaymentProviderId = sslcommerz.Id, Method = PaymentMethod.Card, DisplayName = "Credit/Debit Card", PercentageFee = 2.5m, IsActive = true },
-                new PaymentMethodConfiguration { PaymentProviderId = sslcommerz.Id, Method = PaymentMethod.OnlineGateway, DisplayName = "SSLCommerz Gateway", PercentageFee = 2.5m, IsActive = true },
-                new PaymentMethodConfiguration { PaymentProviderId = bkash.Id, Method = PaymentMethod.MobileBanking, DisplayName = "bKash", PercentageFee = 1.8m, IsActive = true },
-                new PaymentMethodConfiguration { PaymentProviderId = nagad.Id, Method = PaymentMethod.MobileBanking, DisplayName = "Nagad", PercentageFee = 1.5m, IsActive = true },
+                new PaymentMethodConfiguration { PaymentProviderId = demoCard.Id, Method = PaymentMethod.Card, DisplayName = "Demo card", PercentageFee = 0m, IsActive = true },
+                new PaymentMethodConfiguration { PaymentProviderId = demoCard.Id, Method = PaymentMethod.OnlineGateway, DisplayName = "Demo online payment", PercentageFee = 0m, IsActive = true },
+                new PaymentMethodConfiguration { PaymentProviderId = demoMobileA.Id, Method = PaymentMethod.MobileBanking, DisplayName = "Demo mobile payment A", PercentageFee = 0m, IsActive = true },
+                new PaymentMethodConfiguration { PaymentProviderId = demoMobileB.Id, Method = PaymentMethod.MobileBanking, DisplayName = "Demo mobile payment B", PercentageFee = 0m, IsActive = true },
                 new PaymentMethodConfiguration { PaymentProviderId = cashCounter.Id, Method = PaymentMethod.Cash, DisplayName = "Cash", FixedFee = 0m, IsActive = true },
                 new PaymentMethodConfiguration { PaymentProviderId = wallet.Id, Method = PaymentMethod.Wallet, DisplayName = "Wallet Balance", FixedFee = 0m, IsActive = true });
 
@@ -182,9 +179,9 @@ namespace TicketPortal.Api.Data
             ctx.Amenities["ReadingLight"] = readingLightAmenity;
             ctx.Amenities["Toilet"] = toiletAmenity;
             ctx.Amenities["Entertainment"] = entertainmentAmenity;
-            ctx.Providers["SSLCommerz"] = sslcommerz;
-            ctx.Providers["bKash"] = bkash;
-            ctx.Providers["Nagad"] = nagad;
+            ctx.Providers["DemoCard"] = demoCard;
+            ctx.Providers["DemoMobileA"] = demoMobileA;
+            ctx.Providers["DemoMobileB"] = demoMobileB;
             ctx.Providers["Cash"] = cashCounter;
             ctx.Providers["Wallet"] = wallet;
         }
@@ -575,7 +572,7 @@ namespace TicketPortal.Api.Data
             // RBAC Amendment v3 task 4: without an assignment row, CurrentActor.CanUseCounter
             // denies EVERY counter for a CounterStaff actor — these four rows are what let the
             // demo's four counter clerks actually sell, each restricted to their own named
-            // counter (the exact case AUTH_TEST_CASES.md's "Green Line CounterStaff at Gabtoli
+            // counter (the exact case docs/01-Run-and-Manual-Test-Guide.md's "Green Line CounterStaff at Gabtoli
             // must not be able to sell from Kalyanpur" scenario exercises).
             db.StaffSalesCounterAssignments.AddRange(
                 new StaffSalesCounterAssignment { StaffProfileId = ctx.Staff["selina.counter.gl"].Id, SalesCounterId = glCounter1.Id, IsActive = true },
@@ -706,7 +703,7 @@ namespace TicketPortal.Api.Data
         // 9. Hanif's ERP integration (the ExternalApiManaged operator)
         // ================================================================================
         // Chunk 8 task 3: BaseUrl and SecretReference are no longer hardcoded fictional values —
-        // BaseUrl points at apps/mock-erp by default (see docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md
+        // BaseUrl points at apps/mock-erp by default (see docs/docs/03-Remaining-Fix-Plan.md
         // for how to run it), overridable via Integrations:HanifErpBaseUrl for anyone pointing
         // this at a real server instead. SecretReference is "env:HANIF_ERP_API_KEY" — a POINTER
         // the sync engine resolves at call time (see ExternalBookingSyncService.ResolveSecret),
@@ -1136,14 +1133,14 @@ namespace TicketPortal.Api.Data
 
             var cancellationService = new CancellationProcessingService(db, seatHoldService, externalSyncService); var paymentService = new PaymentConfirmationService(db, seatHoldService, financeLedgerService, new ConfigurationBuilder().Build());
 
-            await walletService.CreditAsync(ctx.Customers["rahim.uddin"].Id, 500m, CustomerWalletTransactionType.TopUp, description: "Wallet top-up via bKash.");
+            await walletService.CreditAsync(ctx.Customers["rahim.uddin"].Id, 500m, CustomerWalletTransactionType.TopUp, description: "Simulated demo wallet top-up.");
             await walletService.CreditAsync(ctx.Customers["mitu.rahman"].Id, 200m, CustomerWalletTransactionType.AdminAdjustment, description: "Goodwill credit for a delayed trip.");
 
-            var sslcommerzId = ctx.Providers["SSLCommerz"].Id;
-            var bkashId = ctx.Providers["bKash"].Id;
-            var nagadId = ctx.Providers["Nagad"].Id;
+            var demoCardId = ctx.Providers["DemoCard"].Id;
+            var demoMobileAId = ctx.Providers["DemoMobileA"].Id;
+            var demoMobileBId = ctx.Providers["DemoMobileB"].Id;
 
-            // --- Scenario 1: online confirmed, 1 passenger, WELCOME100 coupon, bKash ---
+            // --- Scenario 1: online confirmed, 1 passenger, WELCOME100 coupon, demo mobile payment ---
             {
                 var trip = ctx.Trips["GL-2"];
                 var seatIds = await GetAvailableSeatIdsAsync(db, trip.Id, 1);
@@ -1154,13 +1151,13 @@ namespace TicketPortal.Api.Data
 
                 await couponService.RedeemAsync(ctx.Coupons["WELCOME100"].Id, booking.Id, ctx.Customers["rahim.uddin"].Id);
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, bkashId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "BKS" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, demoMobileAId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DMA" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
 
                 ctx.Bookings["S1-Rahim-GL2"] = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
             }
 
-            // --- Scenario 2: online confirmed, 2 passengers, EID20 coupon, SSLCommerz card ---
+            // --- Scenario 2: online confirmed, 2 passengers, EID20 coupon, demo card ---
             {
                 var trip = ctx.Trips["GL-3"];
                 var seatIds = await GetAvailableSeatIdsAsync(db, trip.Id, 2);
@@ -1175,13 +1172,13 @@ namespace TicketPortal.Api.Data
 
                 await couponService.RedeemAsync(ctx.Coupons["EID20"].Id, booking.Id, ctx.Customers["karim.sheikh"].Id);
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, sslcommerzId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "SSL" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, demoCardId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DCR" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
 
                 ctx.Bookings["S2-Karim-GL3"] = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
             }
 
-            // --- Scenario 3: completed trip, 2 passengers, Nagad, tickets used ---
+            // --- Scenario 3: completed trip, 2 passengers, demo mobile payment, tickets used ---
             {
                 var trip = ctx.Trips["GL-1"];
                 var seatIds = await GetAvailableSeatIdsAsync(db, trip.Id, 2);
@@ -1200,8 +1197,8 @@ namespace TicketPortal.Api.Data
                         new("Abul Kalam", "+8801733445567", null, Gender.Male, PassengerType.Adult, 34, null),
                     });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, nagadId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "NGD" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.015m, 2), "{\"status\":\"Success\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, demoMobileBId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DMB" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.015m, 2), "{\"status\":\"Success\"}");
 
                 // The trip already happened - move the booking/tickets on to their natural end state
                 // (nothing in the app does this automatically yet).
@@ -1228,8 +1225,8 @@ namespace TicketPortal.Api.Data
                     "Nasrin Sultana", "+8801744556677", "nasrin.sultana@example.com",
                     new List<PassengerInfo> { new("Nasrin Sultana", "+8801744556677", "nasrin.sultana@example.com", Gender.Female, PassengerType.Adult, 32, "1992765432198") });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, sslcommerzId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "SSL" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, demoCardId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DCR" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
 
                 await CancelAndRefundAsync(db, cancellationService, refundService, booking, null, ctx.CustomerUsers["nasrin.sultana"].Id, ctx.StaffUsers["tanvir.ops"].Id, "Change of travel plans.", completeManualPayout: false);
 
@@ -1250,8 +1247,8 @@ namespace TicketPortal.Api.Data
                         new("Tanvir Jashim", null, null, Gender.Male, PassengerType.Child, 9, null),
                     });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, bkashId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "BKS" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, demoMobileAId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DMA" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
 
                 var ticketToCancel = await db.Tickets.Where(t => t.BookingId == booking.Id).OrderBy(t => t.SeatNumberSnapshot).FirstAsync();
                 await CancelAndRefundAsync(db, cancellationService, refundService, booking, ticketToCancel.Id, ctx.CustomerUsers["jashim.uddin"].Id, ctx.StaffUsers["tanvir.ops"].Id, "One passenger could no longer travel.", completeManualPayout: false);
@@ -1268,8 +1265,8 @@ namespace TicketPortal.Api.Data
                     "Md. Aynul Haque", "+8801766778899", null,
                     new List<PassengerInfo> { new("Md. Aynul Haque", "+8801766778899", null, Gender.Male, PassengerType.Adult, 45, "1980112233445") });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, sslcommerzId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "SSL" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, demoCardId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DCR" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
 
                 await CancelAndRefundAsync(db, cancellationService, refundService, booking, null, null, ctx.StaffUsers["rezaul.support"].Id, "Guest requested cancellation by phone.", completeManualPayout: false);
 
@@ -1285,7 +1282,7 @@ namespace TicketPortal.Api.Data
                     "Rahim Uddin", "+8801711223344", "rahim.uddin@example.com",
                     new List<PassengerInfo> { new("Rahim Uddin", "+8801711223344", "rahim.uddin@example.com", Gender.Male, PassengerType.Adult, 34, "1912345678901") });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, sslcommerzId);
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, demoCardId);
                 await paymentService.FailPaymentAsync(payment.Id, hold.HoldToken, "Card declined by issuing bank.");
 
                 ctx.Bookings["S7-Rahim-GL2-Failed"] = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
@@ -1302,7 +1299,7 @@ namespace TicketPortal.Api.Data
                     "Shirin Akter", "+8801777889900", "shirin.akter@example.com",
                     new List<PassengerInfo> { new("Shirin Akter", "+8801777889900", "shirin.akter@example.com", Gender.Female, PassengerType.Adult, 27, "1998456789123") });
 
-                await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, bkashId);
+                await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, demoMobileAId);
                 // Deliberately left unconfirmed.
 
                 ctx.Bookings["S8-Shirin-GL5-Pending"] = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
@@ -1367,8 +1364,8 @@ namespace TicketPortal.Api.Data
                     "Mitu Rahman", "+8801811223344", "mitu.rahman@example.com",
                     new List<PassengerInfo> { new("Mitu Rahman", "+8801811223344", "mitu.rahman@example.com", Gender.Female, PassengerType.Adult, 31, "1993987654321") });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, bkashId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "BKS" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, demoMobileAId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DMA" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
 
                 ctx.Bookings["S11-Mitu-SHO2-Agent"] = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
             }
@@ -1382,8 +1379,8 @@ namespace TicketPortal.Api.Data
                     "Rahim Uddin", "+8801711223344", "rahim.uddin@example.com",
                     new List<PassengerInfo> { new("Rahim Uddin", "+8801711223344", "rahim.uddin@example.com", Gender.Male, PassengerType.Adult, 34, "1912345678901") });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, sslcommerzId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "SSL" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.Card, demoCardId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DCR" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.025m, 2), "{\"status\":\"VALID\"}");
 
                 var confirmedBooking = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
                 confirmedBooking.ExternalBookingKey = "HAN-BKG-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
@@ -1436,8 +1433,8 @@ namespace TicketPortal.Api.Data
                     "Karim Sheikh", "+8801722334455", "karim.sheikh@example.com",
                     new List<PassengerInfo> { new("Karim Sheikh", "+8801722334455", "karim.sheikh@example.com", Gender.Male, PassengerType.Adult, 38, "1988765432101") });
 
-                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, bkashId);
-                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "BKS" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
+                var payment = await paymentService.InitiatePaymentAsync(booking.Id, hold.HoldToken, PaymentMethod.MobileBanking, demoMobileAId);
+                await paymentService.ConfirmOnlinePaymentAsync(payment.Id, hold.HoldToken, "DMA" + Guid.NewGuid().ToString("N")[..9].ToUpperInvariant(), Math.Round(payment.Amount * 0.018m, 2), "{\"status\":\"Completed\"}");
 
                 var confirmedBooking = await db.Bookings.FirstAsync(b => b.Id == booking.Id);
                 // RequiresExternalConfirmation stays true - Hanif's ERP hasn't confirmed this seat yet.

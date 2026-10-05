@@ -32,6 +32,7 @@ namespace TicketPortal.Api.Services
         // and accounting" checks rather than letting a refund pay itself out unreviewed.
         public async Task ApproveAsync(Guid refundId, string? remarks)
         {
+            await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
             var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
                 ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
 
@@ -39,6 +40,22 @@ namespace TicketPortal.Api.Services
             {
                 throw new InvalidOperationException(
                     $"Refund {refundId} is {refund.Status}; only a Requested refund can be approved.");
+            }
+
+            var capturedAmount = await _db.Payments
+                .Where(p => p.Id == refund.PaymentId && p.Status == PaymentStatus.Succeeded)
+                .Select(p => (decimal?)p.Amount)
+                .FirstOrDefaultAsync()
+                ?? throw new InvalidOperationException("The refund's payment is not a successful captured payment.");
+            var alreadyReserved = await _db.Refunds
+                .Where(r => r.PaymentId == refund.PaymentId && r.Id != refund.Id
+                    && r.Status != RefundStatus.Rejected)
+                .SumAsync(r => (decimal?)r.Amount) ?? 0m;
+            if (alreadyReserved + refund.Amount > capturedAmount)
+            {
+                throw new InvalidOperationException(
+                    $"This refund would reserve {alreadyReserved + refund.Amount} of {capturedAmount} captured; " +
+                    $"only {Math.Max(0m, capturedAmount - alreadyReserved)} remains refundable.");
             }
 
             refund.Status = RefundStatus.Approved;
@@ -52,6 +69,7 @@ namespace TicketPortal.Api.Services
             });
 
             await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
         }
 
         public async Task RejectAsync(Guid refundId, string reason)
@@ -75,6 +93,28 @@ namespace TicketPortal.Api.Services
                 Remarks = reason
             });
 
+            await _db.SaveChangesAsync();
+        }
+
+        // A ledger-stage Failed refund is known not to have moved money. FinanceLedgerService
+        // and CustomerWalletService also deduplicate by RefundId, so a retry can safely resume.
+        public async Task RetryFailedAsync(Guid refundId)
+        {
+            var refund = await _db.Refunds.FirstOrDefaultAsync(r => r.Id == refundId)
+                ?? throw new InvalidOperationException($"Refund {refundId} does not exist.");
+            if (refund.Status != RefundStatus.Failed)
+            {
+                throw new InvalidOperationException($"Refund {refundId} is {refund.Status}; only a Failed refund can be retried.");
+            }
+
+            refund.Status = RefundStatus.Approved;
+            refund.UpdatedAtUtc = DateTime.UtcNow;
+            _db.RefundHistories.Add(new RefundHistory
+            {
+                RefundId = refund.Id,
+                Status = RefundStatus.Approved,
+                Remarks = "Failed refund retry approved.",
+            });
             await _db.SaveChangesAsync();
         }
 
@@ -146,15 +186,8 @@ namespace TicketPortal.Api.Services
             {
                 if (isCounterSale)
                 {
-                    // Null TicketId means this refund covers the whole booking, not one seat —
-                    // see ResolveCounterSaleCommissionToReverseAsync for how each case is handled.
-                    var cancelledTicketId = refund.CancellationRequest?.TicketId;
-                    var cancelledTicketFinalFare = cancelledTicketId.HasValue
-                        ? booking.Tickets.FirstOrDefault(t => t.Id == cancelledTicketId.Value)?.FinalFare
-                        : null;
-
                     var commissionToReverse = await _financeLedgerService.ResolveCounterSaleCommissionToReverseAsync(
-                        booking.Id, booking.GrandTotal, cancelledTicketFinalFare);
+                        booking.Id, booking.GrandTotal, refund.Amount);
 
                     await _financeLedgerService.PostCounterSaleRefundAsync(
                         refund.BookingId, refund.Id, booking.BusOperatorId, commissionToReverse, refund.Currency);

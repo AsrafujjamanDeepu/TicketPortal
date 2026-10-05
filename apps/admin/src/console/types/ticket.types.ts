@@ -49,6 +49,7 @@ export interface TicketResponseDto {
   qrCodePayload: string;
   fare: number;
   discountAmount: number;
+  taxAmount: number;
   finalFare: number;
   status: TicketStatus;
   issuedAtUtc: string | null;

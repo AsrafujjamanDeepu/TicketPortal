@@ -1,4 +1,6 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Marketing;
@@ -17,19 +19,24 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class ComplaintsController(AppDbContext db) : ControllerBase
+    public class ComplaintsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.Complaints.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasAnyPermission(Permissions.ComplaintsRead, Permissions.ComplaintsManage))
             {
-                var userId = GetCurrentUserId();
-                query = query.Where(c => db.CustomerProfiles.Any(cp =>
-                    cp.Id == c.CustomerProfileId && cp.UserId == userId));
+                if (!actor.IsAdmin && actor.BusOperatorId.HasValue)
+                    query = query.Where(c => c.BookingId.HasValue && db.Bookings.Any(b =>
+                        b.Id == c.BookingId.Value && b.BusOperatorId == actor.BusOperatorId.Value));
             }
+            else if (actor.Type == ActorType.Customer)
+                query = query.Where(c => db.CustomerProfiles.Any(cp =>
+                    cp.Id == c.CustomerProfileId && cp.UserId == GetCurrentUserId()));
+            else return Ok(Array.Empty<ComplaintResponseDto>());
 
             var items = await query.OrderByDescending(c => c.CreatedAtUtc).ToListAsync();
             return Ok(items.Select(ToResponseDto));
@@ -76,7 +83,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.Complaints.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "Complaint not found." });
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -127,10 +134,11 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/status")]
         public async Task<IActionResult> UpdateStatus(Guid id, ComplaintStatusUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.ComplaintsManage)) return Forbid();
 
             var item = await db.Complaints.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             item.Status = dto.Status;
             item.ResolvedAtUtc = dto.Status is ComplaintStatus.Resolved or ComplaintStatus.Closed
@@ -147,10 +155,11 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.ComplaintsManage)) return Forbid();
 
             var item = await db.Complaints.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -177,9 +186,21 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private async Task<bool> CanAccessAsync(Complaint item)
+        private async Task<bool> CanAccessAsync(Complaint item, bool requireManage = false)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (actor.Type == ActorType.Staff)
+            {
+                var hasPermission = requireManage
+                    ? actor.HasPermission(Permissions.ComplaintsManage)
+                    : actor.HasAnyPermission(Permissions.ComplaintsRead, Permissions.ComplaintsManage);
+                if (!hasPermission) return false;
+                if (!actor.BusOperatorId.HasValue) return true;
+                return item.BookingId.HasValue && await db.Bookings.AnyAsync(b =>
+                    b.Id == item.BookingId.Value && b.BusOperatorId == actor.BusOperatorId.Value);
+            }
+            if (actor.Type != ActorType.Customer) return false;
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

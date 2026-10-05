@@ -35,8 +35,8 @@ namespace TicketPortal.Api.Controllers
     {
         // RBAC Amendment v3 / Chunk 7 task 1 ("Fix finance access mismatch") — GetAll/GetById
         // only; Generate/Approve below are untouched (read scoping is Chunk 7's owner scope for
-        // this controller, not the write/workflow endpoints). A raw IsInRole("Staff") let ANY
-        // platform staff account see every operator's settlements, and IsInRole("Operator") let
+        // this controller, not the write/workflow endpoints). A raw Staff-role check let ANY
+        // platform staff account see every operator's settlements, and the Operator role let
         // any operator-scoped account (even counter staff with no finance permission at all) see
         // their own operator's — neither matches PermissionMatrix.cs. Finance.ReadPlatform
         // (Platform Finance/Admin) sees every operator; Finance.ReadOwnOperator (Operator
@@ -92,6 +92,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("generate")]
         public async Task<IActionResult> Generate(SettlementGenerateDto dto)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.SettlementGenerate)) return Forbid();
             if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId)) return Forbid();
 
             try
@@ -119,7 +120,8 @@ namespace TicketPortal.Api.Controllers
         {
             var settlement = await db.OperatorSettlements.FirstOrDefaultAsync(x => x.Id == id);
             if (settlement == null) return NotFound();
-            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.SettlementApprove)
+                || !await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
 
             try
             {

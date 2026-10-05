@@ -3,14 +3,9 @@
 // operator's own branch network. Now an operator's own staff only ever sees/touches their own
 // operator's branches; platform Staff/Admin see and manage everything.
 //
-// Role note (applies to every controller in this piece): the Completion Plan's Section 2 example
-// gate only checks IsInRole("Admin")/IsInRole("Staff") — that text predates Piece 1. Piece 1
-// actually shipped THREE login-permission tiers: "Staff" is our own platform staff, "Operator" is
-// an operator's own staff, "Admin" is platform admin (see CreateStaffAccountDto's comment in
-// AdminDtos.cs). So the gate here checks all three; StaffProfile.BusOperatorId (via
-// ClaimsPrincipalExtensions.GetBusOperatorIdAsync — null = platform, set = exactly one operator)
-// is what actually narrows the query once someone's past the gate.
+// Network permissions gate access; the active StaffProfile scope limits operator-owned rows.
 
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -29,7 +24,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkRead))
             {
                 return Ok(Array.Empty<OperatorBranchResponseDto>());
             }
@@ -48,7 +43,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkRead)) return Forbid();
 
             var item = await db.OperatorBranches.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
@@ -62,7 +57,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(OperatorBranchCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
@@ -105,7 +100,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, OperatorBranchUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var item = await db.OperatorBranches.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "OperatorBranch not found." });
@@ -164,7 +159,7 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var item = await db.OperatorBranches.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

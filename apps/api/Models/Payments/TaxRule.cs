@@ -3,8 +3,9 @@ using System.ComponentModel.DataAnnotations;
 
 namespace TicketPortal.Api.Models.Payments
 {
-    // A tax percentage that can be applied to a booking (e.g. VAT) — kept as data instead of a
-    // hardcoded number so the rate can be changed without a deployment.
+    // A configurable demo percentage only. This global shape cannot encode jurisdictional,
+    // operator, route, or vehicle-class taxability and must not be presented as a statutory tax
+    // rule without an appropriately scoped model and legal review.
     public class TaxRule : AuditableEntity
     {
         [MaxLength(120)]

@@ -60,7 +60,6 @@ namespace TicketPortal.Api.Models.Bookings
         public decimal TaxAmount { get; set; }
         public decimal ServiceChargeAmount { get; set; }
         public decimal GrandTotal { get; set; } // The final amount actually charged.
-
         [MaxLength(3)]
         public string Currency { get; set; } = "BDT";
 

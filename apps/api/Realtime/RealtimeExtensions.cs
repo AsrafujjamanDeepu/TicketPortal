@@ -38,6 +38,7 @@ namespace TicketPortal.Api.Realtime
             services.AddSingleton<IRealtimeNotifier, RealtimeNotifier>();
             services.AddSingleton<RealtimeSaveChangesInterceptor>();
             services.AddSingleton<RealtimeTransactionInterceptor>();
+            services.AddHostedService<RealtimeSessionRevocationService>();
 
             return services;
         }

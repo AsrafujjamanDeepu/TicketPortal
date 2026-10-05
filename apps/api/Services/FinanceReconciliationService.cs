@@ -132,7 +132,7 @@ namespace TicketPortal.Api.Services
                     ?? throw new InvalidOperationException($"Booking {bookingId} has no succeeded Payment to re-post from.");
 
                 var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Online);
-                var commission = ComputeCommission(rule, booking.GrandTotal);
+                var commission = ComputeCommission(rule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
 
                 var gatewayFeeBearer = await db.OperatorContracts
                     .Where(c => c.BusOperatorId == booking.BusOperatorId && c.IsActive)
@@ -154,7 +154,7 @@ namespace TicketPortal.Api.Services
                 }
 
                 var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Counter);
-                var commission = ComputeCommission(rule, booking.GrandTotal);
+                var commission = ComputeCommission(rule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
 
                 await financeLedgerService.PostCounterSaleCommissionAsync(
                     booking.Id, booking.BusOperatorId, commission, booking.Currency);

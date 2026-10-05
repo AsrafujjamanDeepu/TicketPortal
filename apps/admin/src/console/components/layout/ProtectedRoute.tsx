@@ -8,6 +8,7 @@ export function ProtectedRoute({ roles }: { roles?: string[] }) {
   const { user, loading } = useAuth()
   if (loading) return null
   if (!user) return <HardRedirect to="/login" />
+  if (user.mustChangePassword) return <HardRedirect to="/change-password" />
   if (roles && roles.length > 0 && !roles.some((r) => user.roles.includes(r))) {
     return <HardRedirect to="/" />
   }

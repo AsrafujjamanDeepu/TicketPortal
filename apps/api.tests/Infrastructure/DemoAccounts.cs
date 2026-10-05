@@ -1,7 +1,7 @@
 namespace TicketPortal.Api.Tests.Infrastructure
 {
     // Every value here is copied from DemoDataSeeder.cs (Development-only, non-secret, and
-    // already documented for humans in SETUP_AND_DEMO_GUIDE.md's account table) — nothing new
+    // already documented for humans in docs/01-Run-and-Manual-Test-Guide.md) — nothing new
     // is introduced. Centralized here so a future rename in the seeder only needs updating in
     // one place, not in every test file.
     public static class DemoAccounts

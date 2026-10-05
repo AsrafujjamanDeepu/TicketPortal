@@ -12,6 +12,8 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Security.Cryptography;
 using TicketPortal.Api.Services;
 
 namespace TicketPortal.Api.Controllers
@@ -29,9 +31,16 @@ namespace TicketPortal.Api.Controllers
         AppDbContext db,
         IPasswordResetMessageSender passwordResetMessageSender,
         ICurrentActorService currentActor,
+        IPasswordHasher<ApplicationUser> passwordHasher,
         ILogger<AccountController> logger) : ControllerBase
     {
+        private static readonly ApplicationUser DummyLoginUser = new();
+        private static readonly string DummyPasswordHash = new PasswordHasher<ApplicationUser>()
+            .HashPassword(DummyLoginUser, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)));
+
+        [AllowAnonymous]
         [HttpPost("register")]
+        [EnableRateLimiting("register")]
         public async Task<IActionResult> Register(RegisterDto dto)
         {
             var user = new ApplicationUser
@@ -64,32 +73,21 @@ namespace TicketPortal.Api.Controllers
             return StatusCode(201, $"User '{user.UserName}' created.");
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
+        [EnableRateLimiting("login")]
         public async Task<IActionResult> Login(LoginDto dto)
         {
             var user = await userManager.FindByNameAsync(dto.UserName);
 
-            // Only a real user (found by username) has anything to attribute a LoginHistory row
-            // to, or a lockout counter to check — LoginHistory.UserId is a required FK, and
-            // Identity's failed-attempt counter lives on the ApplicationUser row itself. A
-            // completely unknown username has neither, same as it always did.
-            if (user == null)
-            {
-                return Unauthorized("Invalid username or password");
-            }
+            var passwordOk = user is not null
+                ? await userManager.CheckPasswordAsync(user, dto.Password)
+                : passwordHasher.VerifyHashedPassword(DummyLoginUser, DummyPasswordHash, dto.Password)
+                    != PasswordVerificationResult.Failed;
+            var accountLocked = user is not null && await userManager.IsLockedOutAsync(user);
+            var canLogin = user is { IsActive: true } && passwordOk && !accountLocked;
 
-            // Accounts are disabled (IsActive = false) rather than deleted. Login never looked at
-            // that flag, so a disabled account could still sign in.
-            if (!user.IsActive)
-            {
-                return Unauthorized("This account has been disabled. Please contact support.");
-            }
-
-            // Piece 4: checked BEFORE the password itself. Once options.Lockout.MaxFailedAccessAttempts
-            // (Program.cs) has been hit, even the correct password must be rejected until the
-            // lockout window expires — otherwise a brute-force run just keeps guessing at full
-            // speed forever. Still logged below like any other failed attempt.
-            if (await userManager.IsLockedOutAsync(user))
+            if (user is not null)
             {
                 db.LoginHistories.Add(new LoginHistory
                 {
@@ -97,64 +95,44 @@ namespace TicketPortal.Api.Controllers
                     LoginAtUtc = DateTime.UtcNow,
                     IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
                     UserAgent = Request.Headers.UserAgent.ToString(),
-                    Success = false,
+                    Success = canLogin,
                 });
                 await db.SaveChangesAsync();
-
-                return StatusCode(StatusCodes.Status423Locked,
-                    "This account is temporarily locked after too many failed login attempts. Please try again later.");
             }
 
-            var passwordOk = await userManager.CheckPasswordAsync(user, dto.Password);
-
-            // AccessFailedAsync / ResetAccessFailedCountAsync are what actually drive the
-            // lockout: the former bumps Identity's failed-attempt counter (and sets LockoutEnd
-            // once MaxFailedAccessAttempts is reached, per the options in Program.cs); the
-            // latter clears that counter back to zero on a genuine success, so someone who
-            // mistypes their password once isn't penalized for it later.
-            if (passwordOk)
+            if (!canLogin)
             {
-                await userManager.ResetAccessFailedCountAsync(user);
-            }
-            else
-            {
-                await userManager.AccessFailedAsync(user);
+                var failureReason = user is null ? "unknown-user"
+                    : !user.IsActive ? "disabled-account"
+                    : accountLocked ? "legacy-locked-account" : "invalid-credentials";
+                logger.LogWarning("Authentication failed ({FailureReason}) for account {UserId} from {RemoteIp}.",
+                    failureReason, user?.Id, HttpContext.Connection.RemoteIpAddress?.ToString());
             }
 
-            // A found user with the wrong password still gets a Success = false row, which is
-            // the actual security-relevant case this trail exists for.
-            db.LoginHistories.Add(new LoginHistory
+            if (!canLogin)
             {
-                UserId = user.Id,
-                LoginAtUtc = DateTime.UtcNow,
-                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
-                UserAgent = Request.Headers.UserAgent.ToString(),
-                Success = passwordOk,
-            });
-            await db.SaveChangesAsync();
-
-            if (!passwordOk)
-            {
-                // Deliberately the same generic message an unknown username gets — this
-                // doesn't say whether it was the password or a just-triggered lockout, so an
-                // attacker can't use the response to tell those apart.
                 return Unauthorized("Invalid username or password");
             }
 
-            var authenticatedUser = user;
+            var authenticatedUser = user!;
             var roles = await userManager.GetRolesAsync(authenticatedUser);
+            var accountClaims = await userManager.GetClaimsAsync(authenticatedUser);
 
             var claims = new List<Claim>
             {
                 new(ClaimTypes.NameIdentifier, authenticatedUser.Id.ToString()),
-                new(ClaimTypes.Name, authenticatedUser.UserName!)
+                new(ClaimTypes.Name, authenticatedUser.UserName!),
+                new("security_stamp", await userManager.GetSecurityStampAsync(authenticatedUser))
             };
             claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+            claims.AddRange(accountClaims
+                .Where(claim => claim.Type == DbSeeder.MustChangeBootstrapPasswordClaim));
 
             var key = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(configuration["JWT:SigningKey"]!));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-            var expiresAtUtc = DateTime.UtcNow.AddHours(3);
+            var expiresAtUtc = DateTime.UtcNow.AddMinutes(
+                configuration.GetValue<int?>("Auth:AccessTokenMinutes") ?? 15);
 
             var token = new JwtSecurityToken(
                 issuer: configuration["JWT:Issuer"],
@@ -169,6 +147,8 @@ namespace TicketPortal.Api.Controllers
                 ExpiresAtUtc = expiresAtUtc,
                 UserId = authenticatedUser.Id,
                 UserName = authenticatedUser.UserName!,
+                MustChangePassword = accountClaims.Any(claim =>
+                    claim.Type == DbSeeder.MustChangeBootstrapPasswordClaim && claim.Value == "true"),
                 // GetRolesAsync returns IList<string>, which does NOT implicitly convert to
                 // IReadOnlyCollection<string> — .ToList() here is required to compile, not optional.
                 Roles = roles.ToList()
@@ -203,6 +183,21 @@ namespace TicketPortal.Api.Controllers
             if (!result.Succeeded)
             {
                 return BadRequest(result.Errors.Select(e => e.Description));
+            }
+
+            await userManager.UpdateSecurityStampAsync(user);
+            var bootstrapClaims = (await userManager.GetClaimsAsync(user))
+                .Where(claim => claim.Type == DbSeeder.MustChangeBootstrapPasswordClaim)
+                .ToArray();
+            if (bootstrapClaims.Length > 0)
+            {
+                var claimRemoval = await userManager.RemoveClaimsAsync(user, bootstrapClaims);
+                if (!claimRemoval.Succeeded)
+                {
+                    logger.LogError("Could not clear the required-password-change claim for user {UserId}.", user.Id);
+                    return Problem(statusCode: StatusCodes.Status500InternalServerError,
+                        detail: "The password was changed, but the account needs administrator assistance before it can be used.");
+                }
             }
 
             return NoContent();
@@ -254,7 +249,9 @@ namespace TicketPortal.Api.Controllers
         // one-time, time-limited reset token rather than storing a recoverable password or
         // inventing a second token scheme. Keep the success response generic to prevent email
         // address enumeration.
+        [AllowAnonymous]
         [HttpPost("forgot-password")]
+        [EnableRateLimiting("password-reset")]
         public async Task<IActionResult> ForgotPassword(ForgotPasswordDto dto)
         {
             var user = await userManager.FindByEmailAsync(dto.Email.Trim());
@@ -285,7 +282,9 @@ namespace TicketPortal.Api.Controllers
             });
         }
 
+        [AllowAnonymous]
         [HttpPost("reset-password")]
+        [EnableRateLimiting("password-reset")]
         public async Task<IActionResult> ResetPassword(ResetPasswordDto dto)
         {
             var user = await userManager.FindByEmailAsync(dto.Email.Trim());
@@ -314,9 +313,9 @@ namespace TicketPortal.Api.Controllers
                 });
             }
 
-            // A reset should also clear a lockout caused by forgotten credentials, otherwise a
-            // user can choose a valid new password but still remain locked out.
+            // Reset any legacy failed-attempt counters left by older deployments.
             await userManager.ResetAccessFailedCountAsync(user);
+            await userManager.UpdateSecurityStampAsync(user);
             return NoContent();
         }
     }

@@ -6,12 +6,13 @@ interface CurrentUser {
   userId: string;
   userName: string;
   roles: string[];
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextValue {
   currentUser: CurrentUser | null;
   isAuthenticated: boolean;
-  login: (request: LoginRequest) => Promise<void>;
+  login: (request: LoginRequest) => Promise<boolean>;
   logout: () => void;
   hasRole: (...roles: string[]) => boolean;
 }
@@ -20,7 +21,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function toCurrentUser(session: ReturnType<typeof getStoredSession>): CurrentUser | null {
   if (!session) return null;
-  return { userId: session.userId, userName: session.userName, roles: session.roles };
+  return {
+    userId: session.userId,
+    userName: session.userName,
+    roles: session.roles,
+    mustChangePassword: session.mustChangePassword,
+  };
 }
 
 /**
@@ -55,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         storeSession(response);
         setCurrentUser(toCurrentUser(getStoredSession()));
+        return response.mustChangePassword === true;
       },
       logout: () => {
         clearSession();

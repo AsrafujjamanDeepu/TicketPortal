@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using System.Text.Json;
 
 namespace TicketPortal.Api.Controllers
 {
@@ -103,11 +105,35 @@ namespace TicketPortal.Api.Controllers
 
             // A user has exactly one permission tier at a time — replace, don't accumulate.
             var currentRoles = await userManager.GetRolesAsync(user);
+            if (currentRoles.Count == 1 && currentRoles[0] == dto.Role)
+            {
+                return Ok(new AssignRoleResponseDto { UserId = user.Id, UserName = user.UserName!, Roles = currentRoles.ToList() });
+            }
+
+            var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (Guid.TryParse(callerId, out var callerUserId) && callerUserId == user.Id)
+            {
+                return BadRequest(new { message = "You cannot change your own role." });
+            }
+
+            if (dto.Role == "Staff" && !await db.StaffProfiles.AnyAsync(p => p.UserId == user.Id && p.IsActive))
+            {
+                return BadRequest(new { message = "Create or activate a StaffProfile before assigning the Staff role." });
+            }
+
+            await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            if (currentRoles.Contains("Admin") && dto.Role != "Admin"
+                && (await userManager.GetUsersInRoleAsync("Admin")).Count <= 1)
+            {
+                return Conflict(new { message = "The last Admin account cannot be demoted." });
+            }
+
             if (currentRoles.Count > 0)
             {
                 var removeResult = await userManager.RemoveFromRolesAsync(user, currentRoles);
                 if (!removeResult.Succeeded)
                 {
+                    await transaction.RollbackAsync();
                     return BadRequest(removeResult.Errors.Select(e => e.Description));
                 }
             }
@@ -115,8 +141,26 @@ namespace TicketPortal.Api.Controllers
             var addResult = await userManager.AddToRoleAsync(user, dto.Role);
             if (!addResult.Succeeded)
             {
+                await transaction.RollbackAsync();
                 return BadRequest(addResult.Errors.Select(e => e.Description));
             }
+
+            await userManager.UpdateSecurityStampAsync(user);
+            var actorId = Guid.TryParse(callerId, out var parsedActorId) ? parsedActorId : (Guid?)null;
+            db.AuditLogs.Add(new TicketPortal.Api.Models.Diagnostics.AuditLog
+            {
+                UserId = actorId,
+                EntityName = "IdentityRoleAssignment",
+                EntityId = user.Id.ToString(),
+                Action = "Updated",
+                OldValuesJson = JsonSerializer.Serialize(currentRoles),
+                NewValuesJson = JsonSerializer.Serialize(new[] { dto.Role }),
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString(),
+                CreatedAtUtc = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(new AssignRoleResponseDto
             {
@@ -175,7 +219,7 @@ namespace TicketPortal.Api.Controllers
             // created atomically — previously a StaffProfile save failure (e.g. a duplicate
             // EmployeeCode) left a fully working login with a role but NO StaffProfile at all,
             // which CurrentActorService now treats as UnprovisionedStaff (denied everywhere),
-            // but which used to fall through the old broad IsInRole("Staff") checks as if it
+            // but which used to fall through the old broad staff-role checks as if it
             // were unscoped platform staff. A DB transaction around the whole operation means
             // a StaffProfile failure rolls back the user creation and role assignment too,
             // instead of leaving that half-created account behind.

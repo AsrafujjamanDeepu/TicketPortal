@@ -2,6 +2,7 @@ using TicketPortal.Api.Models.CompanyNetwork;
 using TicketPortal.Api.Models.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace TicketPortal.Api.Data
 {
@@ -146,8 +147,8 @@ namespace TicketPortal.Api.Data
                 }
 
                 logger?.LogInformation(
-                    "Bootstrap admin created: username '{UserName}', password '{Password}' (development only).",
-                    BootstrapAdminUserName, BootstrapAdminPassword);
+                    "Development bootstrap admin created for username '{UserName}'.",
+                    BootstrapAdminUserName);
             }
             else if (repairDevelopmentCredentials)
             {
@@ -187,8 +188,8 @@ namespace TicketPortal.Api.Data
                 if (repairs.Count > 0)
                 {
                     logger?.LogWarning(
-                        "Bootstrap admin '{UserName}' was repaired ({Repairs}). Login: {UserName} / {Password}",
-                        BootstrapAdminUserName, string.Join(", ", repairs), BootstrapAdminUserName, BootstrapAdminPassword);
+                        "Bootstrap admin '{UserName}' was repaired ({Repairs}).",
+                        BootstrapAdminUserName, string.Join(", ", repairs));
                 }
             }
 
@@ -202,6 +203,68 @@ namespace TicketPortal.Api.Data
                         string.Join("; ", roleResult.Errors.Select(e => e.Description)));
                 }
             }
+        }
+
+        public static async Task EnsureNoDefaultBootstrapPasswordAsync(
+            UserManager<ApplicationUser> userManager)
+        {
+            var admin = await userManager.FindByNameAsync(BootstrapAdminUserName);
+            if (admin is not null && await userManager.CheckPasswordAsync(admin, BootstrapAdminPassword))
+            {
+                throw new InvalidOperationException(
+                    "The known development bootstrap password is still active for the 'admin' account. " +
+                    "Change that password before starting outside Development.");
+            }
+        }
+
+        public const string MustChangeBootstrapPasswordClaim = "ticketportal:must-change-bootstrap-password";
+
+        public static async Task SeedConfiguredBootstrapAdminAsync(
+            UserManager<ApplicationUser> userManager,
+            IConfiguration configuration,
+            ILogger logger)
+        {
+            var userName = configuration["Seeding:BootstrapAdmin:UserName"]?.Trim();
+            var password = configuration["Seeding:BootstrapAdmin:Password"];
+            if (string.IsNullOrWhiteSpace(userName) && string.IsNullOrWhiteSpace(password)) return;
+            if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(password))
+                throw new InvalidOperationException("Both Seeding:BootstrapAdmin:UserName and Password must be supplied together.");
+            if (password.Length < 16 || password == BootstrapAdminPassword)
+                throw new InvalidOperationException("The production bootstrap password must be at least 16 characters and must not be the development password.");
+
+            var existing = await userManager.FindByNameAsync(userName);
+            if (existing is not null)
+            {
+                if (!await userManager.IsInRoleAsync(existing, "Admin"))
+                    throw new InvalidOperationException("The configured bootstrap username already exists without the Admin role; resolve the account before startup.");
+                return;
+            }
+
+            var user = new ApplicationUser
+            {
+                UserName = userName,
+                Email = configuration[$"Seeding:BootstrapAdmin:Email"] ?? $"{userName}@ticketportal.local",
+                FullName = "Platform Admin",
+                EmailConfirmed = true
+            };
+            var created = await userManager.CreateAsync(user, password);
+            if (!created.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    "The configured bootstrap admin could not be created: " +
+                    string.Join("; ", created.Errors.Select(error => error.Code)));
+            }
+
+            var claimResult = await userManager.AddClaimAsync(user,
+                new Claim(MustChangeBootstrapPasswordClaim, "true"));
+            if (!claimResult.Succeeded)
+                throw new InvalidOperationException("The configured bootstrap admin could not be marked for a required password change.");
+
+            var roleResult = await userManager.AddToRoleAsync(user, "Admin");
+            if (!roleResult.Succeeded)
+                throw new InvalidOperationException("The configured bootstrap admin could not be assigned the Admin role.");
+
+            logger.LogWarning("Configured bootstrap admin '{UserName}' was created. It must change its password before using the application.", userName);
         }
     }
 }

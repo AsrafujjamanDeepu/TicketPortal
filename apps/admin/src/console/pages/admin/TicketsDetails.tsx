@@ -119,6 +119,7 @@ export default function TicketsDetails() {
         <div className="card-body row">
           <Field label="Fare">{ticket.fare.toFixed(2)}</Field>
           <Field label="Discount Amount">{ticket.discountAmount.toFixed(2)}</Field>
+          <Field label="Allocated tax">{ticket.taxAmount.toFixed(2)}</Field>
           <Field label="Final Fare">{ticket.finalFare.toFixed(2)}</Field>
         </div>
       </div>

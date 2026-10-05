@@ -59,7 +59,9 @@ namespace TicketPortal.Api.Hubs
             // knows somebody may be listening. Removed again in OnDisconnectedAsync — and here
             // if connecting itself fails, because SignalR does not promise a disconnect callback
             // for a connection whose OnConnectedAsync threw.
-            connections.Add(Context.ConnectionId);
+            var userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var securityStamp = Context.User?.FindFirst("security_stamp")?.Value;
+            connections.Add(Context.ConnectionId, userId, securityStamp, Context.Abort);
 
             try
             {

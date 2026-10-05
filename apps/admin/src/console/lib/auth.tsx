@@ -5,6 +5,7 @@ interface AuthUser {
   id: string;
   userName: string;
   roles: string[];
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextValue {
@@ -27,7 +28,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => {
     const session = getStoredSession();
     const user: AuthUser | null = session
-      ? { id: session.userId, userName: session.userName, roles: session.roles }
+      ? {
+          id: session.userId,
+          userName: session.userName,
+          roles: session.roles,
+          mustChangePassword: session.mustChangePassword,
+        }
       : null;
     return {
       user,

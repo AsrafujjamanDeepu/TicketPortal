@@ -9,6 +9,7 @@
 // otherwise an operator's own staff could attach a licence to a driver who isn't even theirs.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.People;
@@ -21,26 +22,23 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class DriverLicensesController(AppDbContext db) : ControllerBase
+    public class DriverLicensesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.StaffRead))
             {
                 return Ok(Array.Empty<DriverLicenseResponseDto>());
             }
 
             var query = db.DriverLicenses.AsQueryable();
 
-            if (!User.IsInRole("Admin"))
+            if (!actor.IsAdmin && actor.BusOperatorId.HasValue)
             {
-                var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (scopeOperatorId != null)
-                {
-                    query = query.Where(d => db.StaffProfiles.Any(sp =>
-                        sp.Id == d.StaffProfileId && sp.BusOperatorId == scopeOperatorId));
-                }
+                query = query.Where(d => db.StaffProfiles.Any(sp =>
+                    sp.Id == d.StaffProfileId && sp.BusOperatorId == actor.BusOperatorId.Value));
             }
 
             var items = await query.ToListAsync();
@@ -52,15 +50,15 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.DriverLicenses.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item.StaffProfileId)) return Forbid();
+            if (!await CanAccessAsync(item.StaffProfileId, requireManage: false)) return Forbid();
             return Ok(ToResponseDto(item));
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(DriverLicenseCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-            if (!await CanAccessAsync(dto.StaffProfileId))
+            if (!await User.HasPermissionAsync(db, Permissions.StaffManage)) return Forbid();
+            if (!await CanAccessAsync(dto.StaffProfileId, requireManage: true))
             {
                 return BadRequest(new { message = "That staff member doesn't belong to your operator." });
             }
@@ -85,7 +83,8 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.DriverLicenses.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "DriverLicense not found." });
-            if (!await CanAccessAsync(item.StaffProfileId)) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.StaffManage)
+                || !await CanAccessAsync(item.StaffProfileId, requireManage: true)) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -130,7 +129,8 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.DriverLicenses.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item.StaffProfileId)) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.StaffManage)
+                || !await CanAccessAsync(item.StaffProfileId, requireManage: true)) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -151,21 +151,17 @@ namespace TicketPortal.Api.Controllers
             return NoContent();
         }
 
-        // The operator-scoping pattern from the Completion Plan (Section 2), via the shared
-        // Piece 1 helper: Admin sees everything; a platform Staff account (BusOperatorId == null
-        // on their own StaffProfile) sees everything; an operator's own Staff only sees rows
-        // whose StaffProfile belongs to that same operator. Plain customers never reach this —
-        // both call sites gate on IsInRole("Admin"/"Staff") first.
-        private async Task<bool> CanAccessAsync(Guid staffProfileId)
+        // StaffRead/StaffManage grants the action; this helper restricts scoped staff to their
+        // own operator's employee records.
+        private async Task<bool> CanAccessAsync(Guid staffProfileId, bool requireManage)
         {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
-
-            var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (scopeOperatorId == null) return true;
-
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (!(requireManage ? actor.HasPermission(Permissions.StaffManage) : actor.HasPermission(Permissions.StaffRead)))
+                return false;
+            if (!actor.BusOperatorId.HasValue) return true;
             return await db.StaffProfiles.AnyAsync(sp =>
-                sp.Id == staffProfileId && sp.BusOperatorId == scopeOperatorId);
+                sp.Id == staffProfileId && sp.BusOperatorId == actor.BusOperatorId.Value);
         }
 
         private static DriverLicenseResponseDto ToResponseDto(DriverLicense x) => new()

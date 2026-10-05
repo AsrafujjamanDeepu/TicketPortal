@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
@@ -23,22 +24,20 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class PlatformLedgersController(AppDbContext db) : ControllerBase
+    public class PlatformLedgersController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
-            {
+            var actor = await currentActor.ResolveAsync(User);
+            var canReadAll = actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!canReadAll && !(actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue))
                 return Ok(Array.Empty<PlatformLedgerResponseDto>());
-            }
 
             var query = db.PlatformLedgers.AsQueryable();
-
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!canReadAll)
             {
-                query = query.Where(l => l.BusOperatorId == callerOperatorId.Value);
+                query = query.Where(l => l.BusOperatorId == actor.BusOperatorId!.Value);
             }
             else if (busOperatorId.HasValue)
             {
@@ -54,19 +53,21 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.PlatformLedgers.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
+            var actor = await currentActor.ResolveAsync(User);
+            var canReadAll = actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!canReadAll && !(actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue))
+                return Forbid();
 
             // BusOperatorId is nullable here (some ledger rows are pure platform entries, not
             // tied to any operator) — CanManageOperatorAsync needs a real operator id, so a null
             // row falls back to "platform Admin/Staff only", same as the old unscoped gate.
             if (item.BusOperatorId == null)
             {
-                if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (callerOperatorId != null) return Forbid();
+                if (!canReadAll) return Forbid();
                 return Ok(ToResponseDto(item));
             }
 
-            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId.Value)) return Forbid();
+            if (!canReadAll && actor.BusOperatorId != item.BusOperatorId) return Forbid();
             return Ok(ToResponseDto(item));
         }
 

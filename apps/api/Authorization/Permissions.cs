@@ -42,17 +42,29 @@ namespace TicketPortal.Api.Authorization
         public const string BookingRead = "Booking.Read";
         public const string BookingManage = "Booking.Manage";
         public const string CancellationApprove = "Cancellation.Approve";
+        public const string CancellationPolicyManage = "CancellationPolicy.Manage";
+        public const string RefundApprove = "Refund.Approve";
+        public const string RefundProcess = "Refund.Process";
+        public const string PaymentManage = "Payment.Manage";
+        public const string CouponRedeem = "Coupon.Redeem";
 
         // --- Complaints ---
         public const string ComplaintsRead = "Complaints.Read";
         public const string ComplaintsManage = "Complaints.Manage";
+        public const string ReviewModerate = "Review.Moderate";
+        public const string CustomerDataRead = "CustomerData.Read";
+        public const string CustomerDataManage = "CustomerData.Manage";
 
         // --- Finance ---
         public const string FinanceReadPlatform = "Finance.ReadPlatform";
         public const string FinanceReadOwnOperator = "Finance.ReadOwnOperator";
         public const string FinanceReconcile = "Finance.Reconcile";
         public const string SettlementApprove = "Settlement.Approve";
+        public const string SettlementGenerate = "Settlement.Generate";
         public const string PayoutProcess = "Payout.Process";
+        public const string PayoutRequest = "Payout.Request";
+        public const string SalaryRead = "Salary.Read";
+        public const string SalaryManage = "Salary.Manage";
         public const string FinanceConfigure = "Finance.Configure";
 
         // --- API-connected operator integrations ---
@@ -66,7 +78,7 @@ namespace TicketPortal.Api.Authorization
         public const string ReportsRead = "Reports.Read";
 
         // Every constant above, for validation/tests (e.g. AssignRole-style "is this a real
-        // permission name" checks, and AUTH_TEST_CASES.md generation).
+        // permission name" checks and authorization regression tests).
         public static readonly IReadOnlyCollection<string> All = new[]
         {
             FleetRead, FleetManage,
@@ -74,9 +86,10 @@ namespace TicketPortal.Api.Authorization
             TripsRead, TripsManage, TripsCancel, CrewManage,
             CounterRead, CounterConfigure, CounterSell, CounterCancel, TicketCheckIn, ManifestRead,
             StaffRead, StaffManage,
-            BookingRead, BookingManage, CancellationApprove,
-            ComplaintsRead, ComplaintsManage,
-            FinanceReadPlatform, FinanceReadOwnOperator, FinanceReconcile, SettlementApprove, PayoutProcess, FinanceConfigure,
+            BookingRead, BookingManage, CancellationApprove, CancellationPolicyManage, RefundApprove, RefundProcess, PaymentManage, CouponRedeem,
+            ComplaintsRead, ComplaintsManage, ReviewModerate, CustomerDataRead, CustomerDataManage,
+            FinanceReadPlatform, FinanceReadOwnOperator, FinanceReconcile, SettlementGenerate, SettlementApprove, PayoutProcess, PayoutRequest,
+            SalaryRead, SalaryManage, FinanceConfigure,
             IntegrationsRead, IntegrationsManage,
             PlatformUsersManage, PlatformConfigurationManage, AuditRead, ReportsRead,
         };

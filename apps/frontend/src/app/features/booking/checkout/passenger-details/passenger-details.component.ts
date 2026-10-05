@@ -265,7 +265,8 @@ export class PassengerDetailsComponent implements OnInit {
       contactName: contact.contactName,
       contactPhone: contact.contactPhone,
       contactEmail: contact.contactEmail || undefined,
-      passengers: passengers.map((p) => ({
+      passengers: passengers.map((p, index) => ({
+        tripSeatId: this.state.holdItems()[index]?.tripSeatId,
         fullName: p.fullName,
         age: p.age ?? undefined,
         gender: p.gender,

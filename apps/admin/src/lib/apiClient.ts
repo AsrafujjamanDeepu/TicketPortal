@@ -9,6 +9,7 @@ interface StoredSession {
   userId: string;
   userName: string;
   roles: string[];
+  mustChangePassword?: boolean;
 }
 
 export function getStoredSession(): StoredSession | null {

@@ -287,6 +287,12 @@ namespace TicketPortal.Api.Data
                 .WithMany(seat => seat.HoldItems)
                 .HasForeignKey(item => item.TripSeatId);
 
+            modelBuilder.Entity<BookingPassenger>()
+                .HasOne(passenger => passenger.TripSeat)
+                .WithMany()
+                .HasForeignKey(passenger => passenger.TripSeatId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // Which hold (if any) currently has this seat locked.
             modelBuilder.Entity<TripSeat>()
                 .HasOne(seat => seat.CurrentSeatHold)
@@ -451,6 +457,8 @@ namespace TicketPortal.Api.Data
             modelBuilder.Entity<SeatHoldItem>().HasIndex(i => new { i.SeatHoldId, i.TripSeatId }).IsUnique();
 
             modelBuilder.Entity<Booking>().HasIndex(b => b.Pnr).IsUnique(); // A PNR must be one-of-a-kind.
+            modelBuilder.Entity<Booking>().HasIndex(b => b.SeatHoldId).IsUnique()
+                .HasFilter("[SeatHoldId] IS NOT NULL"); // One booking per converted hold, including concurrent create requests.
             modelBuilder.Entity<Booking>().HasIndex(b => new { b.TripId, b.Status });
             modelBuilder.Entity<Booking>().HasIndex(b => new { b.BusOperatorId, b.SaleChannel }); // Fast "this operator's online vs counter sales" reporting.
             modelBuilder.Entity<Booking>().HasIndex(b => b.ExpiresAtUtc);

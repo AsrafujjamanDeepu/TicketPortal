@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Marketing;
 using TicketPortal.Api.Services;
@@ -19,14 +20,17 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class CouponUsagesController(AppDbContext db, CouponRedemptionService couponRedemptionService) : ControllerBase
+    public class CouponUsagesController(AppDbContext db, CouponRedemptionService couponRedemptionService, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.CouponUsages.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.Type == ActorType.Staff && !actor.HasPermission(Permissions.CouponRedeem))
+                return Ok(Array.Empty<CouponUsageResponseDto>());
+            if (!actor.IsAdmin && actor.Type != ActorType.Staff)
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(u => db.CustomerProfiles.Any(cp =>
@@ -60,7 +64,13 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(new { message = "This booking has no customer profile — coupons can't be redeemed on a guest checkout." });
             }
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.Type == ActorType.Staff)
+            {
+                if (!actor.HasPermission(Permissions.CouponRedeem)
+                    || !actor.CanManageOperator(booking.BusOperatorId)) return Forbid();
+            }
+            else if (!actor.IsAdmin)
             {
                 var userId = GetCurrentUserId();
                 var owns = await db.CustomerProfiles.AnyAsync(cp =>
@@ -92,7 +102,15 @@ namespace TicketPortal.Api.Controllers
 
         private async Task<bool> CanAccessAsync(CouponUsage usage)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff")) return true;
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (actor.Type == ActorType.Staff)
+            {
+                if (!actor.HasPermission(Permissions.CouponRedeem)) return false;
+                var operatorId = await db.Bookings.Where(b => b.Id == usage.BookingId)
+                    .Select(b => (Guid?)b.BusOperatorId).FirstOrDefaultAsync();
+                return operatorId != null && actor.CanManageOperator(operatorId.Value);
+            }
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

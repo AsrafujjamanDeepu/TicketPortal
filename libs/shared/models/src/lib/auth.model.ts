@@ -43,6 +43,7 @@ export interface AuthResponse {
   userId: string;
   userName: string;
   roles: AppRole[];
+  mustChangePassword?: boolean;
 }
 
 // What AuthService exposes to the rest of the app — decoded/derived from

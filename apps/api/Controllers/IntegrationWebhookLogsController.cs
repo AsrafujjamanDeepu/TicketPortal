@@ -13,7 +13,7 @@ namespace TicketPortal.Api.Controllers
     // IntegrationSyncLogsController — raw inbound webhook events from an operator's own ERP are
     // platform-internal integration detail. Nothing writes here yet either, for the same
     // reason: the sync worker that would receive these is future work, not built here. The
-    // plain IsInRole("Staff") check this previously used didn't actually enforce
+    // plain Staff-role check this previously used didn't actually enforce
     // "platform-only" — any operator-scoped Staff account passed it too.
     [Authorize]
     [Route("api/[controller]")]

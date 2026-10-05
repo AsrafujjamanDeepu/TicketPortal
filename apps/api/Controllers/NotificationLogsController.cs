@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
@@ -20,14 +21,15 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class NotificationLogsController(AppDbContext db) : ControllerBase
+    public class NotificationLogsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.NotificationLogs.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.AuditRead))
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(n => n.UserId == userId
@@ -45,7 +47,8 @@ namespace TicketPortal.Api.Controllers
             var item = await db.NotificationLogs.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.AuditRead))
             {
                 var userId = GetCurrentUserId();
                 var owns = item.UserId == userId

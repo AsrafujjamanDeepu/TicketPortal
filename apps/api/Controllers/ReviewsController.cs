@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Marketing;
@@ -17,7 +18,7 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class ReviewsController(AppDbContext db) : ControllerBase
+    public class ReviewsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -159,7 +160,15 @@ namespace TicketPortal.Api.Controllers
         // unlike GetAll/GetById above, writes are never open to just any authenticated user.
         private async Task<bool> CanModifyAsync(Review item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (actor.Type == ActorType.Staff && actor.HasPermission(Permissions.ReviewModerate))
+            {
+                if (!actor.BusOperatorId.HasValue) return true;
+                return await db.Trips.AnyAsync(t => t.Id == item.TripId
+                    && t.BusOperatorId == actor.BusOperatorId.Value);
+            }
+            if (actor.Type != ActorType.Customer) return false;
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

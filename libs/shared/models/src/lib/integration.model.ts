@@ -42,7 +42,7 @@ export interface OperatorIntegration {
 
 // Mirrors IntegrationSyncLogResponseDto (IntegrationSyncLogsController) — one attempt to call an
 // operator's own ERP: ConfirmBooking, GetSeatAvailability, CancelBooking, or TestConnection (see
-// docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md).
+// docs/docs/03-Remaining-Fix-Plan.md).
 export interface IntegrationSyncLog {
   id: string;
   operatorIntegrationId: string;

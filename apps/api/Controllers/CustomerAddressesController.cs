@@ -6,7 +6,9 @@
 // Booking/Complaint/Review in earlier pieces.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,19 +20,26 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class CustomerAddressesController(AppDbContext db) : ControllerBase
+    public class CustomerAddressesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.CustomerAddresses.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.CustomerDataRead))
+            {
+                if (!actor.IsAdmin && actor.BusOperatorId.HasValue)
+                    return Ok(Array.Empty<CustomerAddressResponseDto>());
+            }
+            else if (actor.Type == ActorType.Customer)
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(a => db.CustomerProfiles.Any(cp =>
                     cp.Id == a.CustomerProfileId && cp.UserId == userId));
             }
+            else return Ok(Array.Empty<CustomerAddressResponseDto>());
 
             var items = await query.ToListAsync();
             return Ok(items.Select(ToResponseDto));
@@ -41,13 +50,14 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.CustomerAddresses.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: false)) return Forbid();
             return Ok(ToResponseDto(item));
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(CustomerAddressCreateDto dto)
         {
+            if ((await currentActor.ResolveAsync(User)).Type != ActorType.Customer) return Forbid();
             var customerProfileId = await ResolveOrCreateCustomerProfileIdAsync();
             if (customerProfileId == null) return Unauthorized();
 
@@ -73,7 +83,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.CustomerAddresses.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "CustomerAddress not found." });
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -120,7 +130,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.CustomerAddresses.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -147,9 +157,14 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private async Task<bool> CanAccessAsync(CustomerAddress item)
+        private async Task<bool> CanAccessAsync(CustomerAddress item, bool requireManage)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator")) return true;
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (actor.Type == ActorType.Staff)
+                return !actor.BusOperatorId.HasValue
+                    && actor.HasPermission(requireManage ? Permissions.CustomerDataManage : Permissions.CustomerDataRead);
+            if (actor.Type != ActorType.Customer) return false;
 
             var userId = GetCurrentUserId();
             if (userId == null) return false;

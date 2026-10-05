@@ -187,6 +187,16 @@ namespace TicketPortal.Api.Services
             }
 
             var booking = cr.Booking;
+            await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+            if (cr.TicketId.HasValue)
+            {
+                var requestedTicket = booking.Tickets.FirstOrDefault(t => t.Id == cr.TicketId.Value);
+                if (requestedTicket is null || requestedTicket.Status is TicketStatus.Cancelled or TicketStatus.Refunded)
+                {
+                    throw new InvalidOperationException(
+                        "This ticket is already cancelled/refunded or does not belong to the booking; it cannot be refunded again.");
+                }
+            }
             // Same reasoning as RequestAsync's baseAmount above: a whole-booking approval's
             // ceiling has to be what's still outstanding on the booking right now, not the
             // original GrandTotal — otherwise approving this could authorize refunding a
@@ -212,6 +222,36 @@ namespace TicketPortal.Api.Services
                 .FirstOrDefaultAsync()
                 ?? throw new InvalidOperationException(
                     $"No successful payment found for booking {booking.Id}; nothing to refund.");
+
+            var supersededRequestIds = cr.TicketId is null
+                ? await _db.CancellationRequests
+                    .Where(other => other.BookingId == booking.Id
+                        && other.Id != cr.Id
+                        && other.TicketId != null
+                        && other.Status == CancellationRequestStatus.Requested)
+                    .Select(other => other.Id)
+                    .ToListAsync()
+                : new List<Guid>();
+
+            var reservedRefundAmount = await _db.Refunds
+                .Where(r => r.PaymentId == payment.Id
+                    && (!r.CancellationRequestId.HasValue
+                        || !supersededRequestIds.Contains(r.CancellationRequestId.Value))
+                    && (r.Status == RefundStatus.Requested
+                        || r.Status == RefundStatus.Approved
+                        || r.Status == RefundStatus.Processing
+                        || r.Status == RefundStatus.Succeeded
+                        || r.Status == RefundStatus.Failed
+                        || r.Status == RefundStatus.PendingManualPayout
+                        || r.Status == RefundStatus.ReconciliationNeeded))
+                .SumAsync(r => (decimal?)r.Amount) ?? 0m;
+            var availableRefundAmount = Math.Max(0m, payment.Amount - reservedRefundAmount);
+            if (approvedAmount > availableRefundAmount)
+            {
+                throw new InvalidOperationException(
+                    $"Approved refunds for this payment already reserve {reservedRefundAmount} of {payment.Amount}; " +
+                    $"the remaining refundable amount is {availableRefundAmount}.");
+            }
 
             cr.Status = CancellationRequestStatus.Approved;
             cr.ApprovedByUserId = approvedByUserId;
@@ -247,6 +287,37 @@ namespace TicketPortal.Api.Services
             }
             else
             {
+                // A whole-booking cancellation supersedes any still-requested individual
+                // ticket cancellation. Close its unprocessed refund too so it cannot later
+                // be approved and paid a second time.
+                var superseded = await _db.CancellationRequests
+                    .Where(other => other.BookingId == booking.Id
+                        && other.Id != cr.Id
+                        && other.TicketId != null
+                        && other.Status == CancellationRequestStatus.Requested)
+                    .ToListAsync();
+                foreach (var other in superseded)
+                {
+                    other.Status = CancellationRequestStatus.Rejected;
+                    other.RejectedReason = "Superseded by cancellation of the entire booking.";
+                    other.UpdatedAtUtc = DateTime.UtcNow;
+                    var pendingRefunds = await _db.Refunds
+                        .Where(r => r.CancellationRequestId == other.Id
+                            && (r.Status == RefundStatus.Requested || r.Status == RefundStatus.Failed))
+                        .ToListAsync();
+                    foreach (var pendingRefund in pendingRefunds)
+                    {
+                        pendingRefund.Status = RefundStatus.Rejected;
+                        pendingRefund.UpdatedAtUtc = DateTime.UtcNow;
+                        _db.RefundHistories.Add(new RefundHistory
+                        {
+                            RefundId = pendingRefund.Id,
+                            Status = RefundStatus.Rejected,
+                            Remarks = "Superseded by cancellation of the entire booking."
+                        });
+                    }
+                }
+
                 foreach (var t in booking.Tickets.Where(t => t.Status != TicketStatus.Cancelled))
                 {
                     t.Status = TicketStatus.Cancelled;
@@ -286,8 +357,6 @@ namespace TicketPortal.Api.Services
             // the class's own invariant ("every method either fully succeeds or fully rolls
             // back"), instead of risking a cancelled ticket on record with its seat still stuck
             // as Booked if the release step were ever to fail on its own.
-            await using var transaction = await _db.Database.BeginTransactionAsync();
-
             await _db.SaveChangesAsync();
             await _seatHoldService.ReleaseCancelledSeatsAsync(booking.Id, cancelledTripSeatIds);
 

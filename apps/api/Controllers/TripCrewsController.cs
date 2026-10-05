@@ -37,15 +37,14 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
-            {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasAnyPermission(Permissions.TripsRead, Permissions.CrewManage))
                 return Ok(Array.Empty<TripCrewResponseDto>());
-            }
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
             var query = db.TripCrews.AsQueryable();
-            if (busOperatorId != null)
+            if (actor.BusOperatorId != null)
             {
+                var busOperatorId = actor.BusOperatorId.Value;
                 query = query.Where(x => db.Trips.Any(t =>
                     t.Id == x.TripId && t.BusOperatorId == busOperatorId));
             }
@@ -57,15 +56,15 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasAnyPermission(Permissions.TripsRead, Permissions.CrewManage)) return Forbid();
 
             var item = await db.TripCrews.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (busOperatorId != null)
+            if (actor.BusOperatorId != null)
             {
-                var owns = await db.Trips.AnyAsync(t => t.Id == item.TripId && t.BusOperatorId == busOperatorId);
+                var owns = await db.Trips.AnyAsync(t => t.Id == item.TripId && t.BusOperatorId == actor.BusOperatorId);
                 if (!owns) return Forbid();
             }
 
@@ -130,12 +129,10 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(TripCrewCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-
             var actor = await currentActor.ResolveAsync(User);
             if (!actor.HasPermission(Permissions.CrewManage)) return Forbid();
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            var busOperatorId = actor.BusOperatorId;
 
             var (error, trip) = await ValidateAssignmentAsync(dto.TripId, dto.StaffProfileId, busOperatorId);
             if (error != null) return error;
@@ -165,15 +162,13 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, TripCrewUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-
             var actor = await currentActor.ResolveAsync(User);
             if (!actor.HasPermission(Permissions.CrewManage)) return Forbid();
 
             var item = await db.TripCrews.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "TripCrew not found." });
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            var busOperatorId = actor.BusOperatorId;
             if (busOperatorId != null)
             {
                 var owns = await db.Trips.AnyAsync(t => t.Id == item.TripId && t.BusOperatorId == busOperatorId);
@@ -233,15 +228,13 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-
             var actor = await currentActor.ResolveAsync(User);
             if (!actor.HasPermission(Permissions.CrewManage)) return Forbid();
 
             var item = await db.TripCrews.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
+            var busOperatorId = actor.BusOperatorId;
             if (busOperatorId != null)
             {
                 var owns = await db.Trips.AnyAsync(t => t.Id == item.TripId && t.BusOperatorId == busOperatorId);

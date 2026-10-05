@@ -13,7 +13,8 @@ namespace TicketPortal.Api.Realtime
     // can never push the count negative or leave it stuck above zero.
     public sealed class RealtimeConnectionTracker
     {
-        private readonly ConcurrentDictionary<string, byte> _connections = new(StringComparer.Ordinal);
+        private sealed record Connection(string? UserId, string? SecurityStamp, Action? Abort);
+        private readonly ConcurrentDictionary<string, Connection> _connections = new(StringComparer.Ordinal);
 
         public bool HasListeners => !_connections.IsEmpty;
 
@@ -21,7 +22,29 @@ namespace TicketPortal.Api.Realtime
 
         public bool Contains(string connectionId) => _connections.ContainsKey(connectionId);
 
-        public void Add(string connectionId) => _connections[connectionId] = 0;
+        public void Add(string connectionId) => _connections[connectionId] = new Connection(null, null, null);
+
+        public void Add(string connectionId, string? userId, string? securityStamp, Action abort) =>
+            _connections[connectionId] = new Connection(userId, securityStamp, abort);
+
+        public IReadOnlyList<(string ConnectionId, string UserId, string? SecurityStamp, Action Abort)> AuthenticatedConnections() =>
+            _connections
+                .Where(pair => pair.Value.UserId is not null && pair.Value.Abort is not null)
+                .Select(pair => (
+                    pair.Key,
+                    pair.Value.UserId!,
+                    pair.Value.SecurityStamp,
+                    pair.Value.Abort!))
+                .ToArray();
+
+        public void Abort(string connectionId)
+        {
+            if (_connections.TryGetValue(connectionId, out var connection))
+            {
+                try { connection.Abort?.Invoke(); }
+                catch (Exception) { Remove(connectionId); }
+            }
+        }
 
         public void Remove(string connectionId) => _connections.TryRemove(connectionId, out _);
     }

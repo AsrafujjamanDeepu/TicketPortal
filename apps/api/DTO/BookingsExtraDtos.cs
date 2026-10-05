@@ -125,6 +125,7 @@ namespace TicketPortal.Api.DTO
         public string? ExternalTicketKey { get; set; }
         public decimal Fare { get; set; }
         public decimal DiscountAmount { get; set; }
+        public decimal TaxAmount { get; set; }
         public decimal FinalFare { get; set; }
         public TicketStatus Status { get; set; } = TicketStatus.PendingPayment;
         public string? QrCodePayload { get; set; }

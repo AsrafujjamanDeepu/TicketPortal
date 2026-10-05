@@ -524,7 +524,7 @@ namespace TicketPortal.Api.Controllers
         // "Platform-only" (Create/Delete) now lives on the shared extension
         // (ClaimsPrincipalExtensions.IsPlatformStaffOrAdminAsync), reused by the
         // ExternalMappings/IntegrationLogs controllers too. This used to be its own private
-        // copy here that only checked IsInRole("Staff") — silently locking out the "Operator"
+        // copy here that only checked the Staff role — silently locking out the Operator
         // login role even for legitimate platform-wide staff accounts.
     }
 }

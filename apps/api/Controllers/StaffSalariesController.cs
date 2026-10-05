@@ -4,6 +4,7 @@
 // away from the SalesCountersController pattern rather than a direct column compare.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.People;
@@ -16,12 +17,13 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class StaffSalariesController(AppDbContext db) : ControllerBase
+    public class StaffSalariesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.SalaryRead))
             {
                 return Ok(Array.Empty<StaffSalaryResponseDto>());
             }
@@ -40,7 +42,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.SalaryRead)) return Forbid();
 
             var item = await db.StaffSalaries
                 .Include(x => x.StaffProfile)
@@ -80,7 +82,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(StaffSalaryCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.SalaryManage)) return Forbid();
 
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
@@ -107,7 +109,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, StaffSalaryUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.SalaryManage)) return Forbid();
 
             var item = await db.StaffSalaries
                 .Include(x => x.StaffProfile)
@@ -161,7 +163,7 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.SalaryManage)) return Forbid();
 
             var item = await db.StaffSalaries
                 .Include(x => x.StaffProfile)

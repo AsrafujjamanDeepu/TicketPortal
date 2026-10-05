@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
@@ -20,23 +21,21 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorStatementItemsController(AppDbContext db) : ControllerBase
+    public class OperatorStatementItemsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? operatorStatementId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
-            {
+            var actor = await currentActor.ResolveAsync(User);
+            var canReadAll = actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!canReadAll && !(actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue))
                 return Ok(Array.Empty<OperatorStatementItemResponseDto>());
-            }
 
             var query = db.OperatorStatementItems.AsQueryable();
-
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!canReadAll)
             {
                 query = query.Where(i => db.OperatorStatements.Any(s =>
-                    s.Id == i.OperatorStatementId && s.BusOperatorId == callerOperatorId));
+                    s.Id == i.OperatorStatementId && s.BusOperatorId == actor.BusOperatorId!.Value));
             }
 
             if (operatorStatementId.HasValue)
@@ -58,7 +57,16 @@ namespace TicketPortal.Api.Controllers
                 .Where(s => s.Id == item.OperatorStatementId)
                 .Select(s => (Guid?)s.BusOperatorId)
                 .FirstOrDefaultAsync();
-            if (operatorId == null || !await User.CanManageOperatorAsync(db, operatorId.Value)) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (operatorId == null)
+            {
+                if (!actor.IsAdmin && !actor.HasPermission(Permissions.FinanceReadPlatform)) return Forbid();
+            }
+            else if (!(actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform))
+                && (!actor.HasPermission(Permissions.FinanceReadOwnOperator) || actor.BusOperatorId != operatorId))
+            {
+                return Forbid();
+            }
 
             return Ok(ToResponseDto(item));
         }

@@ -1,6 +1,5 @@
 // Piece 5 (Operator Back-Office & Fleet Operations) — operator scoping. 🟡 tier. Schedule has its
-// own BusOperatorId, same shape as OperatorBranchesController — see that controller's header
-// comment for the Admin/Staff/Operator role-gate note. Two extra checks here, for the same reason
+// own BusOperatorId, same shape as OperatorBranchesController. Two extra checks here, for the same reason
 // as Piece 7's audit note about "an operator editing another operator's bus": BusId must be a Bus
 // that actually belongs to this schedule's operator (an operator can't run a schedule on a
 // vehicle they don't own), and OperatorRouteId, when set, must belong to the same operator too.
@@ -9,6 +8,7 @@
 // BusRoute.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Scheduling;
@@ -26,7 +26,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            if (!await User.HasPermissionAsync(db, Permissions.TripsRead))
             {
                 return Ok(Array.Empty<ScheduleResponseDto>());
             }
@@ -45,7 +45,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.TripsRead)) return Forbid();
 
             var item = await db.Schedules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
@@ -97,7 +97,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(ScheduleCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.TripsManage)) return Forbid();
 
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
@@ -146,7 +146,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, ScheduleUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.TripsManage)) return Forbid();
 
             var item = await db.Schedules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "Schedule not found." });
@@ -221,7 +221,7 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.TripsManage)) return Forbid();
 
             var item = await db.Schedules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

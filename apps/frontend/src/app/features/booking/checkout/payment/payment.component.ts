@@ -105,14 +105,18 @@ type PaymentOutcome = 'idle' | 'processing' | 'holdExpired' | 'failed';
               </div>
             </tp-card>
 
-            <p class="tp-demo-note">
-              Demo checkout — no real payment gateway is connected yet. Clicking "Pay" simulates a successful gateway callback for
-              {{ b.grandTotal | number: '1.2-2' }} {{ b.currency }}.
-            </p>
+            @if (demoMode()) {
+              <p class="tp-demo-note">
+                Demo checkout — no real payment gateway is connected yet. Clicking "Pay" simulates a successful gateway callback for
+                {{ b.grandTotal | number: '1.2-2' }} {{ b.currency }}.
+              </p>
+            } @else {
+              <p class="tp-demo-note">Online payment processing is not enabled on this server yet.</p>
+            }
 
             <div class="tp-payment-page__actions">
               <button tpButton variant="secondary" type="button" [disabled]="outcome() === 'processing'" (click)="backToPassengers()">Back</button>
-              <button tpButton variant="primary" type="button" [disabled]="outcome() === 'processing' || !selectedMethod()" (click)="pay(b)">
+              <button tpButton variant="primary" type="button" [disabled]="!demoMode() || outcome() === 'processing' || !selectedMethod()" (click)="pay(b)">
                 {{ outcome() === 'processing' ? 'Processing…' : 'Pay ' + (b.grandTotal | number: '1.2-2') + ' ' + b.currency }}
               </button>
             </div>
@@ -224,6 +228,7 @@ export class PaymentComponent implements OnInit {
   private readonly state = inject(CheckoutStateService);
 
   protected readonly methods = signal<CheckoutPaymentMethod[]>(FALLBACK_PAYMENT_METHODS);
+  protected readonly demoMode = signal(false);
   protected readonly booking = computed(() => this.state.booking());
 
   protected readonly couponCode = signal('');
@@ -235,6 +240,11 @@ export class PaymentComponent implements OnInit {
   protected readonly failureMessage = signal('Something went wrong while processing payment. Please try again.');
 
   ngOnInit(): void {
+    this.api.get<{ demoMode: boolean }>('payments/checkout-mode').subscribe({
+      next: (mode) => this.demoMode.set(mode.demoMode),
+      error: () => this.demoMode.set(false),
+    });
+
     this.api.get<CheckoutPaymentMethodResponse[]>('payments/methods').subscribe({
       next: (items) => {
         const methods = items.map((item) => ({

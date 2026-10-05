@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Bookings;
@@ -6,6 +7,7 @@ using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -23,7 +25,8 @@ namespace TicketPortal.Api.Controllers
         AppDbContext db,
         SeatHoldService seatHoldService,
         IConfiguration configuration,
-        ExternalBookingSyncService externalSync) : ControllerBase
+        ExternalBookingSyncService externalSync,
+        ICurrentActorService currentActor) : ControllerBase
     {
         // The "3 to 5 minute timer" from the concept (§5) — server-side, so a client can never
         // request its own (much longer) hold window. Chunk 3 task 3: now configurable via
@@ -35,24 +38,22 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
+            var actor = await currentActor.ResolveAsync(User);
             var query = db.SeatHolds.AsQueryable();
 
-            // Admin/platform-Staff see every hold; an operator's own Staff/Operator account is
-            // scoped to holds on that operator's own trips; everyone else sees only their own.
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            if (actor.IsAdmin || actor.HasPermission(Permissions.BookingRead))
             {
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (callerOperatorId != null)
+                if (actor.BusOperatorId != null)
                 {
-                    query = query.Where(h => db.Trips.Any(t => t.Id == h.TripId && t.BusOperatorId == callerOperatorId));
+                    var operatorId = actor.BusOperatorId.Value;
+                    query = query.Where(h => db.Trips.Any(t => t.Id == h.TripId && t.BusOperatorId == operatorId));
                 }
-                // else: platform Admin/Staff — no filter, see everything.
             }
-            else
+            else if (actor.Type == ActorType.Customer)
             {
-                var userId = GetCurrentUserId();
-                query = query.Where(h => h.HeldByUserId == userId);
+                query = query.Where(h => h.HeldByUserId == actor.UserId);
             }
+            else return Forbid();
 
             var items = await query.OrderByDescending(h => h.HoldStartedAtUtc).ToListAsync();
             return Ok(items.Select(ToResponseDto));
@@ -83,8 +84,11 @@ namespace TicketPortal.Api.Controllers
         // seat. It now delegates to SeatHoldService, which does the actual race-safe
         // "UPDATE TripSeat SET Status = Held WHERE Status = Available" locking.
         [HttpPost]
+        [EnableRateLimiting("holds")]
         public async Task<IActionResult> Create(SeatHoldCreateDto dto)
         {
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.Type != ActorType.Customer) return Forbid();
             if (dto.TripSeatIds == null || dto.TripSeatIds.Count == 0)
             {
                 return BadRequest(new { message = "Select at least one seat." });
@@ -166,11 +170,18 @@ namespace TicketPortal.Api.Controllers
         // Replaces the old generic PUT, which let a client set Status to anything directly
         // (including straight to ConvertedToBooking, with no payment involved at all).
         [HttpPost("{id}/release")]
+        [EnableRateLimiting("holds")]
         public async Task<IActionResult> Release(Guid id)
         {
             var item = await db.SeatHolds.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            var isOwner = actor.Type == ActorType.Customer && item.HeldByUserId == actor.UserId;
+            var operatorId = await db.Trips.Where(t => t.Id == item.TripId)
+                .Select(t => (Guid?)t.BusOperatorId).FirstOrDefaultAsync();
+            var canManage = actor.HasPermission(Permissions.BookingManage) && operatorId != null
+                && actor.CanManageOperator(operatorId.Value);
+            if (!isOwner && !canManage) return Forbid();
 
             await seatHoldService.ReleaseHoldAsync(item.HoldToken);
             return NoContent();
@@ -182,22 +193,19 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        // Admin/platform-Staff: any hold. Staff/Operator scoped to one operator: only holds on
-        // that operator's own trips (resolved via Trip.BusOperatorId — SeatHold carries no
-        // BusOperatorId directly). Everyone else: only a hold they themselves created.
         private async Task<bool> CanAccessAsync(SeatHold item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.BookingRead))
             {
                 var operatorId = await db.Trips
                     .Where(t => t.Id == item.TripId)
                     .Select(t => (Guid?)t.BusOperatorId)
                     .FirstOrDefaultAsync();
-                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+                return operatorId != null && actor.CanManageOperator(operatorId.Value);
             }
 
-            var userId = GetCurrentUserId();
-            return userId != null && item.HeldByUserId == userId;
+            return actor.Type == ActorType.Customer && item.HeldByUserId == actor.UserId;
         }
 
         private static SeatHoldResponseDto ToResponseDto(SeatHold x)

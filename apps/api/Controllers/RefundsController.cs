@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Payments;
@@ -31,16 +32,21 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class RefundsController(AppDbContext db, RefundProcessingService refundProcessingService) : ControllerBase
+    public class RefundsController(AppDbContext db, RefundProcessingService refundProcessingService, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.Refunds.AsQueryable();
 
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.Type == ActorType.Staff)
             {
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (!actor.HasAnyPermission(Permissions.RefundApprove, Permissions.RefundProcess,
+                    Permissions.FinanceReadPlatform, Permissions.FinanceReadOwnOperator))
+                    return Ok(Array.Empty<RefundResponseDto>());
+
+                var callerOperatorId = actor.BusOperatorId;
                 if (callerOperatorId != null)
                 {
                     query = query.Where(r => db.Bookings.Any(b =>
@@ -72,6 +78,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/approve")]
         public async Task<IActionResult> Approve(Guid id, RefundApproveDto dto)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.RefundApprove)) return Forbid();
             if (!await CanManageAsync(id)) return Forbid();
 
             try
@@ -88,6 +95,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> Reject(Guid id, RefundRejectDto dto)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.RefundApprove)) return Forbid();
             if (!await CanManageAsync(id)) return Forbid();
 
             try
@@ -108,11 +116,30 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/process")]
         public async Task<IActionResult> Process(Guid id)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.RefundProcess)) return Forbid();
             if (!await CanManageAsync(id)) return Forbid();
 
             try
             {
                 await refundProcessingService.ProcessAsync(id);
+                var item = await db.Refunds.FirstOrDefaultAsync(x => x.Id == id);
+                return Ok(ToResponseDto(item!));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{id}/retry")]
+        public async Task<IActionResult> Retry(Guid id)
+        {
+            if (!await User.HasPermissionAsync(db, Permissions.RefundProcess)) return Forbid();
+            if (!await CanManageAsync(id)) return Forbid();
+
+            try
+            {
+                await refundProcessingService.RetryFailedAsync(id);
                 var item = await db.Refunds.FirstOrDefaultAsync(x => x.Id == id);
                 return Ok(ToResponseDto(item!));
             }
@@ -139,7 +166,9 @@ namespace TicketPortal.Api.Controllers
         {
             var exists = await db.Refunds.AnyAsync(r => r.Id == id);
             if (!exists) return NotFound();
-            if (!await User.IsPlatformStaffOrAdminAsync(db)) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.RefundProcess)
+                || !actor.IsAdmin && (actor.Type != ActorType.Staff || actor.BusOperatorId != null)) return Forbid();
 
             try
             {
@@ -175,10 +204,13 @@ namespace TicketPortal.Api.Controllers
         // Staff/Operator sees only that operator's refunds, a Customer sees only their own.
         private async Task<bool> CanAccessAsync(Refund refund)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.Type == ActorType.Staff)
             {
+                if (!actor.HasAnyPermission(Permissions.RefundApprove, Permissions.RefundProcess,
+                    Permissions.FinanceReadPlatform, Permissions.FinanceReadOwnOperator)) return false;
                 var operatorId = await GetOperatorIdAsync(refund.BookingId);
-                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+                return operatorId != null && actor.CanManageOperator(operatorId.Value);
             }
 
             var userId = GetCurrentUserId();
@@ -200,8 +232,10 @@ namespace TicketPortal.Api.Controllers
                 .FirstOrDefaultAsync();
             if (bookingId == null) return false;
 
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasAnyPermission(Permissions.RefundApprove, Permissions.RefundProcess)) return false;
             var operatorId = await GetOperatorIdAsync(bookingId.Value);
-            return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+            return operatorId != null && actor.CanManageOperator(operatorId.Value);
         }
 
         private static RefundResponseDto ToResponseDto(Refund x) => new()

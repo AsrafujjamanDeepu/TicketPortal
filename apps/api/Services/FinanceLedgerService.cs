@@ -123,15 +123,56 @@ namespace TicketPortal.Api.Services
             // sale. A counter sale's refund goes through PostCounterSaleRefundAsync instead.
             await EnsureMoneyCollectedByAsync(bookingId, MoneyCollectedBy.Platform, nameof(PostRefundAsync));
 
+            if (refundId.HasValue && await _db.PlatformLedgers.IgnoreQueryFilters()
+                    .AnyAsync(x => x.RefundId == refundId.Value))
+            {
+                return; // Retry/recovery: ledger entry and its wallet delta committed together.
+            }
+
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
+            // D1: commission remains charged only on the amount the operator ultimately
+            // retains. Rebate the same share of the originally posted commission as this
+            // refund represents of the captured payment. Use ledger history, never today's
+            // commission rule, and cap against any prior commission reversals.
+            var capturedAmount = await _db.Payments
+                .Where(payment => payment.BookingId == bookingId && payment.Status == PaymentStatus.Succeeded)
+                .OrderByDescending(payment => payment.PaidAtUtc)
+                .Select(payment => (decimal?)payment.Amount)
+                .FirstOrDefaultAsync() ?? 0m;
+            var originalCommission = await _db.PlatformLedgers
+                .Where(entry => entry.BookingId == bookingId
+                    && entry.ItemType == StatementItemType.PlatformCommission
+                    && entry.SaleChannel == SaleChannel.Online)
+                .SumAsync(entry => entry.DebitAmount);
+            var commissionAlreadyReversed = await _db.PlatformLedgers
+                .Where(entry => entry.BookingId == bookingId
+                    && entry.ItemType == StatementItemType.Refund
+                    && entry.SaleChannel == SaleChannel.Online)
+                .SumAsync(entry => entry.CreditAmount);
+            var priorRefundedAmount = await _db.PlatformLedgers
+                .Where(entry => entry.BookingId == bookingId
+                    && entry.ItemType == StatementItemType.Refund
+                    && entry.SaleChannel == SaleChannel.Online)
+                .SumAsync(entry => entry.DebitAmount);
+            var remainingCommission = Math.Max(0m, originalCommission - commissionAlreadyReversed);
+            var closesOutCapture = capturedAmount > 0m && priorRefundedAmount + refundAmount >= capturedAmount;
+            var commissionToReverse = !refundId.HasValue
+                ? 0m // Unlinked legacy/manual postings have no safe refund idempotency boundary.
+                : closesOutCapture
+                    ? remainingCommission
+                    : capturedAmount <= 0m
+                        ? 0m
+                        : Math.Min(remainingCommission,
+                            Math.Round(originalCommission * refundAmount / capturedAmount, 2, MidpointRounding.AwayFromZero));
+
             var entry = NewEntry(bookingId, busOperatorId, StatementItemType.Refund,
-                SaleChannel.Online, credit: 0m, debit: refundAmount, currency,
-                "Refund issued to customer");
+                SaleChannel.Online, credit: commissionToReverse, debit: refundAmount, currency,
+                "Demo refund; proportional platform commission reversal included in credit");
             entry.RefundId = refundId;
 
             _db.PlatformLedgers.Add(entry);
-            await ApplyWalletDeltaAsync(busOperatorId, -refundAmount);
+            await ApplyWalletDeltaAsync(busOperatorId, -refundAmount + commissionToReverse);
 
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
@@ -154,6 +195,12 @@ namespace TicketPortal.Api.Services
             string currency = "BDT")
         {
             await EnsureMoneyCollectedByAsync(bookingId, MoneyCollectedBy.Operator, nameof(PostCounterSaleRefundAsync));
+
+            if (refundId.HasValue && await _db.PlatformLedgers.IgnoreQueryFilters()
+                    .AnyAsync(x => x.RefundId == refundId.Value))
+            {
+                return;
+            }
 
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
@@ -192,8 +239,8 @@ namespace TicketPortal.Api.Services
         // Naively reversing the full original commission on every one of those would
         // over-reverse a partial cancellation, and double-reverse the same money if a second
         // ticket in the booking is cancelled later. This instead:
-        //   1. Prorates by the cancelled ticket's own fare share of the booking (or, for a
-        //      whole-booking cancellation with no single ticket, takes whatever's left), and
+        //   1. Prorates by the actual refund amount as a share of the captured booking total,
+        //      so a retained cancellation fee keeps its proportional commission, and
         //   2. Caps the result at whatever commission hasn't already been reversed for this
         //      booking, so repeated partial refunds can never add up to more than what was
         //      actually charged.
@@ -201,7 +248,7 @@ namespace TicketPortal.Api.Services
         public async Task<decimal> ResolveCounterSaleCommissionToReverseAsync(
             Guid bookingId,
             decimal bookingGrandTotal,
-            decimal? cancelledTicketFinalFare)
+            decimal refundedAmount)
         {
             var originalCommission = await GetPostedCounterSaleCommissionAsync(bookingId);
 
@@ -211,23 +258,29 @@ namespace TicketPortal.Api.Services
                     && l.SaleChannel == SaleChannel.Counter)
                 .SumAsync(l => l.CreditAmount);
 
+            var priorRefundedAmount = await _db.Refunds
+                .Where(refund => refund.BookingId == bookingId && refund.Status == RefundStatus.Succeeded)
+                .SumAsync(refund => (decimal?)refund.Amount) ?? 0m;
+
             var remainingCommission = originalCommission - alreadyReversed;
             if (remainingCommission <= 0m)
             {
                 return 0m;
             }
 
-            // No single ticket (whole-booking cancellation) — take whatever's left rather than
-            // prorating a share against itself.
-            if (cancelledTicketFinalFare == null || bookingGrandTotal <= 0m)
+            if (bookingGrandTotal <= 0m || refundedAmount <= 0m)
+            {
+                return 0m;
+            }
+
+            if (priorRefundedAmount + refundedAmount >= bookingGrandTotal)
             {
                 return remainingCommission;
             }
 
-            var ticketShareOfCommission = originalCommission
-                * (cancelledTicketFinalFare.Value / bookingGrandTotal);
+            var refundShareOfCommission = originalCommission * (refundedAmount / bookingGrandTotal);
 
-            return Math.Min(remainingCommission, Math.Round(ticketShareOfCommission, 2));
+            return Math.Min(remainingCommission, Math.Round(refundShareOfCommission, 2, MidpointRounding.AwayFromZero));
         }
 
         // A trust check: works out an operator's balance completely from scratch by re-adding

@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
@@ -17,14 +18,15 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class LoginHistoriesController(AppDbContext db) : ControllerBase
+    public class LoginHistoriesController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.LoginHistories.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.AuditRead))
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(x => x.UserId == userId);
@@ -41,7 +43,8 @@ namespace TicketPortal.Api.Controllers
             var item = await db.LoginHistories.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && item.UserId != GetCurrentUserId())
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.AuditRead) && item.UserId != GetCurrentUserId())
             {
                 return Forbid();
             }

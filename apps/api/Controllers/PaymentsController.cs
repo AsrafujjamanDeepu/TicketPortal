@@ -22,9 +22,16 @@ namespace TicketPortal.Api.Controllers
   public class PaymentsController(
       AppDbContext db,
       PaymentConfirmationService paymentConfirmationService,
-      ICurrentActorService currentActor
+      ICurrentActorService currentActor,
+      IConfiguration configuration
   ) : ControllerBase
   {
+    [HttpGet("checkout-mode")]
+    public IActionResult GetCheckoutMode() => Ok(new
+    {
+      demoMode = configuration.GetValue("Payments:DemoMode", true)
+    });
+
     // =========================================================
     // GET: /api/payments
     // List payments (scoped by role)
@@ -34,17 +41,18 @@ namespace TicketPortal.Api.Controllers
     {
       var query = db.Payments.AsQueryable();
 
-      if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+      var actor = await currentActor.ResolveAsync(User);
+      if (actor.IsAdmin || actor.HasAnyPermission(Permissions.FinanceReadPlatform,
+              Permissions.FinanceReadOwnOperator, Permissions.PaymentManage))
       {
-        var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-        if (callerOperatorId != null)
+        if (!actor.IsAdmin && !actor.HasPermission(Permissions.FinanceReadPlatform)
+            && actor.BusOperatorId.HasValue)
         {
           query = query.Where(p => db.Bookings.Any(b =>
-              b.Id == p.BookingId && b.BusOperatorId == callerOperatorId));
+              b.Id == p.BookingId && b.BusOperatorId == actor.BusOperatorId.Value));
         }
-        // else: platform Admin/Staff — no filter, see everything.
       }
-      else
+      else if (actor.Type == ActorType.Customer)
       {
         var userId = GetCurrentUserId();
         query = query.Where(p => db.Bookings.Any(b =>
@@ -52,6 +60,7 @@ namespace TicketPortal.Api.Controllers
             b.CustomerProfile != null &&
             b.CustomerProfile.UserId == userId));
       }
+      else return Ok(Array.Empty<PaymentResponseDto>());
 
       var items = await query
           .OrderByDescending(p => p.TransactionDateUtc)
@@ -126,6 +135,10 @@ namespace TicketPortal.Api.Controllers
     [HttpPost("initiate")]
     public async Task<IActionResult> Initiate(PaymentInitiateDto dto)
     {
+      var ownerId = GetCurrentUserId();
+      if (ownerId == null || !await db.Bookings.AnyAsync(b => b.Id == dto.BookingId
+          && b.CustomerProfile != null && b.CustomerProfile.UserId == ownerId)) return Forbid();
+
       try
       {
         var payment = await paymentConfirmationService.InitiatePaymentAsync(
@@ -153,9 +166,15 @@ namespace TicketPortal.Api.Controllers
     [HttpPost("{id:guid}/confirm")]
     public async Task<IActionResult> Confirm(Guid id, PaymentGatewayResultDto dto)
     {
+      if (!configuration.GetValue("Payments:DemoMode", true)) return NotFound();
       var payment = await db.Payments.FirstOrDefaultAsync(x => x.Id == id);
       if (payment == null) return NotFound();
-      if (!await CanAccessAsync(payment)) return Forbid();
+      var ownerId = GetCurrentUserId();
+      if (payment.Gateway != PaymentGateway.Demo
+          || payment.Status != PaymentStatus.Initiated
+          || ownerId == null
+          || !await db.Bookings.AnyAsync(b => b.Id == payment.BookingId
+              && b.CustomerProfile != null && b.CustomerProfile.UserId == ownerId)) return Forbid();
 
       try
       {
@@ -196,6 +215,8 @@ namespace TicketPortal.Api.Controllers
     [HttpPost("{id:guid}/fail")]
     public async Task<IActionResult> Fail(Guid id, PaymentFailDto dto)
     {
+      var actor = await currentActor.ResolveAsync(User);
+      if (actor.Type == ActorType.Staff && !actor.HasPermission(Permissions.PaymentManage)) return Forbid();
       var payment = await db.Payments.FirstOrDefaultAsync(x => x.Id == id);
       if (payment == null) return NotFound();
       if (!await CanAccessAsync(payment)) return Forbid();
@@ -286,18 +307,19 @@ namespace TicketPortal.Api.Controllers
 
     private async Task<bool> CanAccessAsync(Payment payment)
     {
-      if (User.IsInRole("Admin") ||
-          User.IsInRole("Staff") ||
-          User.IsInRole("Operator"))
+      var actor = await currentActor.ResolveAsync(User);
+      if (actor.IsAdmin || actor.HasAnyPermission(Permissions.FinanceReadPlatform,
+              Permissions.FinanceReadOwnOperator, Permissions.PaymentManage))
       {
         var operatorId = await db.Bookings
             .Where(b => b.Id == payment.BookingId)
             .Select(b => (Guid?)b.BusOperatorId)
             .FirstOrDefaultAsync();
 
-        return operatorId != null &&
-               await User.CanManageOperatorAsync(db, operatorId.Value);
+        return operatorId != null && actor.CanManageOperator(operatorId.Value);
       }
+
+      if (actor.Type != ActorType.Customer) return false;
 
       var userId = GetCurrentUserId();
       if (userId == null) return false;

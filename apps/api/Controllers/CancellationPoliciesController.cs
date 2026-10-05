@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Bookings;
 using Microsoft.AspNetCore.Authorization;
@@ -364,35 +365,15 @@ namespace TicketPortal.Api.Controllers
             return Guid.TryParse(claim, out var id) ? id : null;
         }
 
-        private async Task<Guid?> GetCallerBusOperatorIdAsync()
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return null;
-
-            return await db.StaffProfiles
-                .Where(sp => sp.UserId == userId.Value)
-                .Select(sp => sp.BusOperatorId)
-                .FirstOrDefaultAsync();
-        }
-
-        // Admin: manages any policy, including platform-wide (null) ones. Platform Staff
-        // (StaffProfile.BusOperatorId == null): same. Operator-scoped Staff/Operator: only their
-        // own operator's policies — never a null/platform-wide policy. Anyone else: never.
-        //
-        // Fixed for Piece 4 (Operator & Fleet Management Panel — Fare & Cancellation Policy
-        // Config screen): this only checked IsInRole("Staff"), the same class of bug already
-        // fixed elsewhere in this codebase (see ClaimsPrincipalExtensions.CanManageOperatorAsync's
-        // header comment) — "Operator" is the actual login role for an operator's own staff, so
-        // without this an Operator account could never save a cancellation policy at all,
-        // including for their own operator, and would always get Forbid().
+        // CancellationPolicyManage grants this action; active profile scope limits operators to
+        // their own policy and keeps platform-wide policies out of operator scope.
         private async Task<bool> CanManagePolicyOperatorAsync(Guid? busOperatorId)
         {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
-
-            var callerOperatorId = await GetCallerBusOperatorIdAsync();
-            if (callerOperatorId == null) return true;
-            return busOperatorId == callerOperatorId;
+            var actor = await new CurrentActorService(db).ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (!actor.HasPermission(Permissions.CancellationPolicyManage)) return false;
+            if (!actor.BusOperatorId.HasValue) return true;
+            return busOperatorId == actor.BusOperatorId;
         }
     }
 }

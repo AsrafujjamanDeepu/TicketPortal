@@ -52,6 +52,9 @@ apps/api/bin/
 apps/api/obj/
 apps/api/**/bin/
 apps/api/**/obj/
+apps/api.tests/bin/
+apps/api.tests/obj/
+*.tsbuildinfo
 *.user
 
 # Visual Studio / stray .NET build output if opened or built from the repo
@@ -72,4 +75,7 @@ apps/api/appsettings.*.local.json
 # apps/api/wwwroot/images previously had two such files committed by accident.
 apps/api/wwwroot/images/*
 !apps/api/wwwroot/images/.gitkeep
+
+# Private passenger-ID uploads and migration-generated storage (outside wwwroot).
+apps/api/App_Data/
 

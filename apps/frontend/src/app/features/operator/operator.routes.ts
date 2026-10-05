@@ -15,7 +15,7 @@ import { roleGuard } from '../../core/guards/role.guard';
  * (see PermissionMatrix.OperatorScope) and is now correctly redirected instead of opening a
  * screen whose every write then 403s server-side. 'profile' is left without an added
  * permission — BusOperator/OperatorBranch profile editing has no dedicated permission in the
- * fixed RBAC Amendment v3 catalogue yet (documented gap, see AUTHORIZATION_DECISIONS.md).
+ * fixed RBAC Amendment v3 catalogue yet (documented gap, see docs/03-Remaining-Fix-Plan.md).
  */
 export const OPERATOR_ROUTES: Routes = [
   {

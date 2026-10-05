@@ -1,5 +1,6 @@
 using TicketPortal.Api.Models.Common;
 using TicketPortal.Api.Models.Enums;
+using TicketPortal.Api.Models.Scheduling;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -12,6 +13,7 @@ namespace TicketPortal.Api.Models.Bookings
     public class BookingPassenger : AuditableEntity
     {
         public Guid BookingId { get; set; }
+        public Guid? TripSeatId { get; set; }
 
         [MaxLength(120)]
         public string FullName { get; set; } = string.Empty;
@@ -36,6 +38,7 @@ namespace TicketPortal.Api.Models.Bookings
         public string? EmergencyContactPhone { get; set; }
 
         public Booking Booking { get; set; } = default!;
+        public TripSeat? TripSeat { get; set; }
         // Usually one ticket per passenger, but the collection allows for edge cases
         // (e.g. re-issued tickets) without changing the model.
         public ICollection<Ticket> Tickets { get; set; } = new List<Ticket>();

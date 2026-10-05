@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
@@ -19,22 +20,20 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class OperatorStatementsController(AppDbContext db) : ControllerBase
+    public class OperatorStatementsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] Guid? busOperatorId)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
-            {
+            var actor = await currentActor.ResolveAsync(User);
+            var canReadAll = actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform);
+            if (!canReadAll && !(actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue))
                 return Ok(Array.Empty<OperatorStatementResponseDto>());
-            }
 
             var query = db.OperatorStatements.AsQueryable();
-
-            var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (callerOperatorId != null)
+            if (!canReadAll)
             {
-                query = query.Where(s => s.BusOperatorId == callerOperatorId.Value);
+                query = query.Where(s => s.BusOperatorId == actor.BusOperatorId!.Value);
             }
             else if (busOperatorId.HasValue)
             {
@@ -52,7 +51,11 @@ namespace TicketPortal.Api.Controllers
                 .Include(s => s.Items)
                 .FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await User.CanManageOperatorAsync(db, item.BusOperatorId)) return Forbid();
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.FinanceReadPlatform))
+                return Ok(ToDetailResponseDto(item));
+            if (!actor.HasPermission(Permissions.FinanceReadOwnOperator)
+                || actor.BusOperatorId != item.BusOperatorId) return Forbid();
             return Ok(ToDetailResponseDto(item));
         }
 

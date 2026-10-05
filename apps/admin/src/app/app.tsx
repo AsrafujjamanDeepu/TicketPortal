@@ -11,12 +11,14 @@ import { AuditLogsPage } from '../pages/AuditLogsPage';
 import { MarketingPage } from '../pages/MarketingPage';
 import { IntegrationsPage } from '../pages/IntegrationsPage';
 import { ComplaintsPage } from '../pages/ComplaintsPage';
+import { ChangePasswordPage } from '../pages/ChangePasswordPage';
 
 export function App() {
   return (
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route
           path="/"
           element={

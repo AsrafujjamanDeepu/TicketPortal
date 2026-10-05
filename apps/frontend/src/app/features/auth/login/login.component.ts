@@ -177,8 +177,12 @@ export class LoginComponent {
 
     this.submitting.set(true);
     this.auth.login(this.form.getRawValue()).subscribe({
-      next: () => {
+      next: (response) => {
         this.toast.success('Logged in successfully.');
+        if (response.mustChangePassword) {
+          this.router.navigate(['/account/change-password']);
+          return;
+        }
         const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl');
         const user = this.auth.currentUser();
         this.router.navigateByUrl(returnUrl || (user ? this.auth.homeRouteFor(user) : '/search'));

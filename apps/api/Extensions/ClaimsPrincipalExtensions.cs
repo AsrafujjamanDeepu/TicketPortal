@@ -1,39 +1,60 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace TicketPortal.Api.Extensions
 {
-    // The operator-scoping pattern from the Completion Plan (Section 2), lifted into one shared
-    // helper so Pieces 5 and 6 don't each reimplement it slightly differently. Every controller
-    // that needs to tell "sees everything" apart from "only this one operator's own rows" calls
-    // this after already gating on User.IsInRole("Admin"/"Staff"/"Operator") — see usage note
-    // below. (Corrected during Piece 5: CreateStaffAccountDto in AdminDtos.cs is explicit that
-    // "Operator" — not "Staff" — is the actual login role for an operator's own staff, so a gate
-    // that only checked Admin/Staff would lock every legitimate operator account out entirely.)
+    // Shared permission and operator-scope helpers. Controllers should prefer these over
+    // independently interpreting role claims or StaffProfile state.
     public static class ClaimsPrincipalExtensions
     {
-        // Returns:
-        //   null      — either no StaffProfile exists for this user at all (e.g. an Admin
-        //               account, which doesn't need one), or one exists with
-        //               BusOperatorId == null (our own platform staff). Both cases mean the
-        //               same thing to a caller: "don't filter, see everything."
-        //   non-null  — this account belongs to exactly one BusOperator's own staff; callers
-        //               should filter their query down to that operator's rows only.
-        //
-        // It's safe that "no profile" and "platform staff" collapse to the same null result —
-        // this method only decides HOW MUCH access to grant, never WHETHER to grant any. Every
-        // caller is expected to have already rejected plain Customer accounts with an
-        // IsInRole("Admin"/"Staff"/"Operator") check before ever calling this.
+        public static async Task<bool> HasPermissionAsync(this ClaimsPrincipal user, AppDbContext db, string permission)
+        {
+            var actor = await new CurrentActorService(db).ResolveAsync(user);
+            return actor.HasPermission(permission);
+        }
+
+        public enum OperatorScopeKind { Denied, Platform, Operator }
+
+        public sealed record OperatorScopeResult(OperatorScopeKind Kind, Guid? BusOperatorId = null)
+        {
+            public static OperatorScopeResult Denied { get; } = new(OperatorScopeKind.Denied);
+            public static OperatorScopeResult Platform { get; } = new(OperatorScopeKind.Platform);
+            public static OperatorScopeResult ForOperator(Guid id) => new(OperatorScopeKind.Operator, id);
+        }
+
+        // A null operator id is a valid platform scope only when backed by an active profile.
+        // Profileless or inactive Staff must never collapse into the platform-wide case.
+        public static async Task<OperatorScopeResult> GetOperatorScopeAsync(this ClaimsPrincipal user, AppDbContext db)
+        {
+            if (user.IsInRole("Admin")) return OperatorScopeResult.Platform;
+            if (!user.IsInRole("Staff") && !user.IsInRole("Operator")) return OperatorScopeResult.Denied;
+
+            var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(claim, out var userId)) return OperatorScopeResult.Denied;
+
+            var profile = await db.StaffProfiles
+                .Where(sp => sp.UserId == userId && sp.IsActive)
+                .Select(sp => new { sp.BusOperatorId })
+                .FirstOrDefaultAsync();
+            if (profile is null) return OperatorScopeResult.Denied;
+            return profile.BusOperatorId is Guid operatorId
+                ? OperatorScopeResult.ForOperator(operatorId)
+                : OperatorScopeResult.Platform;
+        }
+
+        // Compatibility projection for existing query filters. Guid.Empty is a denied scope,
+        // and therefore cannot be confused with the null platform-wide scope.
         public static async Task<Guid?> GetBusOperatorIdAsync(this ClaimsPrincipal user, AppDbContext db)
         {
-            var claim = user.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!Guid.TryParse(claim, out var userId)) return null;
-
-            return await db.StaffProfiles
-                .Where(sp => sp.UserId == userId)
-                .Select(sp => sp.BusOperatorId)
-                .FirstOrDefaultAsync();
+            var scope = await user.GetOperatorScopeAsync(db);
+            return scope.Kind switch
+            {
+                OperatorScopeKind.Platform => null,
+                OperatorScopeKind.Operator => scope.BusOperatorId,
+                _ => Guid.Empty,
+            };
         }
 
         // The other half of the pattern: not just WHO the caller's operator is, but whether
@@ -42,21 +63,18 @@ namespace TicketPortal.Api.Extensions
         // private copies, and Piece 1's newly-scoped finance controllers, all go through one
         // mechanism instead of three-plus slightly different reimplementations.
         //
-        // Admin: always true. Staff or Operator whose StaffProfile.BusOperatorId is null
-        // (platform staff): always true — they see everything, same as Admin. Staff/Operator
-        // scoped to one BusOperator: only true for that operator's own Id. Anyone else
-        // (Customer, or no StaffProfile at all): always false.
+        // Admin: always true. Active platform Staff (StaffProfile.BusOperatorId is null):
+        // platform scope. Operator-scoped Staff can manage only their own operator. Anyone
+        // without an active StaffProfile is denied.
         //
         // Callers still gate on IsInRole("Admin"/"Staff"/"Operator") themselves first when the
         // decision also affects an unfiltered list response (e.g. "return empty array vs. run
         // a scoped query") — this method only answers the "which operator(s)" half.
         public static async Task<bool> CanManageOperatorAsync(this ClaimsPrincipal user, AppDbContext db, Guid busOperatorId)
         {
-            if (user.IsInRole("Admin")) return true;
-            if (!user.IsInRole("Staff") && !user.IsInRole("Operator")) return false;
-
-            var callerOperatorId = await user.GetBusOperatorIdAsync(db);
-            return callerOperatorId == null || callerOperatorId == busOperatorId;
+            var scope = await user.GetOperatorScopeAsync(db);
+            return scope.Kind == OperatorScopeKind.Platform
+                || scope.Kind == OperatorScopeKind.Operator && scope.BusOperatorId == busOperatorId;
         }
 
         // For data that's platform-internal regardless of which operator it's about (ERP
@@ -68,11 +86,8 @@ namespace TicketPortal.Api.Extensions
         // operator-scoped staff at all.
         public static async Task<bool> IsPlatformStaffOrAdminAsync(this ClaimsPrincipal user, AppDbContext db)
         {
-            if (user.IsInRole("Admin")) return true;
-            if (!user.IsInRole("Staff") && !user.IsInRole("Operator")) return false;
-
-            var callerOperatorId = await user.GetBusOperatorIdAsync(db);
-            return callerOperatorId == null;
+            var scope = await user.GetOperatorScopeAsync(db);
+            return scope.Kind == OperatorScopeKind.Platform;
         }
     }
 }

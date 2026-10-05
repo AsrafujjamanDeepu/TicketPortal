@@ -56,4 +56,4 @@ finally {
 
 Write-Host ""
 Write-Host "Database dropped. Start the API ('npx nx run api:serve') — it will recreate the" -ForegroundColor Green
-Write-Host "database, apply migrations, and reseed every demo account listed in DEMO_ACCOUNTS.md." -ForegroundColor Green
+Write-Host "database, apply migrations, and reseed the demo accounts listed in docs/01-Run-and-Manual-Test-Guide.md." -ForegroundColor Green

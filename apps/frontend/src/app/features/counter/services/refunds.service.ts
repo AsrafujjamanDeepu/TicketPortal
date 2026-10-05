@@ -31,6 +31,10 @@ export class RefundsService {
     return this.api.post<Refund>(`refunds/${id}/process`, {});
   }
 
+  retry(id: string): Observable<Refund> {
+    return this.api.post<Refund>(`refunds/${id}/retry`, {});
+  }
+
   // Closes out a guest refund sitting at PendingManualPayout. Platform
   // Admin/Staff only — the backend checks this itself regardless of what
   // the UI shows.

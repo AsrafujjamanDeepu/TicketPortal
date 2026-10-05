@@ -8,6 +8,7 @@ using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -20,10 +21,8 @@ namespace TicketPortal.Api.Controllers
     // a raw field edit, so Delete has also been removed. The one deliberate exception is
     // CheckIn below — a boarding-desk action, not a field edit, and gated by its own permission.
     //
-    // Access is three-tiered, same pattern as PaymentsController/RefundsController (Ticket
-    // carries no BusOperatorId directly, so scoping joins through Booking.BusOperatorId):
-    // platform Admin/Staff see every ticket; an operator's own Staff/Operator account only
-    // sees tickets against that operator's own bookings; a plain Customer only sees their own.
+    // Staff reads require Booking.Read or Manifest.Read and remain scoped through
+    // Booking.BusOperatorId. Customers only see tickets on their own bookings.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
@@ -34,6 +33,7 @@ namespace TicketPortal.Api.Controllers
         // the minimum operational data required at boarding.
         [AllowAnonymous]
         [HttpGet("verify/{ticketNumber}")]
+        [EnableRateLimiting("anonymous-read")]
         public async Task<IActionResult> VerifyByTicketNumber(string ticketNumber)
         {
             var normalizedTicketNumber = ticketNumber.Trim();
@@ -92,6 +92,7 @@ namespace TicketPortal.Api.Controllers
         // =========================================================
         [AllowAnonymous]
         [HttpGet("verify-pnr/{pnr}")]
+        [EnableRateLimiting("anonymous-read")]
         public async Task<IActionResult> VerifyByPnr(string pnr)
         {
             var normalizedPnr = pnr?.Trim().ToUpperInvariant() ?? string.Empty;
@@ -158,7 +159,7 @@ namespace TicketPortal.Api.Controllers
         //
         // RBAC Amendment v3: gated on the Ticket.CheckIn PERMISSION (held by StaffRole.Supervisor
         // — see PermissionMatrix.OperatorScope — and, on the platform side, by Admin implicitly),
-        // never on a bare IsInRole("Staff")/IsInRole("Operator") check, plus the usual
+        // never on a broad account-role check, plus the usual
         // CanManageOperator(...) resource-scope check so a Green Line supervisor can't check in
         // an Ena ticket. Ticket carries no BusOperatorId of its own, so — same as everywhere else
         // in this controller — scope is resolved by joining through Booking.BusOperatorId.
@@ -273,6 +274,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
+            var actor = await currentActor.ResolveAsync(User);
             var query = db.Tickets
                 .Include(t => t.Booking)
                     .ThenInclude(b => b.Passengers)
@@ -295,25 +297,24 @@ namespace TicketPortal.Api.Controllers
                 .Include(t => t.TripSeat)
                 .AsQueryable();
 
-            // ============ Role-based scoping ============
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            if (actor.IsAdmin || actor.HasAnyPermission(Permissions.BookingRead, Permissions.ManifestRead))
             {
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (callerOperatorId != null)
+                if (actor.BusOperatorId != null)
                 {
+                    var callerOperatorId = actor.BusOperatorId.Value;
                     query = query.Where(t => db.Bookings.Any(b =>
                         b.Id == t.BookingId && b.BusOperatorId == callerOperatorId));
                 }
-                // else: platform Admin/Staff — no filter, see everything.
             }
-            else
+            else if (actor.Type == ActorType.Customer)
             {
-                var userId = GetCurrentUserId();
+                var userId = actor.UserId;
                 query = query.Where(t => db.Bookings.Any(b =>
                     b.Id == t.BookingId &&
                     b.CustomerProfile != null &&
                     b.CustomerProfile.UserId == userId));
             }
+            else return Forbid();
 
             var items = await query
                 .OrderByDescending(t => t.CreatedAtUtc)
@@ -368,24 +369,23 @@ namespace TicketPortal.Api.Controllers
 
         private async Task<bool> CanAccessAsync(Ticket item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasAnyPermission(Permissions.BookingRead, Permissions.ManifestRead))
             {
                 var operatorId = await db.Bookings
                     .Where(b => b.Id == item.BookingId)
                     .Select(b => (Guid?)b.BusOperatorId)
                     .FirstOrDefaultAsync();
 
-                return operatorId != null &&
-                       await User.CanManageOperatorAsync(db, operatorId.Value);
+                return operatorId != null && actor.CanManageOperator(operatorId.Value);
             }
 
-            var userId = GetCurrentUserId();
-            if (userId == null) return false;
+            if (actor.Type != ActorType.Customer) return false;
 
             return await db.Bookings.AnyAsync(b =>
                 b.Id == item.BookingId &&
                 b.CustomerProfile != null &&
-                b.CustomerProfile.UserId == userId);
+                b.CustomerProfile.UserId == actor.UserId);
         }
 
         // =========================================================
@@ -421,6 +421,7 @@ namespace TicketPortal.Api.Controllers
                 ExternalTicketKey = x.ExternalTicketKey,
                 Fare = x.Fare,
                 DiscountAmount = x.DiscountAmount,
+                TaxAmount = x.TaxAmount,
                 FinalFare = x.FinalFare,
                 Status = x.Status,
                 IssuedAtUtc = x.IssuedAtUtc,

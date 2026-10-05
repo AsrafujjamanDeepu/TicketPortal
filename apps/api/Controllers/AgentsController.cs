@@ -13,6 +13,7 @@
 // after creation via this endpoint.
 
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.People;
@@ -30,19 +31,19 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await new CurrentActorService(db).ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.NetworkRead))
             {
                 return Ok(Array.Empty<AgentResponseDto>());
             }
 
             var query = db.Agents.AsQueryable();
 
-            if (!User.IsInRole("Admin"))
+            if (!actor.IsAdmin)
             {
-                var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (scopeOperatorId != null)
+                if (actor.BusOperatorId.HasValue)
                 {
-                    query = query.Where(a => a.BusOperatorId == scopeOperatorId);
+                    query = query.Where(a => a.BusOperatorId == actor.BusOperatorId.Value);
                 }
             }
 
@@ -55,26 +56,26 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.Agents.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: false)) return Forbid();
             return Ok(ToResponseDto(item));
         }
 
         [HttpPost]
         public async Task<IActionResult> Create(AgentCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var busOperatorId = dto.BusOperatorId;
-            if (!User.IsInRole("Admin"))
+            var actor = await new CurrentActorService(db).ResolveAsync(User);
+            if (!actor.IsAdmin)
             {
-                var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (scopeOperatorId != null)
+                if (actor.BusOperatorId.HasValue)
                 {
-                    if (dto.BusOperatorId != scopeOperatorId)
+                    if (dto.BusOperatorId != actor.BusOperatorId.Value)
                     {
                         return BadRequest(new { message = "You can only create agents for your own operator." });
                     }
-                    busOperatorId = scopeOperatorId;
+                    busOperatorId = actor.BusOperatorId.Value;
                 }
                 // else: platform Staff — allowed to set any BusOperatorId, including null.
             }
@@ -103,7 +104,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.Agents.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "Agent not found." });
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
@@ -151,7 +152,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.Agents.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
-            if (!await CanAccessAsync(item)) return Forbid();
+            if (!await CanAccessAsync(item, requireManage: true)) return Forbid();
 
             // Soft delete — real business data is never hard-deleted (see AuditableEntity.MarkDeleted).
             item.MarkDeleted();
@@ -176,15 +177,13 @@ namespace TicketPortal.Api.Controllers
         // on the entity (and is nullable — a platform-wide agent) so this checks it straight,
         // no StaffProfile join needed. An operator's own staff never sees a platform-wide
         // (null) agent — only their own operator's.
-        private async Task<bool> CanAccessAsync(Agent item)
+        private async Task<bool> CanAccessAsync(Agent item, bool requireManage)
         {
-            if (User.IsInRole("Admin")) return true;
-            if (!User.IsInRole("Staff") && !User.IsInRole("Operator")) return false;
-
-            var scopeOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (scopeOperatorId == null) return true;
-
-            return item.BusOperatorId == scopeOperatorId;
+            var actor = await new CurrentActorService(db).ResolveAsync(User);
+            if (actor.IsAdmin) return true;
+            if (!(requireManage ? actor.HasPermission(Permissions.NetworkManage) : actor.HasPermission(Permissions.NetworkRead))) return false;
+            if (!actor.BusOperatorId.HasValue) return true;
+            return item.BusOperatorId == actor.BusOperatorId;
         }
 
         private static AgentResponseDto ToResponseDto(Agent x) => new()

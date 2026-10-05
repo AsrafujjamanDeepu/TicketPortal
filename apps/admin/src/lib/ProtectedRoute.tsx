@@ -8,13 +8,16 @@ import { useAuth } from '../lib/auth';
  * App.tsx rather than guarding each page individually.
  */
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, hasRole } = useAuth();
+  const { currentUser, isAuthenticated, hasRole } = useAuth();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
   if (!hasRole('Admin')) {
     return <Navigate to="/login" replace />;
+  }
+  if (currentUser?.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
   }
   return <>{children}</>;
 }

@@ -1,5 +1,8 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.DTO;
+using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.People;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -16,14 +19,32 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class CustomerWalletTransactionsController(AppDbContext db) : ControllerBase
+    public class CustomerWalletTransactionsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.CustomerWalletTransactions.AsQueryable();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin)
+            {
+                // Admin can inspect all customer wallet history.
+            }
+            else if (actor.Type == ActorType.Staff)
+            {
+                if (actor.HasPermission(Permissions.FinanceReadPlatform))
+                {
+                    // Platform finance scope.
+                }
+                else if (actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue)
+                {
+                    query = query.Where(t => t.BookingId.HasValue && db.Bookings.Any(b =>
+                        b.Id == t.BookingId.Value && b.BusOperatorId == actor.BusOperatorId.Value));
+                }
+                else return Ok(Array.Empty<CustomerWalletTransactionResponseDto>());
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 query = query.Where(t => db.CustomerProfiles.Any(cp =>
@@ -40,7 +61,26 @@ namespace TicketPortal.Api.Controllers
             var item = await db.CustomerWalletTransactions.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin)
+            {
+                // Admin can inspect all customer wallet history.
+            }
+            else if (actor.Type == ActorType.Staff)
+            {
+                if (actor.HasPermission(Permissions.FinanceReadPlatform))
+                {
+                    // Platform finance scope.
+                }
+                else if (actor.HasPermission(Permissions.FinanceReadOwnOperator) && actor.BusOperatorId.HasValue)
+                {
+                    var belongsToOperator = item.BookingId.HasValue && await db.Bookings.AnyAsync(b =>
+                        b.Id == item.BookingId.Value && b.BusOperatorId == actor.BusOperatorId.Value);
+                    if (!belongsToOperator) return Forbid();
+                }
+                else return Forbid();
+            }
+            else
             {
                 var userId = GetCurrentUserId();
                 var owns = await db.CustomerProfiles.AnyAsync(cp =>

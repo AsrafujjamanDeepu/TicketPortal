@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Tests.Infrastructure;
 using Xunit;
@@ -10,7 +12,7 @@ namespace TicketPortal.Api.Tests.Integration
 {
     // RBAC Amendment v3's "required denied-case" table, sampled here for the controllers
     // already migrated to the Permissions catalogue (Buses, StaffProfiles). See
-    // docs/RBAC_MIGRATION_GAP_REPORT.md and Architecture/NoBroadRoleChecksTests.cs for the
+    // docs/03-Remaining-Fix-Plan.md and Architecture/NoBroadRoleChecksTests.cs for the
     // ~42 controllers this table does NOT yet cover — expanding this file to them is exactly
     // the kind of follow-up that gap report calls for. Ticket-check-in's own denied cases live
     // in Integration/TicketCheckInTests.cs rather than being duplicated here.
@@ -22,6 +24,25 @@ namespace TicketPortal.Api.Tests.Integration
         public AuthorizationDeniedCaseTests(TicketPortalWebApplicationFactory factory)
         {
             _factory = factory;
+        }
+
+        [Fact]
+        public async Task ProfilelessStaff_HasDeniedOperatorScope_NotPlatformScope()
+        {
+            using var scope = _factory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var profilelessStaff = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()),
+                new Claim(ClaimTypes.Role, "Staff"),
+            ], "IntegrationTest"));
+
+            var operatorScope = await profilelessStaff.GetOperatorScopeAsync(db);
+
+            Assert.Equal(ClaimsPrincipalExtensions.OperatorScopeKind.Denied, operatorScope.Kind);
+            Assert.False(await profilelessStaff.CanManageOperatorAsync(db, Guid.NewGuid()));
+            Assert.False(await profilelessStaff.IsPlatformStaffOrAdminAsync(db));
+            Assert.Equal(Guid.Empty, await profilelessStaff.GetBusOperatorIdAsync(db));
         }
 
         // A fully valid BusCreateDto — [ApiController] runs DataAnnotations validation (400)
@@ -178,6 +199,37 @@ namespace TicketPortal.Api.Tests.Integration
             var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
             var stillUnchanged = await verifyDb.StaffProfiles.AsNoTracking().SingleAsync(sp => sp.Id == staffProfileId);
             Assert.Equal(currentRole, stillUnchanged.Role); // Untouched.
+        }
+
+        [Fact]
+        public async Task OperationalAndSupportRoles_CannotInvokeFinanceAndPayrollWrites()
+        {
+            var restrictedStaff = new[]
+            {
+                DemoAccounts.GreenLineCounterStaff,
+                DemoAccounts.ShohaghSupervisor,
+                DemoAccounts.PlatformSupport,
+            };
+
+            foreach (var userName in restrictedStaff)
+            {
+                var client = await _factory.CreateAuthenticatedClientAsync(userName, DemoAccounts.Password);
+                var id = Guid.NewGuid();
+                var deniedResponses = new[]
+                {
+                    await client.PostAsJsonAsync($"/api/refunds/{id}/approve", new { Remarks = "test" }),
+                    await client.PostAsJsonAsync($"/api/refunds/{id}/process", new { }),
+                    await client.PostAsJsonAsync($"/api/payments/{id}/fail", new { HoldToken = "valid-shaped-test-token", Reason = "test" }),
+                };
+
+                Assert.All(deniedResponses, response => Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode));
+
+                // List endpoints deliberately return an empty collection rather than disclose
+                // the existence of salary rows to roles without Salary.Read.
+                var salaryRead = await client.GetAsync("/api/staffsalaries");
+                Assert.Equal(HttpStatusCode.OK, salaryRead.StatusCode);
+                Assert.Equal("[]", await salaryRead.Content.ReadAsStringAsync());
+            }
         }
     }
 }

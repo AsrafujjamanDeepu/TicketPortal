@@ -1,6 +1,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Bookings;
 using TicketPortal.Api.Models.Enums;
+using TicketPortal.Api.Models.Marketing;
 using TicketPortal.Api.Models.Scheduling;
 using TicketPortal.Api.Realtime;
 using Microsoft.EntityFrameworkCore;
@@ -105,6 +106,52 @@ namespace TicketPortal.Api.Services
                 // up on their next refresh.
                 return new List<RealtimeBulkChanges.BookingScope>();
             }
+        }
+
+        // Coupon redemptions on abandoned prepayment bookings are reservations, not completed
+        // purchases. Release the usage record and restore the coupon count when the hold closes.
+        private async Task ReleasePrepaymentCouponUsagesAsync(IReadOnlyCollection<Guid> bookingIds)
+        {
+            if (bookingIds.Count == 0) return;
+
+            var eligibleBookings = await _db.Bookings
+                .Where(b => bookingIds.Contains(b.Id)
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment)
+                    && !b.Payments.Any(p => p.Status == PaymentStatus.Initiated
+                        || p.Status == PaymentStatus.Pending
+                        || p.Status == PaymentStatus.Succeeded
+                        || p.Status == PaymentStatus.PartiallyRefunded
+                        || p.Status == PaymentStatus.Refunded))
+                .ToListAsync();
+            var eligibleIds = eligibleBookings.Select(b => b.Id).ToHashSet();
+            if (eligibleIds.Count == 0) return;
+
+            var usages = await _db.CouponUsages
+                .Where(u => eligibleIds.Contains(u.BookingId))
+                .ToListAsync();
+            foreach (var usage in usages)
+            {
+                var coupon = await _db.Coupons.FirstOrDefaultAsync(c => c.Id == usage.CouponId);
+                if (coupon is not null)
+                {
+                    coupon.UsedCount = Math.Max(0, coupon.UsedCount - 1);
+                    coupon.UpdatedAtUtc = DateTime.UtcNow;
+                }
+                usage.MarkDeleted();
+            }
+
+            foreach (var booking in eligibleBookings)
+            {
+                if (booking.CouponId.HasValue)
+                {
+                    booking.CouponId = null;
+                    booking.DiscountAmount = 0m;
+                    booking.RecomputeTotals();
+                    booking.UpdatedAtUtc = DateTime.UtcNow;
+                }
+            }
+
+            await _db.SaveChangesAsync();
         }
 
         // Step 1 of checkout: the customer has picked their seats on the seat map, and we now
@@ -268,10 +315,24 @@ namespace TicketPortal.Api.Services
                     .SetProperty(ts => ts.Status, TripSeatStatus.Available)
                     .SetProperty(ts => ts.CurrentSeatHoldId, (Guid?)null));
 
+            var bookingIds = await _db.Bookings
+                .Where(b => b.SeatHoldId == hold.Id
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                .Select(b => b.Id)
+                .ToListAsync();
+            await ReleasePrepaymentCouponUsagesAsync(bookingIds);
+
             // Realtime Chunk 3: the seats just went back to Available with a bulk UPDATE.
             await AnnounceAsync(RealtimeBulkChanges.Seats(new[] { hold.TripId }));
 
             hold.Status = SeatHoldStatus.Released;
+            await _db.Bookings
+                .Where(b => b.SeatHoldId == hold.Id
+                    && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(b => b.Status, BookingStatus.Cancelled)
+                    .SetProperty(b => b.CancelledAtUtc, DateTime.UtcNow)
+                    .SetProperty(b => b.CancellationReason, "Seat hold was released before payment."));
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
         }
@@ -295,7 +356,7 @@ namespace TicketPortal.Api.Services
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
             var hold = await _db.SeatHolds.FirstOrDefaultAsync(h => h.HoldToken == holdToken);
-            if (hold is null || hold.Status != SeatHoldStatus.Active || hold.HoldExpiresAtUtc <= DateTime.UtcNow)
+            if (hold is null)
             {
                 throw new InvalidOperationException(
                     "This seat hold has expired. The seats must be reselected and paid for again.");
@@ -310,6 +371,28 @@ namespace TicketPortal.Api.Services
                 // were never actually booking X's.
                 throw new InvalidOperationException(
                     "This seat hold does not belong to the booking being confirmed. The seats must be reselected and paid for again.");
+            }
+
+            if (hold.Status == SeatHoldStatus.ConvertedToBooking)
+            {
+                var heldSeatIds = await _db.SeatHoldItems.Where(i => i.SeatHoldId == hold.Id)
+                    .Select(i => i.TripSeatId).ToListAsync();
+                var alreadyBookedSeatIds = await _db.TripSeats
+                    .Where(ts => ts.BookingId == bookingId && ts.Status == TripSeatStatus.Booked)
+                    .Select(ts => ts.Id).ToListAsync();
+                if (heldSeatIds.Count > 0 && heldSeatIds.Count == alreadyBookedSeatIds.Count
+                    && heldSeatIds.ToHashSet().SetEquals(alreadyBookedSeatIds))
+                {
+                    await transaction.CommitAsync();
+                    return;
+                }
+                throw new InvalidOperationException("The converted seat hold is incomplete and requires reconciliation.");
+            }
+
+            if (hold.Status != SeatHoldStatus.Active || hold.HoldExpiresAtUtc <= DateTime.UtcNow)
+            {
+                throw new InvalidOperationException(
+                    "This seat hold has expired. The seats must be reselected and paid for again.");
             }
 
             var affected = await _db.TripSeats
@@ -437,6 +520,9 @@ namespace TicketPortal.Api.Services
                     && activeHoldIds.Contains(b.SeatHoldId.Value)
                     && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment));
 
+            var stuckBookingIds = await stuckBookings.Select(b => b.Id).ToListAsync();
+            await ReleasePrepaymentCouponUsagesAsync(stuckBookingIds);
+
             var cancelledBookings = await SnapshotBookingsAsync(stuckBookings);
 
             await stuckBookings
@@ -510,6 +596,9 @@ namespace TicketPortal.Api.Services
                 .Where(b => b.SeatHoldId != null
                     && expiredHoldIds.Contains(b.SeatHoldId.Value)
                     && (b.Status == BookingStatus.Draft || b.Status == BookingStatus.PendingPayment));
+
+            var abandonedBookingIds = await abandonedBookings.Select(b => b.Id).ToListAsync();
+            await ReleasePrepaymentCouponUsagesAsync(abandonedBookingIds);
 
             var expiredBookings = await SnapshotBookingsAsync(abandonedBookings);
 

@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Bookings;
@@ -21,28 +22,28 @@ namespace TicketPortal.Api.Controllers
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]
-    public class SeatHoldItemsController(AppDbContext db) : ControllerBase
+    public class SeatHoldItemsController(AppDbContext db, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
+            var actor = await currentActor.ResolveAsync(User);
             var query = db.SeatHoldItems.AsQueryable();
 
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            if (actor.IsAdmin || actor.HasPermission(Permissions.BookingRead))
             {
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
-                if (callerOperatorId != null)
+                if (actor.BusOperatorId != null)
                 {
+                    var operatorId = actor.BusOperatorId.Value;
                     query = query.Where(i => db.SeatHolds.Any(h =>
-                        h.Id == i.SeatHoldId && db.Trips.Any(t => t.Id == h.TripId && t.BusOperatorId == callerOperatorId)));
+                        h.Id == i.SeatHoldId && db.Trips.Any(t => t.Id == h.TripId && t.BusOperatorId == operatorId)));
                 }
-                // else: platform Admin/Staff — no filter, see everything.
             }
-            else
+            else if (actor.Type == ActorType.Customer)
             {
-                var userId = GetCurrentUserId();
-                query = query.Where(i => db.SeatHolds.Any(h => h.Id == i.SeatHoldId && h.HeldByUserId == userId));
+                query = query.Where(i => db.SeatHolds.Any(h => h.Id == i.SeatHoldId && h.HeldByUserId == actor.UserId));
             }
+            else return Forbid();
 
             var items = await query.ToListAsync();
             return Ok(items.Select(ToResponseDto));
@@ -54,7 +55,8 @@ namespace TicketPortal.Api.Controllers
             var item = await db.SeatHoldItems.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.HasPermission(Permissions.BookingRead))
             {
                 var tripId = await db.SeatHolds
                     .Where(h => h.Id == item.SeatHoldId)
@@ -64,14 +66,14 @@ namespace TicketPortal.Api.Controllers
                     .Where(t => t.Id == tripId)
                     .Select(t => (Guid?)t.BusOperatorId)
                     .FirstOrDefaultAsync();
-                if (operatorId == null || !await User.CanManageOperatorAsync(db, operatorId.Value)) return Forbid();
+                if (operatorId == null || !actor.CanManageOperator(operatorId.Value)) return Forbid();
             }
-            else
+            else if (actor.Type == ActorType.Customer)
             {
-                var userId = GetCurrentUserId();
-                var owns = await db.SeatHolds.AnyAsync(h => h.Id == item.SeatHoldId && h.HeldByUserId == userId);
+                var owns = await db.SeatHolds.AnyAsync(h => h.Id == item.SeatHoldId && h.HeldByUserId == actor.UserId);
                 if (!owns) return Forbid();
             }
+            else return Forbid();
 
             return Ok(ToResponseDto(item));
         }

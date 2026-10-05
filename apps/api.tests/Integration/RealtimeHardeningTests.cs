@@ -20,7 +20,7 @@ namespace TicketPortal.Api.Tests.Integration
     // Not covered here on purpose: "CloseOnAuthenticationExpiration closes the socket when the
     // JWT expires". Login hard-codes a 3-hour lifetime and this suite's own rule is never to
     // mint a JWT by hand, so an automated test would need one of the two. That check is a short
-    // manual procedure instead - see docs/REALTIME.md, "Verifying token expiry" - and the
+    // manual procedure instead - see docs/docs/01-Run-and-Manual-Test-Guide.md, "Verifying token expiry" - and the
     // client's reaction to it (return to login) is unit-tested in the React hook tests.
     [Collection(SharedApiCollection.Name)]
     public class RealtimeHardeningTests

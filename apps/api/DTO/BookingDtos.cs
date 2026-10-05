@@ -8,6 +8,10 @@ namespace TicketPortal.Api.DTO
   // =========================================================
   public class BookingPassengerCreateDto
   {
+    // Optional for older clients. New checkout clients send the selected seat id explicitly;
+    // the API verifies it belongs to the active hold before saving the passenger.
+    public Guid? TripSeatId { get; set; }
+
     [Required, MaxLength(120)]
     public string FullName { get; set; } = string.Empty;
 
@@ -29,6 +33,7 @@ namespace TicketPortal.Api.DTO
   public class BookingPassengerResponseDto
   {
     public Guid Id { get; set; }
+    public Guid? TripSeatId { get; set; }
     public string FullName { get; set; } = string.Empty;
     public string? Phone { get; set; }
     public string? Email { get; set; }

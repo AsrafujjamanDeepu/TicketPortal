@@ -14,7 +14,7 @@ namespace TicketPortal.Api.Controllers
     // operator's own ERP — including RequestJson/ResponseJson from that call — is
     // platform-internal integration detail, not anything a customer or most staff should see.
     // The old generic CRUD let any authenticated user fabricate a fake "Succeeded" sync that
-    // never happened. The plain IsInRole("Staff") check this previously used didn't actually
+    // never happened. The plain Staff-role check this previously used didn't actually
     // enforce "platform-only" — any operator-scoped Staff account passed it too.
     //
     // Nothing writes here yet: the actual sync worker that talks to an operator's ERP is future
@@ -24,7 +24,7 @@ namespace TicketPortal.Api.Controllers
     // UPDATE (Chunk 8): that worker now exists (ExternalBookingSyncService) and writes real
     // rows here on every ConfirmBooking/GetSeatAvailability/CancelBooking/TestConnection call —
     // this controller's own read-side auth was already correctly scoped ahead of that, so
-    // nothing needed to change here. See docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md.
+    // nothing needed to change here. See docs/docs/03-Remaining-Fix-Plan.md.
     [Authorize]
     [Route("api/[controller]")]
     [ApiController]

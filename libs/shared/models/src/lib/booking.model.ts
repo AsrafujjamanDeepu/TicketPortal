@@ -4,6 +4,7 @@ import { BookingSource, BookingStatus, Gender, MoneyCollectedBy, PassengerType, 
 // held seat, in the same order as the seats were held — the backend rejects
 // a count mismatch outright.
 export interface BookingPassengerCreateRequest {
+  tripSeatId?: string | null;
   fullName: string;
   phone?: string;
   email?: string;
@@ -15,6 +16,7 @@ export interface BookingPassengerCreateRequest {
 
 export interface BookingPassenger extends BookingPassengerCreateRequest {
   id: string;
+  tripSeatId: string | null;
 }
 
 // Mirrors DTO/BookingDtos.cs -> BookingCreateDto. POST /api/bookings.

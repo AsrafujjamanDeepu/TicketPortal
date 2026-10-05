@@ -71,6 +71,7 @@ namespace TicketPortal.Api.DTO
         public DateTime ExpiresAtUtc { get; set; }
         public Guid UserId { get; set; }
         public string UserName { get; set; } = string.Empty;
+        public bool MustChangePassword { get; set; }
 
         // Embedded as claims in the token too, so [Authorize(Roles = "...")] can check them
         // without a database round-trip on every request.

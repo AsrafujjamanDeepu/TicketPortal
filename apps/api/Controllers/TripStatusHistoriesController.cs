@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Scheduling;
@@ -26,7 +27,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            if (!await User.HasPermissionAsync(db, Permissions.TripsRead))
             {
                 return Ok(Array.Empty<TripStatusHistoryResponseDto>());
             }
@@ -48,6 +49,7 @@ namespace TicketPortal.Api.Controllers
         {
             var item = await db.TripStatusHistories.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
+            if (!await User.HasPermissionAsync(db, Permissions.TripsRead)) return Forbid();
 
             var operatorId = await db.Trips
                 .Where(t => t.Id == item.TripId)

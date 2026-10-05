@@ -1,8 +1,9 @@
 // Piece 5 (Operator Back-Office & Fleet Operations) — operator scoping. 🟡 tier. Same fix as
 // OperatorBranchesController, but OperatorRouteStop has no BusOperatorId of its own — it hangs
 // off OperatorRoute, so scoping/ownership checks join through OperatorRoute.BusOperatorId. See
-// OperatorBranchesController's header comment for the Admin/Staff/Operator role-gate note.
+// Permission gates use NetworkRead for reads and NetworkManage for changes.
 
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -21,7 +22,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkRead))
             {
                 return Ok(Array.Empty<OperatorRouteStopResponseDto>());
             }
@@ -41,7 +42,7 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkRead)) return Forbid();
 
             var item = await db.OperatorRouteStops.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
@@ -69,7 +70,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(OperatorRouteStopCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
@@ -107,7 +108,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, OperatorRouteStopUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var item = await db.OperatorRouteStops.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "OperatorRouteStop not found." });
@@ -175,7 +176,7 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.NetworkManage)) return Forbid();
 
             var item = await db.OperatorRouteStops.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

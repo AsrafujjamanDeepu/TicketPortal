@@ -31,7 +31,8 @@ namespace TicketPortal.Api.Models.Bookings
 
         public decimal Fare { get; set; }
         public decimal DiscountAmount { get; set; }
-        public decimal FinalFare { get; set; } // What this one seat actually cost after discount.
+        public decimal TaxAmount { get; set; }
+        public decimal FinalFare { get; set; } // Allocated paid amount, including allocated tax/service charge.
         public TicketStatus Status { get; set; } = TicketStatus.PendingPayment;
         public DateTime? IssuedAtUtc { get; set; }
         public DateTime? CheckedInAtUtc { get; set; } // When the passenger actually showed up at the terminal.

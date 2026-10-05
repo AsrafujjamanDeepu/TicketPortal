@@ -19,7 +19,7 @@ namespace TicketPortal.Api.Services
 {
     // Piece 7 / Chunk 8 (concept doc §3.2): the actual "call the operator's API to sync and
     // check booking status" half of the API-connected integration model. See
-    // docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md for the full request/response contract this
+    // docs/docs/03-Remaining-Fix-Plan.md for the full request/response contract this
     // engine speaks, and apps/mock-erp for a small local server that implements it — point a
     // demo/dev OperatorIntegration.BaseUrl at that (see Data/DemoDataSeeder.cs's Hanif rows) and
     // this engine has something real to talk to for the first time.

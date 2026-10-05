@@ -29,7 +29,7 @@ namespace TicketPortal.Api.Controllers
     {
         // Chunk 6 task 1 — the counter desk's default landing screen. One scoped aggregate
         // instead of the Angular dashboard downloading full booking/cancellation/complaint
-        // lists and counting client-side (see COUNTER_SALE_DEMO_SCRIPT.md).
+        // lists and counting client-side (see docs/01-Run-and-Manual-Test-Guide.md).
         //
         // RBAC Amendment v3, Chunk 6 note: scoped by Counter.Read + the assigned-counter
         // relation — never by BusOperatorId alone. A CounterStaff member sees only the

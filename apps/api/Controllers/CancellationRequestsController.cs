@@ -1,4 +1,5 @@
 using TicketPortal.Api.Data;
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Bookings;
@@ -20,7 +21,7 @@ namespace TicketPortal.Api.Controllers
     // carry BusOperatorId either, so scoping always joins through Booking.BusOperatorId):
     // platform Admin/Staff see every request; an operator's own Staff/Operator account only
     // sees/manages requests against that operator's own bookings; a plain Customer only sees
-    // their own. Previously every check here stopped at IsInRole("Staff") — no
+    // their own. Previously every check here stopped at the Staff role — no
     // GetBusOperatorIdAsync/CanManageOperatorAsync call at all — so any Staff account,
     // including one scoped to a single operator, could see and Approve/Reject/Complete every
     // other operator's cancellation requests (and set an arbitrary refund amount while doing
@@ -30,16 +31,19 @@ namespace TicketPortal.Api.Controllers
     [Route("api/[controller]")]
     [ApiController]
     public class CancellationRequestsController(
-        AppDbContext db, CancellationProcessingService cancellationProcessingService) : ControllerBase
+        AppDbContext db, CancellationProcessingService cancellationProcessingService, ICurrentActorService currentActor) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
             var query = db.CancellationRequests.AsQueryable();
 
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.Type == ActorType.Staff)
             {
-                var callerOperatorId = await User.GetBusOperatorIdAsync(db);
+                if (!actor.HasAnyPermission(Permissions.BookingRead, Permissions.CancellationApprove))
+                    return Ok(Array.Empty<CancellationRequestResponseDto>());
+                var callerOperatorId = actor.BusOperatorId;
                 if (callerOperatorId != null)
                 {
                     query = query.Where(cr => db.Bookings.Any(b =>
@@ -72,16 +76,16 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(CancellationRequestCreateDto dto)
         {
-            if (User.IsInRole("Admin"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin)
             {
-                // No restriction.
+                // Admin may act for any booking.
             }
-            else if (User.IsInRole("Staff") || User.IsInRole("Operator"))
+            else if (actor.Type == ActorType.Staff)
             {
-                // Platform Staff/Operator (BusOperatorId == null): any booking. Scoped to one
-                // operator: only that operator's own bookings.
+                if (!actor.HasPermission(Permissions.CancellationApprove)) return Forbid();
                 var operatorId = await GetOperatorIdAsync(dto.BookingId);
-                if (operatorId == null || !await User.CanManageOperatorAsync(db, operatorId.Value))
+                if (operatorId == null || !actor.CanManageOperator(operatorId.Value))
                 {
                     return Forbid();
                 }
@@ -116,6 +120,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/approve")]
         public async Task<IActionResult> Approve(Guid id, CancellationApproveDto dto)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.CancellationApprove)) return Forbid();
             if (!await CanManageAsync(id)) return Forbid();
 
             try
@@ -135,6 +140,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> Reject(Guid id, CancellationRejectDto dto)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.CancellationApprove)) return Forbid();
             if (!await CanManageAsync(id)) return Forbid();
 
             try
@@ -153,6 +159,7 @@ namespace TicketPortal.Api.Controllers
         [HttpPost("{id}/complete")]
         public async Task<IActionResult> Complete(Guid id)
         {
+            if (!await User.HasPermissionAsync(db, Permissions.CancellationApprove)) return Forbid();
             if (!await CanManageAsync(id)) return Forbid();
 
             try
@@ -189,10 +196,12 @@ namespace TicketPortal.Api.Controllers
         // Staff/Operator sees only that operator's requests, a Customer sees only their own.
         private async Task<bool> CanAccessAsync(CancellationRequest item)
         {
-            if (User.IsInRole("Admin") || User.IsInRole("Staff") || User.IsInRole("Operator"))
+            var actor = await currentActor.ResolveAsync(User);
+            if (actor.IsAdmin || actor.Type == ActorType.Staff)
             {
+                if (!actor.HasAnyPermission(Permissions.BookingRead, Permissions.CancellationApprove)) return false;
                 var operatorId = await GetOperatorIdAsync(item.BookingId);
-                return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+                return operatorId != null && actor.CanManageOperator(operatorId.Value);
             }
 
             var userId = GetCurrentUserId();
@@ -214,7 +223,9 @@ namespace TicketPortal.Api.Controllers
             if (bookingId == null) return false;
 
             var operatorId = await GetOperatorIdAsync(bookingId.Value);
-            return operatorId != null && await User.CanManageOperatorAsync(db, operatorId.Value);
+            var actor = await currentActor.ResolveAsync(User);
+            return actor.HasPermission(Permissions.CancellationApprove)
+                && operatorId != null && actor.CanManageOperator(operatorId.Value);
         }
 
         private static CancellationRequestResponseDto ToResponseDto(CancellationRequest x) => new()

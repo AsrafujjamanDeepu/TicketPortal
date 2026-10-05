@@ -16,6 +16,7 @@ public interface IPasswordResetMessageSender
 /// </summary>
 public sealed class PasswordResetMessageSender(
     IConfiguration configuration,
+    IWebHostEnvironment environment,
     ILogger<PasswordResetMessageSender> logger) : IPasswordResetMessageSender
 {
     public async Task SendAsync(ApplicationUser user, string resetUrl)
@@ -23,10 +24,15 @@ public sealed class PasswordResetMessageSender(
         var host = configuration["PasswordReset:Smtp:Host"];
         if (string.IsNullOrWhiteSpace(host))
         {
-            logger.LogWarning(
-                "SMTP is not configured. Development password reset link for {Email}: {ResetUrl}",
-                user.Email, resetUrl);
-            return;
+            if (environment.IsDevelopment())
+            {
+                logger.LogWarning(
+                    "SMTP is not configured. Development password reset link for {Email}: {ResetUrl}",
+                    user.Email, resetUrl);
+                return;
+            }
+
+            throw new InvalidOperationException("Password-reset email delivery is not configured.");
         }
 
         var port = configuration.GetValue<int?>("PasswordReset:Smtp:Port") ?? 587;

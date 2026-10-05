@@ -5,8 +5,9 @@
 // row, so it stays Admin/Staff-only, same as CommissionRulesController — an operator's own staff
 // only ever sees/writes fare rules with BusOperatorId == their own operator, never the null
 // platform-default ones. See OperatorBranchesController's header comment for the
-// Admin/Staff/Operator role-gate note.
+// Platform-default pricing remains Admin-only; operator-specific rules require FarePolicyManage.
 
+using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
@@ -25,7 +26,9 @@ namespace TicketPortal.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator"))
+            var actor = await new CurrentActorService(db).ResolveAsync(User);
+            if (!actor.IsAdmin && !actor.HasPermission(Permissions.FinanceConfigure)
+                && !actor.HasPermission(Permissions.FarePolicyManage))
             {
                 return Ok(Array.Empty<FareRuleResponseDto>());
             }
@@ -46,13 +49,14 @@ namespace TicketPortal.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
-
             var item = await db.FareRules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();
 
-            var busOperatorId = await User.GetBusOperatorIdAsync(db);
-            if (busOperatorId != null && item.BusOperatorId != busOperatorId) return Forbid();
+            var actor = await new CurrentActorService(db).ResolveAsync(User);
+            var canReadPlatformRule = actor.IsAdmin || actor.HasPermission(Permissions.FinanceConfigure);
+            var canReadOwnRule = actor.HasPermission(Permissions.FarePolicyManage)
+                && actor.BusOperatorId.HasValue && actor.BusOperatorId == item.BusOperatorId;
+            if (!canReadPlatformRule && !canReadOwnRule) return Forbid();
 
             return Ok(ToResponseDto(item));
         }
@@ -60,7 +64,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create(FareRuleCreateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FarePolicyManage)
+                && !await User.HasPermissionAsync(db, Permissions.FinanceConfigure)) return Forbid();
 
             var busOperatorId = await User.GetBusOperatorIdAsync(db);
 
@@ -105,7 +110,8 @@ namespace TicketPortal.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(Guid id, FareRuleUpdateDto dto)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FarePolicyManage)
+                && !await User.HasPermissionAsync(db, Permissions.FinanceConfigure)) return Forbid();
 
             var item = await db.FareRules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound(new { message = "FareRule not found." });
@@ -168,7 +174,8 @@ namespace TicketPortal.Api.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> Delete(Guid id)
         {
-            if (!User.IsInRole("Admin") && !User.IsInRole("Staff") && !User.IsInRole("Operator")) return Forbid();
+            if (!await User.HasPermissionAsync(db, Permissions.FarePolicyManage)
+                && !await User.HasPermissionAsync(db, Permissions.FinanceConfigure)) return Forbid();
 
             var item = await db.FareRules.FirstOrDefaultAsync(x => x.Id == id);
             if (item == null) return NotFound();

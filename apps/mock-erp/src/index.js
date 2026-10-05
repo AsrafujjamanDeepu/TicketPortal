@@ -1,5 +1,5 @@
 // Chunk 8 — a small standalone server standing in for Hanif's own ERP. Implements the four
-// calls documented in docs/EXTERNAL_ERP_INTEGRATION_CONTRACT.md, so
+// calls documented in docs/docs/03-Remaining-Fix-Plan.md, so
 // apps/api/Services/ExternalBookingSyncService.cs has something real to point at in dev/demo
 // instead of a fictional https://erp.hanifenterprise.example.com URL that was never reachable.
 //
@@ -103,7 +103,7 @@ app.post('/__reset', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// The four calls in EXTERNAL_ERP_INTEGRATION_CONTRACT.md. All under /api/v1 and all require
+// The four calls in docs/03-Remaining-Fix-Plan.md. All under /api/v1 and all require
 // the X-API-Key header, matching what ExternalBookingSyncService.ApplyAuth sends.
 // ---------------------------------------------------------------------------------------------
 const api = express.Router();

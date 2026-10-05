@@ -9,7 +9,7 @@
     Requires a local SQL Server LocalDB instance (Windows/`dotnet-tools` LocalDB, or a
     docker/sqlcmd-reachable SQL Server with the connection string in
     Infrastructure/TicketPortalWebApplicationFactory.cs adjusted) — same requirement the API
-    itself already has for `nx run api:migrate`. See apps/api.tests/README.md before running.
+    itself already has for `nx run api:migrate`. See docs/01-Run-and-Manual-Test-Guide.md before running.
   -->
 
   <PropertyGroup>
