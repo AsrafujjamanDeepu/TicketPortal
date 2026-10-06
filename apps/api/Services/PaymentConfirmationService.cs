@@ -308,7 +308,7 @@ namespace TicketPortal.Api.Services
             // hand instead of blocking checkout.
             try
             {
-                var (commission, gatewayFeeBearer) = await ResolveCommissionAsync(booking);
+                var (commission, gatewayFeeBearer) = await ResolveCommissionAsync(booking, result.Tickets.Count);
                 await _financeLedgerService.PostOnlineSaleAsync(
                     booking.Id,
                     booking.BusOperatorId,
@@ -691,7 +691,8 @@ namespace TicketPortal.Api.Services
             try
             {
                 var commissionRule = await ResolveCommissionRuleAsync(booking, SaleChannel.Counter);
-                var commission = ComputeCommission(commissionRule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
+                var commission = CommissionRuleResolver.Compute(
+                    commissionRule, CommissionRuleResolver.TaxableBase(booking), result.Tickets.Count);
                 await _financeLedgerService.PostCounterSaleCommissionAsync(
                     booking.Id, booking.BusOperatorId, commission, booking.Currency);
             }
@@ -799,47 +800,24 @@ namespace TicketPortal.Api.Services
             return tickets;
         }
 
-        // Finds the operator's active commission rule for the given channel (preferring one
-        // scoped to this trip's specific route over a general one). Throws if nothing is
-        // configured — see the try/catch around each caller for why that's safe to do this late
-        // in the flow.
-        private async Task<CommissionRule> ResolveCommissionRuleAsync(Booking booking, SaleChannel channel)
-        {
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-
-            var busRouteId = await _db.Trips
-                .Where(t => t.Id == booking.TripId)
-                .Select(t => t.BusRouteId)
-                .FirstOrDefaultAsync();
-
-            var candidates = await _db.CommissionRules
-                .Where(cr => cr.BusOperatorId == booking.BusOperatorId
-                    && cr.SaleChannel == channel
-                    && cr.IsActive
-                    && cr.EffectiveFrom <= today
-                    && (cr.EffectiveTo == null || cr.EffectiveTo >= today))
-                .ToListAsync();
-
-            return candidates.FirstOrDefault(cr => cr.BusRouteId == busRouteId)
-                ?? candidates.FirstOrDefault(cr => cr.BusRouteId == null)
-                ?? throw new InvalidOperationException(
-                    $"No active {channel} CommissionRule configured for operator {booking.BusOperatorId}.");
-        }
-
-        private static decimal ComputeCommission(CommissionRule rule, decimal grandTotal) => rule.CommissionType switch
-        {
-            CommissionType.Percentage => Math.Round(grandTotal * (rule.CommissionValue / 100m), 2),
-            CommissionType.FixedAmount => rule.CommissionValue,
-            _ => 0m
-        };
+        // Finds the operator's commission rule for the given channel. Chunk 5: the selection itself
+        // (Dhaka business date, route-over-default, deterministic tie-break) lives in
+        // CommissionRuleResolver, shared with FinanceReconciliationService so the two can't drift.
+        // Throws if nothing is configured — see the try/catch around each caller for why that's
+        // safe to do this late in the flow. The Dhaka date is derived here, once per call, from
+        // the moment of the sale.
+        private Task<CommissionRule> ResolveCommissionRuleAsync(Booking booking, SaleChannel channel) =>
+            CommissionRuleResolver.ResolveAsync(_db, booking, channel, DhakaClock.Today());
 
         // Finds the operator's active online-sale commission rule and their contract's
         // gateway-fee-bearer setting. Throws if no commission rule is configured — see the
         // try/catch around the caller for why that's safe to do this late in the flow.
-        private async Task<(decimal commission, GatewayFeeBearer feeBearer)> ResolveCommissionAsync(Booking booking)
+        // ticketCount is the multiplier for a FixedAmount rule (decision D3: per ticket).
+        private async Task<(decimal commission, GatewayFeeBearer feeBearer)> ResolveCommissionAsync(
+            Booking booking, int ticketCount)
         {
             var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Online);
-                var commission = ComputeCommission(rule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
+            var commission = CommissionRuleResolver.Compute(rule, CommissionRuleResolver.TaxableBase(booking), ticketCount);
 
             var feeBearer = await _db.OperatorContracts
                 .Where(c => c.BusOperatorId == booking.BusOperatorId && c.IsActive)

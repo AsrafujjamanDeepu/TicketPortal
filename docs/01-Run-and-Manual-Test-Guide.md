@@ -366,9 +366,16 @@ read-only trips/manifest view are.
    nothing to re-post") — the button itself is now a no-op, not a duplicate-posting
    risk.
 2. **Settlements:** open **Settlements**, generate one for an operator/date range,
-   **Approve** it. (Hand-check the numbers in Section 10.12.)
+   **Approve** it. (Hand-check the numbers in Section 10.12.) **Expected:** a freshly
+   generated settlement is a *Draft* and its amount is **not yet payable** — open
+   **Wallets** and the operator's available payout balance has not moved; it moves only
+   when you click **Approve**.
 3. **Payouts / Invoices:** open **Payouts**, **Process** a pending payout for an
-   operator the settlement determined the platform owes.
+   operator the settlement determined the platform owes. **Expected:** the *Link to
+   Settlement* picker lists Approved settlements only. Try to create a payout larger
+   than what is left unpaid on the chosen settlement, or a second payout after the
+   settlement is fully paid — **Expected:** refused with a clear message (e.g. "has only
+   300 BDT left unpaid"); a *Failed* or *Cancelled* payout gives its amount back.
 4. **Wallets & Ledger:** open **Wallets** — read-only running balance per operator.
 5. **Negative test:** open **Commission Rules** or **System Config**. **Expected:**
    unreachable — Platform Finance can read/reconcile/approve/pay out, but only
@@ -494,15 +501,18 @@ Ledger:  Credit 1000 OnlineTicketSale
 Net owed to Green Line for this booking = 900 BDT
 ```
 
-One counter sale for Green Line with a flat 10 BDT commission rule:
+One counter sale of **one ticket** for Green Line with a flat 10 BDT commission rule
+(a fixed commission is charged **per ticket** — decision D3):
 
 ```
 Ledger: Debit 10 CounterSaleCommission
 Green Line now owes the platform 10 BDT for this ticket
+A 3-seat counter sale under the same rule posts Debit 30 (3 × 10)
 ```
 
 Settling both: `(1000 − 100) + (0 − 10) = 890` → positive → **the platform pays
-Green Line 890 BDT.** Generate a real settlement (10.6 step 2) covering both and
+Green Line 890 BDT** — once the settlement is approved (decision D8: approval, not
+generation, is what makes the amount payable). Generate a real settlement (10.6 step 2) covering both and
 click into it — confirm `NetAmount`, `Direction`, and `PlatformCharge` on screen
 match this by hand.
 
@@ -523,6 +533,20 @@ operator is owed the full 900.
 **Idempotency:** click **Generate** on Settlements a second time for the *exact same*
 date range you just settled. **Expected:** "No unsettled ledger entries..." — the
 button itself refuses to double-settle the same money.
+
+**Commission rule checks (Admin).** Open **Commission Rules**:
+
+- Create an online rule for an operator from 1 Jan to 31 Dec. Try to create a second
+  *active* online rule for the same operator with no route and a date range that touches
+  any of those days. **Expected:** refused — "overlaps an existing active rule". Start it
+  the day after the first ends, or deactivate the first, and it saves.
+- A rule for one specific route next to an operator-wide rule is allowed — the route
+  rule wins for trips on that route.
+- Set *Effective to* before *Effective from*. **Expected:** refused.
+- Rule order when more than one could apply: route-specific before operator-wide, then
+  the latest *Effective from*, then the most recently created. Effective dates are Dhaka
+  calendar dates, inclusive on both ends — a sale at 01:00 on 1 October in Dhaka (19:00 UTC
+  on 30 September) uses a rule that starts on 1 October.
 
 ## 10.13 Hanif ERP integration scenarios (optional — remote-controls the fake external ERP, not TicketPortal)
 
@@ -553,7 +577,7 @@ curl -X POST http://localhost:5099/__reset
 
 These items are still open in [the remaining fix plan](03-Remaining-Fix-Plan.md). They are not evidence that the click-through guide is broken, but they define what this personal demo does not guarantee yet:
 
-- **Finance policy decisions remain open:** fixed commission basis (per booking or per ticket), payout balance release timing, and payout-to-settlement validation need explicit decisions and implementation. Commission date selection also needs consistent Dhaka-local effective dates and overlapping-rule validation.
+- **Finance rules (Chunk 5) are implemented, with two limits:** a fixed commission is charged per ticket, settlement value becomes payable on approval, payouts are validated against their settlement, and commission rules use Dhaka dates and reject overlaps (see the plan for the recorded decisions D3/D8). Two overlapping-rule saves made in the same instant could both pass (Admin-only screen; the deterministic rule order keeps the outcome predictable), and wallets that already held money from *Draft* settlements before this change need the one-time reconciliation in the plan. The tax-liability ledger stays deferred.
 - **Trip rescheduling and inventory limits:** the UI validates trip status transitions, but the policy for changing a trip's time after ticket sales needs a decision. Hold rate limiting exists; maximum seats per hold and active holds per user are not yet configured.
 - **ERP hardening:** the mock ERP is a local simulator. There is no browser scenario selector yet; its scenario controls are developer helpers. The API needs an explicit ERP-unavailable policy and additional outbound URL/secret protections before production use.
 - **Database and release work:** the active-ticket-per-seat index is filtered but not unique; Bookings and Tickets list endpoints need paging; CI and centralized startup option validation remain follow-up work.

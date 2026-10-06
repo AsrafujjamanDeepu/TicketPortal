@@ -16,8 +16,11 @@ namespace TicketPortal.Api.Models.Finance
 
         public decimal TotalOnlineSalesAmount { get; set; }   // Running total of online fares collected for them.
         public decimal TotalCounterSalesAmount { get; set; }  // Running total of their counter sales (for commission billing only — the cash itself never touches us).
-        public decimal PendingSettlementBalance { get; set; } // Net amount not yet included in a finished settlement.
-        public decimal AvailablePayoutBalance { get; set; }   // What's actually ready to be paid out to them right now.
+        // Net amount not yet released: unsettled ledger activity, PLUS the amount of any generated
+        // settlement still waiting for approval (decision D8 — owed money only becomes payable
+        // when its settlement is Approved, see SettlementGenerationService.ApproveAsync).
+        public decimal PendingSettlementBalance { get; set; }
+        public decimal AvailablePayoutBalance { get; set; }   // What's actually ready to be paid out to them right now (approved settlements only).
         public decimal WithdrawnAmount { get; set; }          // Total already paid out historically.
         public decimal TotalPlatformCommission { get; set; }  // Our total earnings from this operator so far.
         public decimal TotalGatewayCharge { get; set; }

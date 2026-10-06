@@ -77,13 +77,22 @@ namespace TicketPortal.Api.Tests.Integration
             // operator-borne gateway fee), plus the counter commission and the refund = 5.
             Assert.Equal(5, settlement.Items.Count);
 
+            // Decision D8 (Chunk 5): generating the settlement does NOT make the money payable. The
+            // 710 stays in "pending" and nothing is available to pay out until the settlement is
+            // approved.
             var wallet = await db.OperatorWallets.AsNoTracking().SingleAsync(w => w.BusOperatorId == operatorId);
-            Assert.Equal(0m, wallet.PendingSettlementBalance); // Fully swept — 710 (pending) - 710 (netAmount) = 0.
-            Assert.Equal(710m, wallet.AvailablePayoutBalance); // Platform owes operator -> added to payout balance.
+            Assert.Equal(710m, wallet.PendingSettlementBalance);
+            Assert.Equal(0m, wallet.AvailablePayoutBalance);
 
             // Every ledger row must be stamped so it's never picked up by a later settlement.
             var stillUnstamped = await db.PlatformLedgers.CountAsync(l => l.BusOperatorId == operatorId && l.OperatorSettlementId == null);
             Assert.Equal(0, stillUnstamped);
+
+            // Approval is the moment the platform's debt becomes payable: pending -> available.
+            await settlementService.ApproveAsync(settlement.Id, "Hand-checked.");
+            var approvedWallet = await db.OperatorWallets.AsNoTracking().SingleAsync(w => w.BusOperatorId == operatorId);
+            Assert.Equal(0m, approvedWallet.PendingSettlementBalance); // 710 (pending) - 710 (released) = 0.
+            Assert.Equal(710m, approvedWallet.AvailablePayoutBalance); // Platform owes operator -> payable now.
         }
 
         [Fact]

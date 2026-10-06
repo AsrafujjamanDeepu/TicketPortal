@@ -56,6 +56,12 @@ The financial model is asymmetric by sales channel:
 
 Commissions may be percentage or fixed amount and can vary by operator, sales channel, or route. Demo figures are illustrative; they are not a contract, accounting opinion, or payment instruction.
 
+Finance rules the code enforces:
+
+- **Percentage commission** is a share of the booking's subtotal after discounts. **Fixed commission** is a flat amount **per ticket** (a 3-seat sale under a 10 BDT fixed rule is 30 BDT).
+- **Which rule applies:** active rules for the operator and sales channel whose date window (inclusive, Dhaka calendar dates) contains the sale date; a route-specific rule beats an operator-wide one; then the latest effective-from wins, then the most recently created. Two active rules for the same operator, channel and route scope may not overlap.
+- **Settlement and payout:** generating a settlement does not make money payable. When the platform owes the operator, the amount becomes available for payout only when the settlement is **approved**. A payout linked to a settlement must be for an Approved settlement of the same operator and currency and cannot exceed what is still unpaid on it; every accepted or refused payout request is audited.
+
 ## Applications and architecture
 
 | Component | Purpose and technology |

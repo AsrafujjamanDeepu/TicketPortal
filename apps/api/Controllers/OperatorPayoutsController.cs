@@ -4,6 +4,7 @@ using TicketPortal.Api.DTO;
 using TicketPortal.Api.Extensions;
 using TicketPortal.Api.Models.Finance;
 using TicketPortal.Api.Services;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -78,18 +79,30 @@ namespace TicketPortal.Api.Controllers
         }
 
         // Reserves the amount from AvailablePayoutBalance immediately — see
-        // PayoutProcessingService.CreateAsync.
+        // PayoutProcessingService.CreateAsync. Chunk 5 (C5-1): a settlement-linked request that
+        // breaks a payout rule (unapproved/foreign/wrong-currency settlement, more than is left
+        // unpaid on it, ...) comes back as a 400 with a stable `code` next to the human `message`,
+        // and the attempt is written to the audit log whether it succeeded or not.
         [HttpPost]
         public async Task<IActionResult> Create(OperatorPayoutCreateDto dto)
         {
             if (!await User.HasPermissionAsync(db, Permissions.PayoutRequest)) return Forbid();
             if (!await User.CanManageOperatorAsync(db, dto.BusOperatorId)) return Forbid();
 
+            var actor = new PayoutAuditActor(
+                Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId) ? (Guid?)userId : null,
+                HttpContext.Connection.RemoteIpAddress?.ToString(),
+                Request.Headers.UserAgent.ToString());
+
             try
             {
                 var payout = await payoutProcessingService.CreateAsync(
-                    dto.BusOperatorId, dto.Amount, dto.Currency, dto.OperatorSettlementId, dto.Notes);
+                    dto.BusOperatorId, dto.Amount, dto.Currency, dto.OperatorSettlementId, dto.Notes, actor);
                 return CreatedAtAction(nameof(GetById), new { id = payout.Id }, ToResponseDto(payout));
+            }
+            catch (PayoutRejectedException ex)
+            {
+                return BadRequest(new { code = ex.Code, message = ex.Message });
             }
             catch (InvalidOperationException ex)
             {

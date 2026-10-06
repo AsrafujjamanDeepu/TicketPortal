@@ -1,6 +1,6 @@
 # TicketPortal — Remaining Fix Plan for the Next AI Pass
 
-This is the single handoff plan for continuing work after the C1–C4 implementation. It was checked against the current repository on 5 October 2026. Use it with the concept document and click-through guide; do not treat old plans or comments in removed documents as current instructions.
+This is the single handoff plan for continuing work after the C1–C5 implementation. It was checked against the current repository on 5 October 2026; Chunk 5 was implemented afterwards (see its completion record below). Use it with the concept document and click-through guide; do not treat old plans or comments in removed documents as current instructions.
 
 ## Project constraints and rules for the next pass
 
@@ -16,26 +16,82 @@ This is the single handoff plan for continuing work after the C1–C4 implementa
 
 - **C1–C4:** implementation complete for the demo scope. The 5 October 2026 verification passed 179 API tests against SQL Server LocalDB, Angular compilation, both admin TypeScript builds, `git diff --check`, and EF's pending-model-change check. Current tests include auth/bootstrap, representative RBAC, booking-create race, refund-cap, and fare-allocation checks.
 - **C3 schema:** one booking per non-null `SeatHoldId` is already enforced by the filtered unique index in the existing schema. EF's model represents the index and the create endpoint handles the race. Do not add another migration for it.
-- **C5 portions already present:** proportional capped commission reversal on refund; `DhakaClock` for passenger trip-search day ranges; atomic operator-wallet reservation at payout creation; refund/settlement services and ledger integration tests.
+- **C5:** implemented — see the Chunk 5 completion record. Before it, the repository already had: proportional capped commission reversal on refund; `DhakaClock` for passenger trip-search day ranges; atomic operator-wallet reservation at payout creation; refund/settlement services and ledger integration tests.
 - **C6 portions already present:** trip status-transition validation/history in the trip update path; trip cancellation cascade; rate limiting attached to hold create/release; external ERP integration and a mock server; environment-reference secret lookup and masked responses; retry/timeout handling; mock booking records keyed by booking ID.
 - **C7 portions already present:** EF migrations and a LocalDB `WebApplicationFactory` test fixture; broad-role architecture guard; demo data reset scripts; an API paged-size cap on some anonymous trip listing paths; baseline fare/booking migrations.
 
 The completion statement above does not mean every row in the plan is closed. Remaining implementation and assurance work is below.
 
-## Decisions still needed
+## Decisions
 
-The next AI should inspect current code and present a short recommendation with trade-offs before implementing any decision-dependent financial or ERP behavior. Record the chosen policy here and in source docs before changing it.
+D1 (proportional commission reversal), D2 (zero tax default; demo tax only after operator-funded discounts), D4 (short-lived access tokens, uniform auth failures, rate limits, no remote hard account lockout) and D5 (no real gateway) are recorded decisions. Preserve them. D3 and D8 were decided in Chunk 5 (below). D6 and D7 are still open: the next AI should inspect current code and present a short recommendation with trade-offs before implementing any decision-dependent trip or ERP behavior, then record the choice here and in the source docs before changing it.
 
-| Decision | Current question | Blocks |
-|---|---|---|
-| **D3 — fixed commission basis** | A fixed rule is currently applied once to a booking-level fare. Keep it per booking or define it per ticket? The current code suggests per booking but the rule must be explicit. | C5-3, finance examples/tests |
-| **D6 — rescheduling after sales** | Permit changing departure/arrival time after tickets exist, with an explicit customer-notification workflow, or require cancel/refund and recreate? | C6-1 |
-| **D7 — ERP unavailable** | When the operator's availability API is down, fail open or closed? Define whether policy is global or configurable per integration. Current API has an in-process availability cache and timeout but no explicit fail-mode option. | C6-4 |
-| **D8 — payout balance release** | Release settlement value into available payout balance when settlement is generated or only when approved? Current payout creation reserves whatever wallet balance exists and does not validate an optional settlement's approval/operator/currency/unpaid remainder. | C5-1 |
-
-D1 (proportional commission reversal), D2 (zero tax default; demo tax only after operator-funded discounts), D4 (short-lived access tokens, uniform auth failures, rate limits, no remote hard account lockout), and D5 (no real gateway) are recorded decisions. Preserve them.
+| Decision | Status | Outcome / question | Blocks |
+|---|---|---|---|
+| **D3 — fixed commission basis** | **Decided (C5)** | A `FixedAmount` commission rule is a flat amount **per ticket**. Commission = rule value × number of tickets on the booking. Percentage rules are unchanged (share of subtotal after discounts). Reason: the model, the `CommissionType` enum comment, the rule comment and the demo data all already described a per-ticket fee; the old code charged it once per booking and under-charged multi-seat bookings. Already-posted ledger entries are not rewritten; the rule applies to sales and re-posts from now on. | — |
+| **D6 — rescheduling after sales** | Open | Permit changing departure/arrival time after tickets exist, with an explicit customer-notification workflow, or require cancel/refund and recreate? | C6-1 |
+| **D7 — ERP unavailable** | Open | When the operator's availability API is down, fail open or closed? Define whether policy is global or configurable per integration. Current API has an in-process availability cache and timeout but no explicit fail-mode option. | C6-4 |
+| **D8 — payout balance release** | **Decided (C5)** | Settlement value is released into `AvailablePayoutBalance` **when the settlement is approved**, not when it is generated. A Draft settlement's amount stays in `PendingSettlementBalance`. Reason: the Draft → Approved sign-off is the review step; releasing at generation let unreviewed money be paid out. Operator-pays-platform settlements still sweep out of pending at generation (they become an invoice, not a payout). | — |
 
 ## Chunk 5 — Finance rules, settlement and payout integrity
+
+**Status: implemented (5 October 2026). Not yet run.** The code, the test suite additions and the docs were written together, and every changed C# file was syntax-parsed, but this environment has no .NET SDK or NuGet access, so `dotnet build` and `dotnet test` have **not** been run against it. Run `dotnet test apps/api.tests` (LocalDB) before relying on any of the items below, and record the real pass count here.
+
+### C5 completion record
+
+| Item | What changed | Where |
+|---|---|---|
+| C5-1 | Settlement-linked payouts are validated before money is reserved: settlement exists for this operator (a foreign id returns the same message as a missing one), is **Approved**, is a platform-pays-operator settlement with a positive net, is in the payout's currency, and the amount fits the unpaid remainder (net minus every Pending/Processing/Paid payout against it). The settlement row is locked for the transaction, so two simultaneous requests are serialized and the second sees the first. Rejections return a 400 with a stable `code` and `message`; accepted **and** rejected attempts are written to `AuditLogs`. Platform-only process/complete/fail/cancel is untouched. | `PayoutProcessingService`, `OperatorPayoutsController` |
+| D8 | `GenerateSettlementAsync` no longer touches `AvailablePayoutBalance`; `ApproveAsync` moves the net from pending to available in the same transaction as the status change, guarded by the row's `RowVersion` so approving twice (even simultaneously) releases once. | `SettlementGenerationService` |
+| C5-2 | One shared lookup (`CommissionRuleResolver`) used by payment confirmation (online + counter) and ledger reconciliation. The Dhaka business date (`DhakaClock.Today()`) is derived once per operation; effective dates are inclusive on both ends. A re-post resolves on the day it is re-posted, because the documented recovery for a missing rule is "add one, then retry". | `DhakaClock`, `CommissionRuleResolver`, `PaymentConfirmationService`, `FinanceReconciliationService` |
+| C5-3 | Rule order: route-specific before operator-wide, then latest `EffectiveFrom`, then most recently created, then lowest `Id`. Create/update reject an `EffectiveTo` before `EffectiveFrom` and an active rule whose window overlaps another active rule of the same operator, channel and route scope. Fixed commission is per ticket (D3). | `CommissionRuleResolver`, `CommissionRulesController` |
+| C5-4 | No change by design: no tax defaults, tax-liability ledger still deferred. | — |
+
+Tests added (not yet run): `Unit/CommissionRuleResolverTests` (17 cases: Dhaka midnight, inclusive first/last day, rule order and tie-break, percentage vs per-ticket fixed, overlap/touching/open-ended/route-scope/inactive) and `Integration/PayoutSettlementValidationTests` (13 cases: Draft, Cancelled, Invoiced, Paid, foreign operator, missing settlement, wrong currency, over-remainder, repeated payouts, failed payout restoring the remainder, two simultaneous payouts, two simultaneous approvals, audit rows, D8 pending-vs-available). `SettlementGenerationServiceTests` was updated for D8 (available stays 0 until approval).
+
+**Known limits.** (1) The rule-overlap check and the insert are not atomic, so two admins saving conflicting rules in the same instant could both pass; the deterministic order keeps the outcome predictable and a database guarantee would need a SQL Server-specific construct. (2) The settlement lock writes `UpdatedAtUtc` with a bulk update, so a payout request silently changes that settlement's `RowVersion` (the UI never edits settlements, so nothing observable breaks). (3) Currency is checked against the settlement's ledger rows; there is no currency column on a settlement. (4) Percentage commission remains a share of subtotal after discounts, as before.
+
+### C5 existing-data notes (run once, before approving any legacy Draft settlement)
+
+*Wallets.* Under the old rule a Draft settlement had already moved its net into `AvailablePayoutBalance`. Under D8, approving it would release the same money a second time. Preflight (read-only):
+
+```sql
+SELECT s.SettlementNo, s.BusOperatorId, s.NetAmount, w.AvailablePayoutBalance, w.PendingSettlementBalance
+FROM OperatorSettlements s
+JOIN OperatorWallets w ON w.BusOperatorId = s.BusOperatorId
+WHERE s.IsDeleted = 0 AND s.Status = 1 AND s.Direction = 1 AND s.NetAmount > 0;
+```
+
+If it returns rows, move that money back to pending (skipped operators already reserved part of it in a payout and need a manual look):
+
+```sql
+UPDATE w
+SET w.AvailablePayoutBalance = w.AvailablePayoutBalance - d.Amount,
+    w.PendingSettlementBalance = w.PendingSettlementBalance + d.Amount
+FROM OperatorWallets w
+JOIN (SELECT BusOperatorId, SUM(NetAmount) AS Amount
+      FROM OperatorSettlements
+      WHERE IsDeleted = 0 AND Status = 1 AND Direction = 1 AND NetAmount > 0
+      GROUP BY BusOperatorId) d ON d.BusOperatorId = w.BusOperatorId
+WHERE w.AvailablePayoutBalance >= d.Amount;
+```
+
+A freshly reset demo database (`scripts/reset-demo-db`) is already consistent: the seeder approves its settlements through the same service.
+
+*Commission rules.* Existing overlapping active rules are not deleted; the deterministic order resolves them, and they can only be saved again once the overlap is fixed. To list them:
+
+```sql
+SELECT a.Id AS RuleA, b.Id AS RuleB, a.BusOperatorId, a.SaleChannel, a.BusRouteId
+FROM CommissionRules a
+JOIN CommissionRules b ON a.Id < b.Id
+  AND a.BusOperatorId = b.BusOperatorId AND a.SaleChannel = b.SaleChannel
+  AND ((a.BusRouteId IS NULL AND b.BusRouteId IS NULL) OR a.BusRouteId = b.BusRouteId)
+WHERE a.IsActive = 1 AND b.IsActive = 1 AND a.IsDeleted = 0 AND b.IsDeleted = 0
+  AND a.EffectiveFrom <= ISNULL(b.EffectiveTo, '9999-12-31')
+  AND b.EffectiveFrom <= ISNULL(a.EffectiveTo, '9999-12-31');
+```
+
+### Original C5 task descriptions (kept for reference; all implemented as recorded above)
 
 ### C5-1 — Make settlement-linked payouts safe
 
@@ -135,6 +191,7 @@ Several Production guards exist, but a central `ValidateOnStart` options check w
 - Keep `docs/01-Run-and-Manual-Test-Guide.md` in sync with visible UI buttons and real flows.
 - Add a browser automation smoke path for search → hold → demo payment → ticket → cancellation/refund → settlement/payout. It must not call real payment services.
 - Add targeted failure-path coverage for payment confirmation retry/recovery, trip-cancellation cascade, External ERP availability policy, and C5 payout/commission decisions.
+- **Align QR payloads with verification and boarding lookup.** `PaymentConfirmationService` currently stores `PNR|seat|GUID` in `Ticket.QrCodePayload`, `TicketQrCardComponent` encodes that value, while the public verification and boarding lookup paths expect a ticket number (with a separate lookup for PNR). Decide the intended QR contract, then make scanning the displayed code resolve the correct ticket through a safe server-side lookup or encode the intended lookup key. Do not trust seat/PNR text from a QR as proof by itself. Add tests for issued, cancelled/refunded, and already-checked-in tickets, and confirm operator-scoped check-in rules still apply.
 - Preserve the C2 static guard and extend denied-case coverage as sensitive routes change. C2's every-route-by-persona review remains a known bounded gap, so report what is actually exercised.
 - Add concurrency/load checks for same-seat holds and active-ticket uniqueness before any production claim.
 
@@ -156,7 +213,7 @@ Several Production guards exist, but a central `ValidateOnStart` options check w
 ## Recommended sequence for the next AI
 
 1. Re-open this plan and inspect current `git status`; confirm C1–C4 still pass and do not overwrite local modifications.
-2. Finish C5 decisions and finance safeguards (D3/D8 first, then tests).
+2. ~~Finish C5 decisions and finance safeguards~~ — implemented; run `dotnet test` and record the real result above.
 3. Finish C6 decisions and safe inventory/ERP controls (D6/D7 first, then tests and scenario UI).
 4. Finish C7 schema, pagination, CI, migration checks, and regression automation.
 5. Run the full UI checklist and all CI-equivalent checks. Update this document and the run guide with verified results only.

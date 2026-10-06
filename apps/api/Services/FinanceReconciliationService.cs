@@ -32,9 +32,11 @@ namespace TicketPortal.Api.Services
     // OperatorContracts and doesn't belong to any one existing resource. It also deliberately
     // does NOT call into PaymentConfirmationService (out of Chunk 7's owner scope — see the
     // completion plan's ownership table: FinanceLedgerService/SettlementGenerationService/
-    // Commission* controllers, not PaymentConfirmationService/PaymentsController) — instead it
-    // keeps its own small copy of the same CommissionRule lookup, so a change here can never
-    // accidentally alter what the live checkout flow does.
+    // Commission* controllers, not PaymentConfirmationService/PaymentsController). Chunk 5
+    // replaced the two hand-kept copies of the CommissionRule lookup with one stateless
+    // CommissionRuleResolver that both services call, so the rule order, the Dhaka business
+    // date and the fixed-amount-per-ticket arithmetic (decision D3) are identical in a live
+    // sale and in a re-post by construction instead of by careful copying.
     public class LedgerGap
     {
         public Guid BookingId { get; set; }
@@ -132,7 +134,9 @@ namespace TicketPortal.Api.Services
                     ?? throw new InvalidOperationException($"Booking {bookingId} has no succeeded Payment to re-post from.");
 
                 var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Online);
-                var commission = ComputeCommission(rule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
+                var commission = CommissionRuleResolver.Compute(
+                    rule, CommissionRuleResolver.TaxableBase(booking),
+                    await CommissionRuleResolver.CountTicketsAsync(db, booking.Id));
 
                 var gatewayFeeBearer = await db.OperatorContracts
                     .Where(c => c.BusOperatorId == booking.BusOperatorId && c.IsActive)
@@ -154,7 +158,9 @@ namespace TicketPortal.Api.Services
                 }
 
                 var rule = await ResolveCommissionRuleAsync(booking, SaleChannel.Counter);
-                var commission = ComputeCommission(rule, Math.Max(0m, booking.SubTotal - booking.DiscountAmount));
+                var commission = CommissionRuleResolver.Compute(
+                    rule, CommissionRuleResolver.TaxableBase(booking),
+                    await CommissionRuleResolver.CountTicketsAsync(db, booking.Id));
 
                 await financeLedgerService.PostCounterSaleCommissionAsync(
                     booking.Id, booking.BusOperatorId, commission, booking.Currency);
@@ -166,37 +172,12 @@ namespace TicketPortal.Api.Services
             }
         }
 
-        // Same active-rule-for-operator-and-channel lookup as PaymentConfirmationService, kept
-        // as its own small copy — see this file's class comment for why.
-        private async Task<CommissionRule> ResolveCommissionRuleAsync(Booking booking, SaleChannel channel)
-        {
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-
-            var busRouteId = await db.Trips
-                .Where(t => t.Id == booking.TripId)
-                .Select(t => t.BusRouteId)
-                .FirstOrDefaultAsync();
-
-            var candidates = await db.CommissionRules
-                .Where(cr => cr.BusOperatorId == booking.BusOperatorId
-                    && cr.SaleChannel == channel
-                    && cr.IsActive
-                    && cr.EffectiveFrom <= today
-                    && (cr.EffectiveTo == null || cr.EffectiveTo >= today))
-                .ToListAsync();
-
-            // Route-specific rule wins over the operator's general (BusRouteId == null) rule.
-            return candidates.FirstOrDefault(cr => cr.BusRouteId == busRouteId)
-                ?? candidates.FirstOrDefault(cr => cr.BusRouteId == null)
-                ?? throw new InvalidOperationException(
-                    $"No active {channel} CommissionRule configured for operator {booking.BusOperatorId}. Add one on the Commission Rules screen, then retry.");
-        }
-
-        private static decimal ComputeCommission(CommissionRule rule, decimal grandTotal) => rule.CommissionType switch
-        {
-            CommissionType.Percentage => Math.Round(grandTotal * (rule.CommissionValue / 100m), 2),
-            CommissionType.FixedAmount => rule.CommissionValue,
-            _ => 0m,
-        };
+        // Same rule selection as PaymentConfirmationService — both call CommissionRuleResolver
+        // (see this file's class comment). A re-post resolves the rule on TODAY's Dhaka business
+        // date, not the original sale date: the documented recovery for a missing rule is "add
+        // one on the Commission Rules screen, then retry", and a rule added today can't be
+        // back-dated to the sale without rewriting history. The Dhaka date is derived once here.
+        private Task<CommissionRule> ResolveCommissionRuleAsync(Booking booking, SaleChannel channel) =>
+            CommissionRuleResolver.ResolveAsync(db, booking, channel, DhakaClock.Today());
     }
 }

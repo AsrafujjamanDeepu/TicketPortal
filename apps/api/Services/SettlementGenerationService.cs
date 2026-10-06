@@ -48,9 +48,14 @@ namespace TicketPortal.Api.Services
         // that hasn't been swept into a settlement yet (OperatorSettlementId == null) and falls
         // inside the range, builds one OperatorStatement + OperatorSettlement (each with one
         // line item per ledger row), stamps OperatorSettlementId back onto those ledger rows so
-        // they're never picked up again, and moves the settled net amount out of
-        // PendingSettlementBalance — into AvailablePayoutBalance if the platform owes the
-        // operator, or onto a newly-raised OperatorInvoice if the operator owes the platform.
+        // they're never picked up again, and — if the operator owes the platform — moves the net
+        // amount out of PendingSettlementBalance onto a newly-raised OperatorInvoice.
+        //
+        // DECISION D8 (Chunk 5): when the PLATFORM owes the operator, generating the settlement
+        // does NOT make the money payable. The amount stays in PendingSettlementBalance until a
+        // staff member approves the settlement (ApproveAsync), which is the only moment it moves
+        // into AvailablePayoutBalance. Releasing at generation meant an unreviewed Draft could be
+        // paid out; the Draft -> Approved sign-off is the control that exists to stop that.
         //
         // Throws InvalidOperationException if there's nothing unsettled in range (this is what
         // makes re-running the same range a safe no-op at the controller level — the second call
@@ -223,20 +228,31 @@ namespace TicketPortal.Api.Services
             _db.OperatorStatements.Add(statement);
             _db.OperatorSettlements.Add(settlement);
 
-            // The batch's net contribution to the wallet's running total is removed from
-            // "pending" now that it's been swept into a settlement. Only add to
-            // AvailablePayoutBalance when the platform actually owes the operator — an
-            // OperatorPaysPlatform batch has nothing to pay out, it just moves from "pending"
-            // to "invoiced" (tracked via the OperatorInvoice created above from here on).
-            var payoutDelta = netAmount > 0 ? netAmount : 0m;
+            // Wallet effect at generation (decision D8):
+            //   - operator owes the platform (net < 0): the batch is swept out of "pending" now and
+            //     tracked as an OperatorInvoice from here on (created above) — there is nothing to
+            //     pay out, so nothing waits for approval;
+            //   - platform owes the operator (net > 0): the amount deliberately STAYS in
+            //     PendingSettlementBalance. ApproveAsync moves it to AvailablePayoutBalance.
+            //   - net == 0: nothing to move.
             var now = DateTime.UtcNow;
-            await _db.OperatorWallets
-                .Where(w => w.BusOperatorId == busOperatorId)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(w => w.PendingSettlementBalance, w => w.PendingSettlementBalance - netAmount)
-                    .SetProperty(w => w.AvailablePayoutBalance, w => w.AvailablePayoutBalance + payoutDelta)
-                    .SetProperty(w => w.LastSettlementDateUtc, w => now)
-                    .SetProperty(w => w.LastStatementDateUtc, w => now));
+            if (netAmount > 0)
+            {
+                await _db.OperatorWallets
+                    .Where(w => w.BusOperatorId == busOperatorId)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(w => w.LastSettlementDateUtc, w => now)
+                        .SetProperty(w => w.LastStatementDateUtc, w => now));
+            }
+            else
+            {
+                await _db.OperatorWallets
+                    .Where(w => w.BusOperatorId == busOperatorId)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(w => w.PendingSettlementBalance, w => w.PendingSettlementBalance - netAmount)
+                        .SetProperty(w => w.LastSettlementDateUtc, w => now)
+                        .SetProperty(w => w.LastStatementDateUtc, w => now));
+            }
 
             // Realtime Chunk 3: the wallet update above is a bulk UPDATE EF's change tracker never
             // sees (the settlement, statement and invoice rows are announced by Chunk 2's
@@ -257,11 +273,19 @@ namespace TicketPortal.Api.Services
             return settlement;
         }
 
-        // Staff sign-off after reviewing a generated settlement. No money moves here — that
-        // already happened at generation time (see the wallet update above); this is purely the
-        // audit trail step the SettlementStatus lifecycle (Draft -> Approved -> ...) calls for.
+        // Staff sign-off after reviewing a generated settlement (Draft -> Approved).
+        //
+        // DECISION D8 (Chunk 5): approval is the moment the money becomes payable. For a
+        // platform-pays-operator settlement, the net amount moves from PendingSettlementBalance to
+        // AvailablePayoutBalance here, in the same transaction as the status change — so a Draft
+        // settlement can never fund a payout, and approving the same settlement twice (even from
+        // two requests at once) can never release its money twice: the status change is guarded by
+        // the row's RowVersion, and only the request that actually flips Draft -> Approved reaches
+        // the wallet update.
         public async Task ApproveAsync(Guid settlementId, string? remarks)
         {
+            await using var transaction = await _db.Database.BeginTransactionAsync();
+
             var settlement = await _db.OperatorSettlements.FirstOrDefaultAsync(s => s.Id == settlementId)
                 ?? throw new InvalidOperationException($"Settlement {settlementId} does not exist.");
 
@@ -280,7 +304,42 @@ namespace TicketPortal.Api.Services
                     : $"{settlement.Remarks} | {remarks}";
             }
 
-            await _db.SaveChangesAsync();
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                throw new InvalidOperationException(
+                    $"Settlement {settlementId} was changed by another request while it was being approved. Reload it and check its status.");
+            }
+
+            if (settlement.Direction == SettlementDirection.PlatformPaysOperator && settlement.NetAmount > 0)
+            {
+                var released = settlement.NetAmount;
+                var updated = await _db.OperatorWallets
+                    .Where(w => w.BusOperatorId == settlement.BusOperatorId)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(w => w.PendingSettlementBalance, w => w.PendingSettlementBalance - released)
+                        .SetProperty(w => w.AvailablePayoutBalance, w => w.AvailablePayoutBalance + released));
+
+                if (updated == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"No OperatorWallet exists for operator {settlement.BusOperatorId}, so settlement {settlementId} cannot be released for payout.");
+                }
+
+                try
+                {
+                    await _notifier.EntityChangedAsync(_db, RealtimeBulkChanges.OperatorWallet(settlement.BusOperatorId));
+                }
+                catch (Exception)
+                {
+                    // Best-effort by design — never fail an approval over a realtime problem.
+                }
+            }
+
+            await transaction.CommitAsync();
         }
 
         // Maps one ledger row onto the settlement-item "bucket" fields it belongs in.

@@ -55,5 +55,23 @@ namespace TicketPortal.Api.Services
             var endUtc = TimeZoneInfo.ConvertTimeToUtc(endLocal, Zone);
             return (startUtc, endUtc);
         }
+
+        // Chunk 5 / C5-2: the Dhaka calendar date a given UTC instant falls on. Commission-rule
+        // effective dates (CommissionRule.EffectiveFrom/EffectiveTo) are business dates the
+        // finance team types in as Dhaka dates, so "which rule applies to this sale" must be
+        // decided on the Dhaka date of the sale, not DateTime.UtcNow's date. The two disagree for
+        // six hours every day: a sale at 20:00 UTC on 30 Sep is already 02:00 on 1 Oct in Dhaka,
+        // and a rule that starts on 1 Oct must apply to it.
+        public static DateOnly DateOf(DateTime utcInstant)
+        {
+            var utc = utcInstant.Kind == DateTimeKind.Utc
+                ? utcInstant
+                : DateTime.SpecifyKind(utcInstant, DateTimeKind.Utc);
+            return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, Zone));
+        }
+
+        // Today's Dhaka business date. Callers derive this ONCE per operation and pass the same
+        // value to every lookup in it, so one sale can never straddle two different dates.
+        public static DateOnly Today() => DateOf(DateTime.UtcNow);
     }
 }

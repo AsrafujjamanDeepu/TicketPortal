@@ -12,11 +12,23 @@
 // commission rate. Real Staff/Operator role-scoping (StaffProfile.BusOperatorId) still doesn't
 // apply here — this is platform-wide reference/finance data, not any one operator's own rows.
 
+// Chunk 5 (C5-3): create and update now reject (a) an EffectiveTo before EffectiveFrom and (b) an
+// active rule whose inclusive date window overlaps another active rule for the same operator,
+// sales channel and route scope (CommissionRuleResolver.FindOverlap) — two live rules for the same
+// slot would make "which commission applies" depend on tie-break luck. A route-specific rule next
+// to an operator-wide one is NOT an overlap: that is the intended "route overrides default" pair.
+// Known residual: the overlap check and the insert are not one atomic unit, so two admins saving
+// conflicting rules in the same instant could both pass. This is an Admin-only configuration screen
+// used rarely, and CommissionRuleResolver's deterministic tie-break keeps the outcome predictable
+// if it ever happens; a database-level guarantee would need a SQL Server-specific construct that
+// this personal demo deliberately does not add.
+
 using TicketPortal.Api.Authorization;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Enums;
 using TicketPortal.Api.Models.Finance;
+using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -75,6 +87,12 @@ namespace TicketPortal.Api.Controllers
                 IsActive = dto.IsActive,
             };
 
+            var scheduleError = await ValidateScheduleAsync(item);
+            if (scheduleError != null)
+            {
+                return BadRequest(scheduleError);
+            }
+
             db.CommissionRules.Add(item);
             await db.SaveChangesAsync();
 
@@ -119,6 +137,12 @@ namespace TicketPortal.Api.Controllers
             item.IsActive = dto.IsActive;
             item.UpdatedAtUtc = DateTime.UtcNow;
 
+            var scheduleError = await ValidateScheduleAsync(item);
+            if (scheduleError != null)
+            {
+                return BadRequest(scheduleError);
+            }
+
             try
             {
                 await db.SaveChangesAsync();
@@ -162,6 +186,40 @@ namespace TicketPortal.Api.Controllers
             }
 
             return NoContent();
+        }
+
+        // Date-order and overlap validation shared by Create and Update (C5-3). Returns null when
+        // the rule is fine, otherwise a ready-to-send body for a 400. `rule` is the candidate as it
+        // WOULD be saved (on Update, the tracked entity with the new values already applied); it is
+        // excluded from the comparison by Id, so editing a rule never collides with itself.
+        private async Task<object?> ValidateScheduleAsync(CommissionRule rule)
+        {
+            if (rule.EffectiveTo.HasValue && rule.EffectiveTo.Value < rule.EffectiveFrom)
+            {
+                return new { message = "EffectiveTo cannot be before EffectiveFrom." };
+            }
+
+            var sameSlot = await db.CommissionRules
+                .AsNoTracking()
+                .Where(r => r.BusOperatorId == rule.BusOperatorId && r.SaleChannel == rule.SaleChannel)
+                .ToListAsync();
+
+            var overlap = CommissionRuleResolver.FindOverlap(sameSlot, rule);
+            if (overlap == null)
+            {
+                return null;
+            }
+
+            var scope = rule.BusRouteId.HasValue ? "route-specific" : "operator-wide";
+            var window = overlap.EffectiveTo.HasValue
+                ? $"{overlap.EffectiveFrom:yyyy-MM-dd} to {overlap.EffectiveTo.Value:yyyy-MM-dd}"
+                : $"from {overlap.EffectiveFrom:yyyy-MM-dd} with no end date";
+            return new
+            {
+                message = $"This {rule.SaleChannel} {scope} rule overlaps an existing active rule for the same operator ({window}). " +
+                          "Change the dates, or deactivate the other rule first.",
+                overlappingRuleId = overlap.Id,
+            };
         }
 
         // CommissionRuleCreateDto.CommissionValue is only non-negative-checked at the DTO level

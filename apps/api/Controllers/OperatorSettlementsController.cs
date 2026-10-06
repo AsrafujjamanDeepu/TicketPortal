@@ -110,8 +110,10 @@ namespace TicketPortal.Api.Controllers
             }
         }
 
-        // Staff sign-off — Draft -> Approved. No money moves here (see the service for why),
-        // but it's still the counterparty's own transaction being signed off, so this is
+        // Staff sign-off — Draft -> Approved. No cash leaves the platform here, but (decision D8,
+        // Chunk 5) approval is the moment a platform-owes-operator settlement's amount is released
+        // from pending into the operator's available payout balance — see the service. It's also
+        // the counterparty's own transaction being signed off, so this is
         // platform-only (Admin or our own platform staff) rather than CanManageOperatorAsync —
         // the operator being settled with should not be the one approving their own settlement,
         // even though the figures themselves are computed server-side and can't be fabricated.
