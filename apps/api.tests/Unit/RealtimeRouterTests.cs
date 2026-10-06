@@ -3,7 +3,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Unit
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — the "Who receives what" table, tested as a pure
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — the "Who receives what" table, tested as a pure
     // function (no database, no SignalR). Chunk 7 adds the connection-level version of the same
     // matrix; these tests pin the routing rules themselves.
     public class RealtimeRouterTests

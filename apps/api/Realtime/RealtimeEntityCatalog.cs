@@ -3,7 +3,7 @@ namespace TicketPortal.Api.Realtime
     // Who, besides the platform group, may be told that a row of a table changed.
     //
     //   PlatformOnly  nobody else. This is also what any table NOT listed in the catalog gets
-    //                 (REALTIME_SIGNALR_PLAN, principle 8: fail closed).
+    //                 (docs/02-Project-Concept-and-Solution.md (Real-time updates), principle 8: fail closed).
     //   Operator      the staff of the operator the row belongs to (operator-{id} group).
     //   Customer      the customer the row belongs to (customer-{id} group).
     //   Shared        every operator's staff (staff group) — only for rows that belong to no
@@ -17,7 +17,7 @@ namespace TicketPortal.Api.Realtime
         Shared = 4
     }
 
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — the explicit "entity -> who may hear about it" map.
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — the explicit "entity -> who may hear about it" map.
     //
     // Table names are EF table names, which equal the DbSet property names here (AppDbContext
     // has no ToTable/[Table] overrides). A message only ever says "row X of table Y changed", so

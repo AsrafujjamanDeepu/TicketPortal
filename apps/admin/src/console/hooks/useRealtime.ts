@@ -1,4 +1,4 @@
-// REALTIME_SIGNALR_PLAN.md, Chunk 6 — React bindings for lib/realtime.ts.
+// docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 6 — React bindings for lib/realtime.ts.
 
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import {

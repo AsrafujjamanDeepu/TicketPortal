@@ -1,0 +1,155 @@
+# C7-4: repository CI.
+#
+#  * api            - restore, Release build, all xUnit tests against SQL Server LocalDB, and migration
+#                     validation on a clean database (apply, roll back one step, re-apply, no pending
+#                     model changes, idempotent SQL script uploaded as an artifact).
+#  * frontend       - type-check and build the Angular passenger/operator app and the React admin app.
+#  * migration-review (pull requests only) - a PR that changes a migration must tick the review
+#                     checklist in the PR template.
+#
+# Nothing here talks to a payment provider or any external service. Local equivalents of every step are
+# listed in docs/01-Run-and-Manual-Test-Guide.md, section 13.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Throw-away database used only by the migration steps below (the xUnit fixture makes its own).
+  MIGRATION_CONNECTION: Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=TicketPortal_CI_Migrate;Integrated Security=True;TrustServerCertificate=True
+
+jobs:
+  api:
+    # LocalDB is what the test fixture and the run guide use; pinning the image keeps it available.
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Start SQL Server LocalDB
+        shell: pwsh
+        run: |
+          sqllocaldb versions
+          sqllocaldb create MSSQLLocalDB   # already present on hosted images; an error here is harmless
+          sqllocaldb start MSSQLLocalDB
+          sqllocaldb info MSSQLLocalDB
+
+      - name: Restore
+        run: dotnet restore apps/api.tests/TicketPortal.Api.Tests.csproj
+
+      - name: Build (Release)
+        run: dotnet build apps/api.tests/TicketPortal.Api.Tests.csproj -c Release --no-restore
+
+      - name: Test
+        run: >
+          dotnet test apps/api.tests/TicketPortal.Api.Tests.csproj -c Release --no-build
+          --logger "trx;LogFileName=api-tests.trx" --results-directory artifacts/test-results
+
+      - name: Restore dotnet-ef
+        run: dotnet tool restore
+
+      - name: Migrations - apply to an empty database
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+        run: >
+          dotnet ef database update --project apps/api/TicketPortal.Api.csproj
+          --configuration Release --no-build --connection "${{ env.MIGRATION_CONNECTION }}"
+
+      - name: Migrations - roll back one step, then re-apply
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+        shell: pwsh
+        run: |
+          $project = "apps/api/TicketPortal.Api.csproj"
+          dotnet ef database update C4TicketFareTaxAllocation --project $project --configuration Release --no-build --connection "$env:MIGRATION_CONNECTION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet ef database update --project $project --configuration Release --no-build --connection "$env:MIGRATION_CONNECTION"
+
+      - name: Migrations - model and snapshot are in sync
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+        run: dotnet ef migrations has-pending-model-changes --project apps/api/TicketPortal.Api.csproj --configuration Release --no-build
+
+      - name: Migrations - idempotent SQL script
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+        run: >
+          dotnet ef migrations script --idempotent --project apps/api/TicketPortal.Api.csproj
+          --configuration Release --no-build --output artifacts/migrations/ticketportal-idempotent.sql
+
+      - name: Upload test results and migration script
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-results-and-migrations
+          path: artifacts/
+          if-no-files-found: warn
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check Angular app
+        run: npx tsc -p apps/frontend/tsconfig.app.json --noEmit
+
+      - name: Type-check admin app
+        run: npx tsc -p apps/admin/tsconfig.app.json --noEmit
+
+      - name: Build Angular and admin apps
+        run: npx nx run-many -t build -p frontend admin
+
+      - name: Mock ERP tests
+        run: npx nx test mock-erp
+
+  migration-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require the migration review checklist when a migration changes
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD -- apps/api/Migrations | grep -v 'ModelSnapshot' || true)
+          if [ -z "$changed" ]; then
+            echo "No migration files changed - nothing to review."
+            exit 0
+          fi
+          echo "Migration files changed:"; echo "$changed"
+          missing=0
+          for needle in "Migration reviewed" "Backfill / preflight" "Rollback plan"; do
+            if ! printf '%s\n' "$PR_BODY" | grep -iE "^\s*- \[x\] ${needle}" >/dev/null; then
+              echo "::error::PR body is missing a ticked '${needle}' checkbox (see .github/pull_request_template.md)."
+              missing=1
+            fi
+          done
+          exit $missing

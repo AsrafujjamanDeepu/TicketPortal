@@ -1,4 +1,4 @@
-// REALTIME_SIGNALR_PLAN.md, Chunk 6 — the admin console's single SignalR connection.
+// docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 6 — the admin console's single SignalR connection.
 //
 // One shared connection for the whole console (token from getStoredSession()), reference
 // counted: it opens when the first thing needs it and closes when the last one lets go.

@@ -1,9 +1,11 @@
 import { api, ApiError } from '@/lib/api';
+import type { PagedResult } from '@/types/paging.types';
 import { getAllTerminals, TerminalResponseDto } from './terminalService';
 import type {
   BookingCreateDto,
   BookingUpdateDto,
   BookingResponseDto,
+  BookingStatus,
   TripLite,
   SalesCounterLite,
   SeatHoldLite,
@@ -80,6 +82,27 @@ export function getCurrentUserRole(): 'Admin' | 'Staff' | 'Operator' | 'User' | 
 export async function getAllBookings(): Promise<BookingResponseDto[]> {
   const res = await api.get('api/Bookings');
   return Array.isArray(res.data) ? res.data : res.data?.items ?? [];
+}
+
+/**
+ * C7-3: one page of bookings, with server-side search (PNR / contact name / phone) and status
+ * filter. Scoping (role, operator, owner) happens on the server before counting and paging.
+ */
+export async function getBookingsPage(params: {
+  page: number;
+  pageSize: number;
+  search?: string;
+  status?: BookingStatus | 'ALL';
+}): Promise<PagedResult<BookingResponseDto>> {
+  const res = await api.get('api/Bookings', {
+    params: {
+      page: params.page,
+      pageSize: params.pageSize,
+      search: params.search?.trim() || undefined,
+      status: !params.status || params.status === 'ALL' ? undefined : params.status,
+    },
+  });
+  return res.data;
 }
 
 export async function getBookingById(id: string): Promise<BookingResponseDto> {

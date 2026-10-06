@@ -27,8 +27,9 @@ namespace TicketPortal.Api.Tests.Infrastructure
         // a developer's own `TicketPortalDB`, never collides with another database.
         private readonly string _databaseName = $"TicketPortalTestDB_{Guid.NewGuid():N}";
 
-        private string ConnectionString =>
-            $@"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog={_databaseName};Integrated Security=True;TrustServerCertificate=True";
+        // C7-4: LocalDB by default; a CI SQL Server container via TICKETPORTAL_TEST_SQLSERVER
+        // (see Infrastructure/TestSqlServer.cs).
+        private string ConnectionString => TestSqlServer.ConnectionStringFor(_databaseName);
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -81,23 +82,8 @@ namespace TicketPortal.Api.Tests.Infrastructure
             // LocalDB doesn't clean up after itself — drop the per-run database so repeated
             // local test runs don't quietly accumulate TicketPortalTestDB_* files forever.
             // Best-effort: a failure here should never fail the test run itself.
-            try
-            {
-                await using var connection = new SqlConnection(
-                    @"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;TrustServerCertificate=True");
-                await connection.OpenAsync();
-                await using var command = connection.CreateCommand();
-                command.CommandText =
-                    $"ALTER DATABASE [{_databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; " +
-                    $"DROP DATABASE IF EXISTS [{_databaseName}];";
-                await command.ExecuteNonQueryAsync();
-            }
-            catch
-            {
-                // Best-effort cleanup only — see comment above.
-            }
-
-            await base.DisposeAsync();
+            await base.DisposeAsync(); // Close the host's connections before dropping the database.
+            await TestSqlServer.DropDatabaseQuietlyAsync(_databaseName);
         }
 
         // Convenience for tests that need to reach into the database directly to ARRANGE data

@@ -794,11 +794,36 @@ namespace TicketPortal.Api.Services
             }
 
             _db.Tickets.AddRange(tickets);
-            await _db.SaveChangesAsync();
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsActiveTicketPerSeatViolation(ex))
+            {
+                // C7-1: the filtered unique index IX_Tickets_TripSeatId says one of these seats
+                // already has a live ticket (a different booking, or a concurrent duplicate of this
+                // one). That should be impossible after ConvertHoldToBookingAsync - so refuse to
+                // issue instead of guessing. The transaction is rolled back (nothing is committed);
+                // here we also undo what EF still tracks in memory, so a later SaveChanges in this
+                // scope cannot quietly persist a half-finished confirmation.
+                await tx.RollbackAsync();
+                foreach (var ticket in tickets) _db.Entry(ticket).State = EntityState.Detached;
+                await _db.Entry(booking).ReloadAsync();
+
+                throw new BusinessRuleException(
+                    "A seat on this booking already has an active ticket, so tickets were not issued. " +
+                    "The payment is recorded and the booking is unchanged - contact support with your PNR.",
+                    StatusCodes.Status409Conflict);
+            }
+
             await tx.CommitAsync();
 
             return tickets;
         }
+
+        // SQL Server reports a filtered unique-index violation (error 2601) by index name.
+        private static bool IsActiveTicketPerSeatViolation(DbUpdateException ex) =>
+            ex.GetBaseException().Message.Contains("IX_Tickets_TripSeatId", StringComparison.OrdinalIgnoreCase);
 
         // Finds the operator's commission rule for the given channel. Chunk 5: the selection itself
         // (Dhaka business date, route-over-default, deterministic tie-break) lives in

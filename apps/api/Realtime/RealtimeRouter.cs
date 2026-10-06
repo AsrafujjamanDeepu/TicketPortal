@@ -1,6 +1,6 @@
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — the "Who receives what" table as code.
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — the "Who receives what" table as code.
     //
     // Pure function of already-resolved changes (no database, no SignalR), so the whole routing
     // matrix is unit-testable. Returns, per SignalR group name, the messages that group gets.

@@ -816,7 +816,7 @@ export default function AppRoutes() {
 
           {/* Fallback */}
           {/* Families whose original pages were localStorage-only prototypes now use the generic,
-              API-backed resource page (see console/README.md). Old URLs redirect there. (Never use a
+              API-backed resource page (see docs/01-Run-and-Manual-Test-Guide.md, section 10.10). Old URLs redirect there. (Never use a
               `resource/<Key>/*` splat here: it also matches the bare list URL and redirects it to itself.) */}
           <Route path='bus-amenity-mappings/*' element={<Navigate to='/admin/resource/BusAmenityMappings' replace />} />
           <Route path='bus-amenity-mappings' element={<Navigate to='/admin/resource/BusAmenityMappings' replace />} />

@@ -3,7 +3,7 @@ using TicketPortal.Api.Data;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — after a commit, works out which operator / trip /
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — after a commit, works out which operator / trip /
     // customer each changed row belongs to, so the router can pick the right SignalR groups.
     //
     // Many rows carry their scope directly (Booking, Trip, Bus, ...). The rest point at a parent

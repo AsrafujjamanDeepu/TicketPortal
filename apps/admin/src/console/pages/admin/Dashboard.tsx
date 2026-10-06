@@ -14,7 +14,7 @@ import { formatMoney } from "@/services/paymentService"
 // Completion Plan v2, Chunk 9 task 2. Every number below comes from ONE call to
 // GET /api/admin/dashboard/summary (AdminDashboardController, Admin-only) - a real SQL
 // aggregate computed by the database, not eight list endpoints downloaded in full and reduced
-// in the browser the way this page used to work. See ADMIN_DASHBOARD_DATA_MAP.md for exactly
+// in the browser the way this page used to work. See AdminDashboardController.cs (apps/api) for exactly
 // how each card/chart below maps to a field on that response.
 
 interface OperatorOption { id: string; name: string }

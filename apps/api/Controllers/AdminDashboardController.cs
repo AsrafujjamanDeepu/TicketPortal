@@ -26,7 +26,7 @@ namespace TicketPortal.Api.Controllers
     // (see its own removed comment) this chunk replaces. The money figures reuse the exact
     // same PlatformLedger ItemType/SaleChannel buckets SettlementGenerationService uses to
     // build a real settlement, so a number on this dashboard for a given period always agrees
-    // with a hand-checked settlement for that same period — see ADMIN_DASHBOARD_DATA_MAP.md.
+    // with a hand-checked settlement for that same period — see docs/01-Run-and-Manual-Test-Guide.md, section 10.12 (finance ledger & settlement hand-check).
     [Authorize]
     [Route("api/admin/dashboard")]
     [ApiController]

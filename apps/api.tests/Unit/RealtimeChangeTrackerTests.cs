@@ -3,7 +3,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Unit
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2, principle 3 ("commit-aware") as pure rules. The tracker
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2, principle 3 ("commit-aware") as pure rules. The tracker
     // only needs an owner object (stands in for the DbContext) and a transaction Guid, so none of
     // this needs a database. The real transaction/SaveChanges wiring is covered end to end in
     // Integration/RealtimeChangeCaptureTests.

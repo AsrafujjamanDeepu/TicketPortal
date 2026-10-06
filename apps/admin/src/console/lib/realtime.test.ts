@@ -9,7 +9,7 @@ import {
 } from './realtime';
 import { createHarness, flush } from './realtime.testkit';
 
-// REALTIME_SIGNALR_PLAN.md, Chunk 7: client unit tests with a mocked connection.
+// docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 7: client unit tests with a mocked connection.
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());

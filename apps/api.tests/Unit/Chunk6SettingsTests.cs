@@ -5,7 +5,7 @@ using Xunit;
 namespace TicketPortal.Api.Tests.Unit
 {
     // Chunk 6 / C6-2 + C6-4 — the validated settings. Each one is read per request AND checked once
-    // at startup (Program.cs), so a typo stops the API from starting instead of silently turning a
+    // at startup (Startup/StartupSettingsValidator.cs), so a typo stops the API from starting instead of silently turning a
     // protection off. These tests pin down what "valid" means.
     public class Chunk6SettingsTests
     {

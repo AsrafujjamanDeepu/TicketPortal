@@ -3,7 +3,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Unit
 {
-    // REALTIME_SIGNALR_PLAN.md, principle 7 ("no listeners, no work"): the connection registry
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), principle 7 ("no listeners, no work"): the connection registry
     // that lets the change-capture code skip all work while nobody is connected.
     public class RealtimeConnectionTrackerTests
     {

@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — how the rest of the API announces changes.
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — how the rest of the API announces changes.
     //
     // Every method is best-effort by contract: it never throws, never blocks the caller on the
     // network, and does nothing when Realtime:Enabled is false or the host has not finished

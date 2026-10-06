@@ -622,9 +622,9 @@ These items are still open in [the remaining fix plan](03-Remaining-Fix-Plan.md)
 - **Finance rules (Chunk 5) are implemented, with two limits:** a fixed commission is charged per ticket, settlement value becomes payable on approval, payouts are validated against their settlement, and commission rules use Dhaka dates and reject overlaps (see the plan for the recorded decisions D3/D8). Two overlapping-rule saves made in the same instant could both pass (Admin-only screen; the deterministic rule order keeps the outcome predictable), and wallets that already held money from *Draft* settlements before this change need the one-time reconciliation in the plan. The tax-liability ledger stays deferred.
 - **Trip rescheduling and inventory limits (Chunk 6, implemented):** once a trip has held/booked seats its time, bus, route, terminals, currency and those seats' fares are locked — record a delay with the `Delayed` status, or cancel and recreate the trip (decision D6; nobody is notified automatically because the project has no notification channel). A user may hold at most 6 seats at a time in one hold and have 3 active holds (`SeatHold:MaxSeatsPerHold`, `SeatHold:MaxActiveHoldsPerUser`). These changes are covered by new automated tests that **have not yet been run** (no .NET SDK was available when they were written) — run them before trusting this section.
 - **ERP hardening (Chunk 6, implemented):** the mock ERP has a browser control page; the API refuses literal/foreign secret references, non-HTTPS or private destinations and redirects, and a failed availability check refuses the hold by default (`Integrations:AvailabilityFailureMode`, decision D7). It is still a local simulator, not a certified operator connector, and idempotency only helps if the operator's real ERP honours the `Idempotency-Key` header.
-- **Database and release work:** the active-ticket-per-seat index is filtered but not unique; Bookings and Tickets list endpoints need paging; CI and centralized startup option validation remain follow-up work.
+- **Database and release work:** the C7 pass made the active-ticket-per-seat index unique, paged the Bookings and Tickets lists, added a CI workflow and added central startup validation (see the plan for exactly what was and was not run). Still open: a browser-automation smoke path, failure-path tests for payment retry / trip-cancellation cascade, and the ERP-policy and payout/commission coverage that depend on C5/C6.
 - **Tax and live payments are outside this personal project's scope:** the payment flow is simulated, no real gateway is connected, and no statutory tax rate is seeded. Do not treat demo financial values as money movement, tax advice, or a contract.
-- **Verification scope:** the API suite passed 179 tests on 5 October 2026. That does not mean every screen has browser automation; this document is the manual UI walkthrough. The remaining plan lists the specific implementation and assurance work still open.
+- **Verification scope:** the API suite passed 179 tests on 5 October 2026, before the C7 changes. The C7 additions that need a database (`ActiveTicketUniquenessTests`, `ListPagingTests`, `TicketQrScanTests`) have been compiled but must still be run on LocalDB (Section 13) before they count as verified. That does not mean every screen has browser automation; this document is the manual UI walkthrough. The remaining plan lists the specific implementation and assurance work still open.
 
 # 12. UI coverage boundaries (no Swagger/Postman required)
 
@@ -666,3 +666,40 @@ npx nx run api:build
 npx nx run api.tests:restore
 npx nx run api.tests:test
 ```
+
+## 13.1 Test database, migration checks and CI equivalents
+
+```bash
+# Tests use SQL Server LocalDB by default. To point them at another SQL Server (Docker, Linux, CI),
+# set a server-level connection string WITHOUT a database name; each test run creates and drops its own database:
+#   TICKETPORTAL_TEST_SQLSERVER="Server=localhost,1433;User Id=sa;Password=<password>;TrustServerCertificate=True"
+
+# Migration checks (the same steps the CI "api" job runs). The EF tool is pinned in .config/dotnet-tools.json.
+dotnet tool restore
+cd apps/api
+dotnet ef database update                              # apply every migration to your local database
+dotnet ef migrations has-pending-model-changes         # model and snapshot must agree
+dotnet ef migrations script --idempotent -o ../../artifacts/ticketportal-idempotent.sql
+
+# Roll the latest migration back and forward again (exercises Down), e.g. for C7:
+dotnet ef database update C4TicketFareTaxAllocation && dotnet ef database update
+```
+
+**Before applying the C7 ticket-uniqueness migration to a database that already holds real data:** run
+`scripts/preflight-active-ticket-duplicates.sql` against a copy. The migration refuses to run (and changes nothing)
+if any trip seat already has two active tickets; it never cancels or deletes tickets itself.
+
+**Pull requests that change `apps/api/Migrations/`** must tick the three migration-review boxes in the PR template
+(`Up`/`Down` read, backfill/preflight considered, rollback plan); CI fails the PR otherwise.
+
+**Startup checks:** outside Development the API validates JWT, bootstrap-admin, private-storage, CORS, SMTP/reset-link and ERP
+settings together and refuses to start with one message listing every problem. No payment-gateway or tax setting is required.
+
+**Lists:** the admin Bookings and Tickets pages show one page at a time (20 and 10 rows); the search box and status filter run on
+the server, so they cover every page. `GET /api/Bookings` and `GET /api/Tickets` accept `page`, `pageSize` (capped at 100), `search`
+and `status`; without paging parameters they still return a plain array, capped at the newest 200 rows with the true total in
+the `X-Total-Count` header.
+
+**QR codes:** a ticket's QR encodes its server-issued payload. Public ticket verification and staff check-in accept either the
+printed ticket number or that exact payload; text inside a payload (PNR, seat) is never trusted on its own, and a staff member can
+still only check in tickets of their own operator.

@@ -9,7 +9,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Integration
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — "every committed save anywhere in the app produces a
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — "every committed save anywhere in the app produces a
     // routed SignalR message". These tests use REAL hub connections (same long-polling setup as
     // RealtimeHubTests) and make REAL EF saves through the same DI container the API uses, so the
     // interceptors, tracker, scope resolver, router and notifier all run exactly as in production.

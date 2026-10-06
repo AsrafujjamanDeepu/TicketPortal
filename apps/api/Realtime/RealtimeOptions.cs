@@ -7,7 +7,7 @@ namespace TicketPortal.Api.Realtime
     {
         public const string SectionName = "Realtime";
 
-        // Kill switch (REALTIME_SIGNALR_PLAN, principle 5). false = the hub is not mapped at
+        // Kill switch (docs/02-Project-Concept-and-Solution.md (Real-time updates), principle 5). false = the hub is not mapped at
         // all, so /hubs/realtime answers 404 and every screen simply behaves as it did before
         // SignalR existed. No redeploy needed: flip the setting (or the Realtime__Enabled
         // environment variable) and restart.

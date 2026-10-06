@@ -1,4 +1,4 @@
-// Test helpers for lib/realtime.ts and hooks/useRealtime.ts (REALTIME_SIGNALR_PLAN.md, Chunk 7).
+// Test helpers for lib/realtime.ts and hooks/useRealtime.ts (docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 7).
 // Not imported by the app, so it never reaches the production bundle.
 
 import { RealtimeClient, type RealtimeChange, type RealtimeConnection } from './realtime';

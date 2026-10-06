@@ -1,8 +1,8 @@
 import { startLiveRefresh } from '@/lib/realtime';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  getAllBookings,
+  getBookingsPage,
   deleteBooking,
   subscribeToBookings,
   getCurrentUserRole,
@@ -19,6 +19,7 @@ const STATUS_OPTIONS: (BookingStatus | 'ALL')[] = [
 ];
 
 const POLL_INTERVAL_MS = 10000;
+const PAGE_SIZE = 20; // C7-3: the API pages (and caps at 100); one page of rows is loaded at a time
 
 export const BookingsList: React.FC = () => {
   const navigate = useNavigate();
@@ -31,25 +32,60 @@ export const BookingsList: React.FC = () => {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<BookingStatus | 'ALL'>('ALL');
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [deleteCandidate, setDeleteCandidate] = useState<BookingResponseDto | null>(null);
   const [deleting, setDeleting] = useState(false);
 
 
+  // Typing must not fire one request per keystroke.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
+  // Back to page 1 whenever the filters change.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, statusFilter]);
+
+  // A slow response for an older page/filter must never overwrite a newer one.
+  const requestId = useRef(0);
+
   const loadData = async (silent = false) => {
+    const mine = ++requestId.current;
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const data = await getAllBookings();
-      setBookings(data);
+      const result = await getBookingsPage({
+        page,
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch,
+        status: statusFilter,
+      });
+      if (mine !== requestId.current) return;
+      // The last page can disappear (rows removed elsewhere): step back instead of an empty table.
+      if (result.items.length === 0 && result.totalCount > 0 && page > 1) {
+        setPage(Math.max(1, result.totalPages));
+        return;
+      }
+      setBookings(result.items);
+      setTotalCount(result.totalCount);
+      setTotalPages(Math.max(1, result.totalPages));
       setLastSyncedAt(new Date());
     } catch (err) {
+      if (mine !== requestId.current) return;
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (mine === requestId.current) setLoading(false);
     }
   };
 
+  // Re-created whenever the page or a filter changes, so live refreshes always reload the page
+  // the operator is actually looking at.
   useEffect(() => {
     loadData();
 
@@ -66,25 +102,10 @@ export const BookingsList: React.FC = () => {
       stopLive();
       window.removeEventListener('focus', onFocus);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, statusFilter]);
 
-  const filtered = useMemo(() => {
-    return bookings
-      .filter((b) => {
-        if (statusFilter !== 'ALL' && b.status !== statusFilter) return false;
-        if (searchQuery.trim()) {
-          const q = searchQuery.trim().toLowerCase();
-          return (
-            b.pnr.toLowerCase().includes(q) ||
-            b.contactName.toLowerCase().includes(q) ||
-            b.contactPhone.toLowerCase().includes(q) ||
-            (b.contactEmail || '').toLowerCase().includes(q)
-          );
-        }
-        return true;
-      })
-      .sort((a, b) => new Date(b.createdAtUtc).getTime() - new Date(a.createdAtUtc).getTime());
-  }, [bookings, searchQuery, statusFilter]);
+  const filtered = bookings; // already searched, filtered, ordered and paged by the server
 
   const handleDelete = async () => {
     if (!deleteCandidate) return;
@@ -269,6 +290,36 @@ export const BookingsList: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination (C7-3: server-side) */}
+        {!loading && totalCount > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200/80 px-4 py-3 text-xs text-slate-500">
+            <span>
+              Showing {(page - 1) * PAGE_SIZE + 1}-{(page - 1) * PAGE_SIZE + bookings.length} of {totalCount} bookings
+            </span>
+            {totalPages > 1 && (
+              <nav aria-label="Bookings pagination" className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  <i className="fa-solid fa-chevron-left" /> Previous
+                </button>
+                <span className="font-medium text-slate-700">Page {page} of {totalPages}</span>
+                <button
+                  type="button"
+                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Next <i className="fa-solid fa-chevron-right" />
+                </button>
+              </nav>
+            )}
           </div>
         )}
       </div>

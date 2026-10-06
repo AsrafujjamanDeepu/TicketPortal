@@ -12,7 +12,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Integration
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 7 — abuse limits, token safety and the kill switch.
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 7 — abuse limits, token safety and the kill switch.
     // (That the kill switch makes the hub answer 404 is already covered by
     // RealtimeHubTests.KillSwitch_WhenDisabled_TheHubIsNotMapped; here we check the other half -
     // that switching real-time off leaves the rest of the API untouched.)

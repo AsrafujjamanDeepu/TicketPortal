@@ -9,7 +9,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Unit
 {
-    // REALTIME_SIGNALR_PLAN.md, principle 7 / Chunk 2 step 5: with Realtime:Enabled=false the
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), principle 7 / Chunk 2 step 5: with Realtime:Enabled=false the
     // change-capture interceptors must not be attached to AppDbContext AT ALL, and with it on,
     // both must be. No database is opened — only the DbContext OPTIONS are built.
     public class RealtimeInterceptorRegistrationTests

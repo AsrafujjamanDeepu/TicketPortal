@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, principle 7 ("no listeners, no work"). The hub registers every
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), principle 7 ("no listeners, no work"). The hub registers every
     // connection here on connect and removes it on disconnect; the change-capture code asks
     // HasListeners before doing anything at all. Migrations, the demo seeder, the sweepers and
     // the test suite save through AppDbContext constantly, and with nobody connected none of

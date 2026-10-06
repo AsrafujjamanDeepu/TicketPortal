@@ -134,7 +134,7 @@ public sealed class ProductionBootstrapTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         factory = new ProductionFactory(
-            $@"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog={databaseName};Integrated Security=True;TrustServerCertificate=True",
+            TestSqlServer.ConnectionStringFor(databaseName),
             privateFilesPath);
         using var client = factory.CreateClient();
         await Task.CompletedTask;
@@ -151,19 +151,7 @@ public sealed class ProductionBootstrapTests : IAsyncLifetime
     public async Task DisposeAsync()
     {
         if (factory is not null) await factory.DisposeAsync();
-        try
-        {
-            await using var connection = new SqlConnection(
-                @"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;TrustServerCertificate=True");
-            await connection.OpenAsync();
-            await using var command = connection.CreateCommand();
-            command.CommandText = $"ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE IF EXISTS [{databaseName}];";
-            await command.ExecuteNonQueryAsync();
-        }
-        catch
-        {
-            // Test database cleanup is best effort if startup failed before a database existed.
-        }
+        await TestSqlServer.DropDatabaseQuietlyAsync(databaseName);
     }
 
     private sealed class ProductionFactory(string connectionString, string privateFilesPath)

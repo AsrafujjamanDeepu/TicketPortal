@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — the single capture point for changes EF Core writes
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — the single capture point for changes EF Core writes
     // (principle 2). Registered once on AppDbContext, so all ~80 tables, every controller, every
     // service and every background sweeper are covered without a broadcast call in any of them.
     //

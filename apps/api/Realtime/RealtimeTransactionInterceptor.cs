@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — the commit-aware half (principle 3).
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — the commit-aware half (principle 3).
     //
     // Inside an explicit transaction (db.Database.BeginTransactionAsync — used all over the
     // booking, payment, wallet and settlement services) RealtimeSaveChangesInterceptor parks what

@@ -1,6 +1,6 @@
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — the server -> client event contract.
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — the server -> client event contract.
     //
     // Signal, not data: a message only says "row X of table Y changed". Clients re-fetch
     // through the normal REST API, so each endpoint's own authorization stays the only gate

@@ -2,7 +2,7 @@ using TicketPortal.Api.Data;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 3 — builds the CapturedChange entries a service reports (via
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 3 — builds the CapturedChange entries a service reports (via
     // IRealtimeNotifier.EntityChangedAsync) after changing rows with bulk SQL.
     //
     // Each change carries the scope it belongs to, so RealtimeScopeResolver finds nothing to look

@@ -9,6 +9,7 @@
 
 import { api } from '../lib/api';
 import type { TicketResponseDto } from '../types/ticket.types';
+import type { PagedResult } from '../types/paging.types';
 
 const BASE_URL = '/api/Tickets';
 
@@ -20,6 +21,28 @@ export const ticketService = {
    */
   async getAll(): Promise<TicketResponseDto[]> {
     const { data } = await api.get<TicketResponseDto[]>(BASE_URL);
+    return data;
+  },
+
+  /**
+   * GET /api/Tickets?page=&pageSize=&search=&status=
+   * C7-3: server-side paging, search and status filter. Role/operator/owner scoping is applied by
+   * the API BEFORE counting and paging, newest first with a stable tie-break.
+   */
+  async getPage(params: {
+    page: number;
+    pageSize: number;
+    search?: string;
+    status?: number | string;
+  }): Promise<PagedResult<TicketResponseDto>> {
+    const { data } = await api.get<PagedResult<TicketResponseDto>>(BASE_URL, {
+      params: {
+        page: params.page,
+        pageSize: params.pageSize,
+        search: params.search?.trim() || undefined,
+        status: params.status === undefined || params.status === 'all' ? undefined : params.status,
+      },
+    });
     return data;
   },
 

@@ -8,7 +8,7 @@ using TicketPortal.Api.Realtime;
 
 namespace TicketPortal.Api.Hubs
 {
-    // Chunk 1 of REALTIME_SIGNALR_PLAN: an authenticated-when-possible SignalR endpoint.
+    // Chunk 1 of docs/02-Project-Concept-and-Solution.md (Real-time updates): an authenticated-when-possible SignalR endpoint.
     // NOTHING is pushed through it yet — Chunk 2 adds the change capture that sends the
     // "changes" messages; this chunk only decides, for every connection, WHICH groups it may
     // ever receive from.

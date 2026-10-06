@@ -9,7 +9,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Integration
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 7 - authorization tests for the "who receives what" matrix.
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 7 - authorization tests for the "who receives what" matrix.
     //
     // RealtimeChangeCaptureTests (Chunk 2) already proves the headline guarantees: admin and
     // platform staff hear everything, operator A never hears operator B, a customer never hears

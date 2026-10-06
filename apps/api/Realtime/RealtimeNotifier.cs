@@ -6,7 +6,7 @@ using TicketPortal.Api.Hubs;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — resolves who each committed change belongs to and sends
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — resolves who each committed change belongs to and sends
     // it to the matching SignalR groups.
     //
     // Registered as a singleton. It owns no DbContext: scope lookups use a short-lived DI scope of

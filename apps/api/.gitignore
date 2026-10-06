@@ -49,7 +49,7 @@ bld/
 ## RBAC Amendment v3 / Chunk 1 task 2: appsettings.Development.json is deliberately NOT
 ## ignored (see git history for the previous, broader rule) — it now carries a fixed,
 ## clearly-labeled, non-secret Development-only JWT signing key, committed on purpose so a
-## fresh clone runs with zero extra setup (see /SETUP_AND_DEMO_GUIDE.md). Any environment
+## fresh clone runs with zero extra setup (see docs/01-Run-and-Manual-Test-Guide.md). Any environment
 ## other than Development still has to supply its own real key via user-secrets or the
 ## JWT__SigningKey environment variable — Program.cs refuses to start without one.
 appsettings.*.local.json

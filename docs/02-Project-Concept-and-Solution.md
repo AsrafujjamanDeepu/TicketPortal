@@ -84,6 +84,21 @@ Finance rules the code enforces:
 
 All applications run from one Nx monorepo. Both front ends use the API as the source of truth; important business rules are enforced by the backend rather than relying only on hidden buttons or client validation.
 
+### Real-time updates
+
+The API hosts an authenticated SignalR hub (`/hubs/realtime`). After a change is **committed** to the database, the API announces
+which table changed to the people allowed to hear about it - platform staff, the owning operator's staff, the customer who owns the
+booking, or anyone viewing a trip's seat map - and the screens then re-read the data through the normal, permission-checked API. The
+messages carry no customer identity. A `Realtime:Enabled` setting is a kill switch (no hub, no listeners, screens fall back to
+polling), and the hub limits message size, calls per second and trips per connection. Browsers send the access token in the hub URL,
+so request logging must never record query strings (a test guards this).
+
+### Data integrity guarantees
+
+SQL Server itself enforces that a trip seat has at most one active ticket (cancelled, refunded and soft-deleted history is allowed),
+one booking per seat hold, and unique ticket numbers; the Bookings and Tickets lists are paged and capped; and scanning a ticket's QR
+code resolves the ticket by the server-issued value, never by trusting the PNR or seat text it contains.
+
 ## Security and data boundaries
 
 The project models user authentication, fine-grained permissions, operator ownership checks, customer booking privacy, staff/counter assignments, rate-limited access, token revocation, and private storage for passenger identity photos. A local demo admin account is Development-only. Non-Development startup uses secret-backed bootstrap credentials and private storage configuration.

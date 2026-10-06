@@ -13,7 +13,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Integration
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 3 — the bulk-SQL blind spots. Seat releases, the hold-expiry
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 3 — the bulk-SQL blind spots. Seat releases, the hold-expiry
     // sweep, the trip-cancel cascade and every wallet balance change use ExecuteUpdateAsync, which
     // EF's change tracker (and so Chunk 2's SaveChanges capture) never sees. The services report
     // those changes themselves; these tests use REAL hub connections and the REAL services/endpoints

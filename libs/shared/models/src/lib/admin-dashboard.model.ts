@@ -10,7 +10,7 @@ import {
 // Mirrors DTO/AdminDashboardDtos.cs -> AdminDashboardSummaryDto. Backs
 // GET /api/admin/dashboard/summary?from=&to=&operatorId= (Admin-only) — every number here is a
 // real SQL aggregate, not something computed client-side from downloaded lists. See
-// AdminDashboardController.cs and ADMIN_DASHBOARD_DATA_MAP.md for exactly how each field is
+// AdminDashboardController.cs for exactly how each field is
 // derived from PlatformLedger/Booking/etc.
 export interface AdminDashboardSummary {
   fromDate: string;

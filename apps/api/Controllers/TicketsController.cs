@@ -36,12 +36,14 @@ namespace TicketPortal.Api.Controllers
         [EnableRateLimiting("anonymous-read")]
         public async Task<IActionResult> VerifyByTicketNumber(string ticketNumber)
         {
-            var normalizedTicketNumber = ticketNumber.Trim();
-            if (string.IsNullOrWhiteSpace(normalizedTicketNumber))
+            var normalizedTicketNumber = NormalizeScanCode(ticketNumber);
+            if (normalizedTicketNumber is null)
             {
                 return NotFound(new { message = "Ticket not found." });
             }
 
+            // C7-6: accepts the printed ticket number OR the exact server-issued QR payload (what
+            // the displayed QR code actually encodes), so scanning the on-screen code works.
             var ticket = await db.Tickets
                 .AsNoTracking()
                 .Include(t => t.Trip)
@@ -50,7 +52,8 @@ namespace TicketPortal.Api.Controllers
                     .ThenInclude(trip => trip.DepartureTerminal)
                 .Include(t => t.Trip)
                     .ThenInclude(trip => trip.ArrivalTerminal)
-                .FirstOrDefaultAsync(t => t.TicketNumber == normalizedTicketNumber);
+                .FirstOrDefaultAsync(t => t.TicketNumber == normalizedTicketNumber
+                    || t.QrCodePayload == normalizedTicketNumber);
 
             if (ticket is null)
             {
@@ -173,14 +176,18 @@ namespace TicketPortal.Api.Controllers
                 return Forbid();
             }
 
-            var normalizedTicketNumber = ticketNumber?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(normalizedTicketNumber))
+            // C7-6: the route value may be the ticket number or the exact QR payload; either way
+            // the ticket is found by a whole-value match on a server-issued value, then the
+            // operator-scope check below still decides whether THIS staff member may check it in.
+            var normalizedTicketNumber = NormalizeScanCode(ticketNumber);
+            if (normalizedTicketNumber is null)
             {
                 return NotFound(new { message = "Ticket not found." });
             }
 
             var ticket = await db.Tickets
-                .FirstOrDefaultAsync(t => t.TicketNumber == normalizedTicketNumber);
+                .FirstOrDefaultAsync(t => t.TicketNumber == normalizedTicketNumber
+                    || t.QrCodePayload == normalizedTicketNumber);
 
             if (ticket is null)
             {
@@ -256,6 +263,18 @@ namespace TicketPortal.Api.Controllers
             return Ok(BuildCheckInResponse(ticket, alreadyCheckedIn: false));
         }
 
+        // C7-6 QR CONTRACT. The QR code encodes Ticket.QrCodePayload ("PNR|seat|random-GUID", issued
+        // by PaymentConfirmationService). The seat and PNR parts are NEVER parsed or trusted: a scan
+        // is only a lookup key, matched as a whole against TicketNumber or QrCodePayload (both
+        // server-issued; the payload carries 128 bits of randomness, so it cannot be guessed from a
+        // PNR + seat). Everything that decides what a scan may DO - status checks, idempotent
+        // check-in, operator scope - runs on the ticket row found, exactly as for a typed number.
+        private static string? NormalizeScanCode(string? raw)
+        {
+            var value = raw?.Trim();
+            return string.IsNullOrEmpty(value) || value.Length > 500 ? null : value;
+        }
+
         private static object BuildCheckInResponse(Ticket ticket, bool alreadyCheckedIn) => new
         {
             ticketNumber = ticket.TicketNumber,
@@ -271,9 +290,31 @@ namespace TicketPortal.Api.Controllers
         // GET: /api/tickets
         // Role-scoped list of tickets
         // =========================================================
+        //
+        // C7-3: paged exactly like BookingsController.GetAll - ?page=&pageSize= returns a
+        // PagedResult envelope (pageSize capped), no paging parameters keeps the plain array
+        // (capped, total in X-Total-Count). ?search= matches ticket number, seat or PNR; ?status=
+        // is a TicketStatus name. Role/owner/operator scoping runs before counting and paging;
+        // order is CreatedAtUtc desc then Id desc so pages never duplicate or skip rows.
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? search = null,
+            [FromQuery] string? status = null)
         {
+            TicketStatus? statusFilter = null;
+            if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Enum.TryParse<TicketStatus>(status.Trim(), ignoreCase: true, out var parsedStatus)
+                    || !Enum.IsDefined(parsedStatus))
+                {
+                    return BadRequest(new { message = $"Unknown ticket status '{status}'." });
+                }
+                statusFilter = parsedStatus;
+            }
+
+            var request = Paging.Resolve(page, pageSize);
             var actor = await currentActor.ResolveAsync(User);
             var query = db.Tickets
                 .Include(t => t.Booking)
@@ -316,11 +357,26 @@ namespace TicketPortal.Api.Controllers
             }
             else return Forbid();
 
+            if (statusFilter.HasValue) query = query.Where(t => t.Status == statusFilter.Value);
+
+            var term = search?.Trim();
+            if (!string.IsNullOrEmpty(term))
+            {
+                if (term.Length > 100) term = term[..100];
+                query = query.Where(t => t.TicketNumber.Contains(term)
+                    || t.SeatNumberSnapshot.Contains(term)
+                    || t.Booking.Pnr.Contains(term));
+            }
+
+            var totalCount = await query.CountAsync();
             var items = await query
                 .OrderByDescending(t => t.CreatedAtUtc)
+                .ThenByDescending(t => t.Id)
+                .Skip(request.Skip)
+                .Take(request.PageSize)
                 .ToListAsync();
 
-            return Ok(items.Select(ToResponseDto));
+            return this.PagedOk<TicketResponseDto>(items.Select(ToResponseDto).ToList(), totalCount, request);
         }
 
         // =========================================================

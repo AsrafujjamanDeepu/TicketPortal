@@ -6,7 +6,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Unit
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 / principle 8 (fail closed). The entity -> audience map
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 / principle 8 (fail closed). The entity -> audience map
     // in RealtimeEntityCatalog only stays trustworthy if it cannot silently fall out of step with
     // the model. These tests read the real AppDbContext via reflection (no database, no host):
     //   * a DbSet added without a decision in the catalog fails here, with the table named;

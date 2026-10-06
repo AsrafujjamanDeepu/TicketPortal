@@ -15,7 +15,7 @@ import { StatusPill } from '../components/StatusPill';
 // list of links into the console's raw CRUD resources) with a real reports page, backed by
 // GET admin/dashboard/reports (AdminDashboardController, Admin-only) — the same server-side
 // SQL aggregate approach as the console's rebuilt Dashboard.tsx. See
-// ADMIN_DASHBOARD_DATA_MAP.md for exactly how each column below is derived.
+// AdminDashboardController.cs (apps/api) for exactly how each column below is derived.
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);

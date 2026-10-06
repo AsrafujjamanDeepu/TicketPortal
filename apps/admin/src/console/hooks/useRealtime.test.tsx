@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHarness, flush, type Harness } from '../lib/realtime.testkit';
 import { useRealtime, useRealtimeStatus } from './useRealtime';
 
-// REALTIME_SIGNALR_PLAN.md, Chunk 7: the React hooks against a mocked connection.
+// docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 7: the React hooks against a mocked connection.
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

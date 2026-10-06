@@ -53,7 +53,7 @@ namespace TicketPortal.Api.Services
             _notifier = notifier ?? NullRealtimeNotifier.Instance;
         }
 
-        // Realtime Chunk 3 (REALTIME_SIGNALR_PLAN.md).
+        // Realtime Chunk 3 (docs/02-Project-Concept-and-Solution.md (Real-time updates)).
         //
         // Every seat change in this class is a bulk ExecuteUpdateAsync, which EF Core's change
         // tracker (and therefore Chunk 2's SaveChanges capture) never sees. So each method reports

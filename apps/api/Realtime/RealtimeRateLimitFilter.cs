@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 7 — abuse limit: a sanity cap on hub calls per second for
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 7 — abuse limit: a sanity cap on hub calls per second for
     // ONE connection (sliding one-second window). Clients only ever call JoinTrip / LeaveTrip,
     // so a connection hammering the hub is a bug or an attack, not a user; it gets a
     // HubException on the excess calls (the connection itself stays up, and the trip cap in

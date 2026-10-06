@@ -3,7 +3,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Unit
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 3 — the changes a service reports after a bulk UPDATE
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 3 — the changes a service reports after a bulk UPDATE
     // (RealtimeBulkChanges), pushed through the real router. Pure functions, no database and no
     // SignalR: this pins who hears about each kind of bulk change, including the rule that a trip's
     // public seat-map group only ever gets the anonymous-safe SeatAvailability signal.

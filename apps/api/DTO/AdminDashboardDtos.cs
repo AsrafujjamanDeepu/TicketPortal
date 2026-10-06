@@ -11,7 +11,7 @@ namespace TicketPortal.Api.DTO
     // this chunk replaces). The financial figures reuse the exact same PlatformLedger
     // ItemType/SaleChannel buckets as SettlementGenerationService, so this dashboard's numbers
     // always agree with a hand-checked settlement for the same period — see
-    // ADMIN_DASHBOARD_DATA_MAP.md for the card-to-query mapping.
+    // AdminDashboardController.cs for the card-to-query mapping.
     public class AdminDashboardSummaryDto
     {
         public DateOnly FromDate { get; set; }

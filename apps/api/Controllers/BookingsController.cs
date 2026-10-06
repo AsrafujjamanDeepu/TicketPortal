@@ -53,9 +53,32 @@ namespace TicketPortal.Api.Controllers
         // sees only that operator's bookings; platform Staff (BusOperatorId == null) sees
         // everything, same as Admin. Everyone else sees only bookings tied to their own
         // CustomerProfile.
+        //
+        // C7-3: paged. ?page=&pageSize= (pageSize capped at Paging.MaxPageSize) returns a
+        // PagedResult envelope; sending neither keeps the old plain-array response, capped at
+        // Paging.LegacyListCap with the real total in X-Total-Count. ?search= matches PNR, contact
+        // name or phone; ?status= is a BookingStatus name. Ownership/operator scoping is applied
+        // BEFORE counting and paging, so a page never leaks (or hides) rows outside the caller's
+        // scope, and ordering is CreatedAtUtc desc then Id desc, so page boundaries are stable.
         [HttpGet]
-        public async Task<IActionResult> GetAll()
+        public async Task<IActionResult> GetAll(
+            [FromQuery] int? page = null,
+            [FromQuery] int? pageSize = null,
+            [FromQuery] string? search = null,
+            [FromQuery] string? status = null)
         {
+            BookingStatus? statusFilter = null;
+            if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Enum.TryParse<BookingStatus>(status.Trim(), ignoreCase: true, out var parsedStatus)
+                    || !Enum.IsDefined(parsedStatus))
+                {
+                    return BadRequest(new { message = $"Unknown booking status '{status}'." });
+                }
+                statusFilter = parsedStatus;
+            }
+
+            var request = Paging.Resolve(page, pageSize);
             var query = db.Bookings.Include(b => b.Passengers).AsQueryable();
 
             var actor = await currentActor.ResolveAsync(User);
@@ -71,10 +94,28 @@ namespace TicketPortal.Api.Controllers
                 var userId = GetCurrentUserId();
                 query = query.Where(b => b.CustomerProfile != null && b.CustomerProfile.UserId == userId);
             }
-            else return Ok(Array.Empty<BookingResponseDto>());
+            else return this.PagedOk(Array.Empty<BookingResponseDto>(), 0, request);
 
-            var bookings = await query.ToListAsync();
-            return Ok(bookings.Select(ToResponseDto));
+            if (statusFilter.HasValue) query = query.Where(b => b.Status == statusFilter.Value);
+
+            var term = search?.Trim();
+            if (!string.IsNullOrEmpty(term))
+            {
+                if (term.Length > 100) term = term[..100];
+                query = query.Where(b => b.Pnr.Contains(term)
+                    || b.ContactName.Contains(term)
+                    || b.ContactPhone.Contains(term));
+            }
+
+            var totalCount = await query.CountAsync();
+            var bookings = await query
+                .OrderByDescending(b => b.CreatedAtUtc)
+                .ThenByDescending(b => b.Id)
+                .Skip(request.Skip)
+                .Take(request.PageSize)
+                .ToListAsync();
+
+            return this.PagedOk<BookingResponseDto>(bookings.Select(ToResponseDto).ToList(), totalCount, request);
         }
 
 

@@ -818,13 +818,16 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("BookingPassengerId");
 
+                    b.HasIndex("QrCodePayload");
+
                     b.HasIndex("TicketNumber")
                         .IsUnique();
 
                     b.HasIndex("TripId");
 
                     b.HasIndex("TripSeatId")
-                        .HasFilter("[Status] <> 5 AND [Status] <> 6");
+                        .IsUnique()
+                        .HasFilter("[Status] NOT IN (5, 6) AND [IsDeleted] = 0");
 
                     b.ToTable("Tickets", (string)null);
                 });

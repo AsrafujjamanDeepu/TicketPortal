@@ -8,7 +8,7 @@ using TicketPortal.Api.Models.Scheduling;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — reads the EF change tracker just before a save and
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — reads the EF change tracker just before a save and
     // turns every Added / Modified / Deleted row into a CapturedChange.
     //
     // Works from the EF model (property names), so it covers all ~80 tables without a per-table

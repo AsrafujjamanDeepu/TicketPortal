@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 
 namespace TicketPortal.Api.Realtime
 {
-    // REALTIME_SIGNALR_PLAN.md, Chunk 2 — remembers, per DbContext, the rows a save touched, and
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 2 — remembers, per DbContext, the rows a save touched, and
     // decides WHEN they may be announced (principle 3: commit-aware).
     //
     //   no explicit transaction   -> released as soon as SaveChanges succeeds (that save already

@@ -463,7 +463,16 @@ namespace TicketPortal.Api.Data
             modelBuilder.Entity<Booking>().HasIndex(b => new { b.BusOperatorId, b.SaleChannel }); // Fast "this operator's online vs counter sales" reporting.
             modelBuilder.Entity<Booking>().HasIndex(b => b.ExpiresAtUtc);
             modelBuilder.Entity<Ticket>().HasIndex(t => t.TicketNumber).IsUnique();
-            modelBuilder.Entity<Ticket>().HasIndex(t => t.TripSeatId).HasFilter("[Status] <> 5 AND [Status] <> 6");  // Enforces the one-ticket-per-seat rule at the database level too. Here, 5 = Cancelled, 6 = Refunded
+            // C7-1: ONE ACTIVE TICKET PER SEAT, enforced by SQL Server itself. The filter is written
+            // against TicketStatus's numeric values (5 = Cancelled, 6 = Refunded) and the soft-delete
+            // flag, so cancelled/refunded/soft-deleted history rows can pile up on a seat without ever
+            // blocking a re-sale, while two live tickets (Issued, CheckedIn, Used, NoShow, PendingPayment)
+            // for one TripSeat are rejected with a unique-index violation. If TicketStatus is ever
+            // renumbered this filter MUST be changed in a new migration (a test pins both).
+            modelBuilder.Entity<Ticket>().HasIndex(t => t.TripSeatId).IsUnique()
+                .HasFilter("[Status] NOT IN (5, 6) AND [IsDeleted] = 0");
+            // C7-6: boarding/verify screens resolve a scanned QR by its exact server-issued payload.
+            modelBuilder.Entity<Ticket>().HasIndex(t => t.QrCodePayload);
 
       modelBuilder.Entity<Payment>().HasIndex(p => p.GatewayTransactionId);
             modelBuilder.Entity<Payment>().HasIndex(p => new { p.BookingId, p.Status });

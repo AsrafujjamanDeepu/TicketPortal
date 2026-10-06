@@ -7,7 +7,7 @@ import { AuthService } from '../services/auth.service';
 /** Connection health, for a status badge: `live` = pushes are flowing, `reconnecting` = trying, `offline` = not connected. */
 export type RealtimeState = 'live' | 'reconnecting' | 'offline';
 
-/** One committed change, exactly as the server announces it (see the event contract in REALTIME_SIGNALR_PLAN.md §2). */
+/** One committed change, exactly as the server announces it (see the event contract in docs/02-Project-Concept-and-Solution.md (Real-time updates) §2). */
 export interface RealtimeChange {
   /** Table name (`Bookings`, `Tickets`, `OperatorPayouts`, …) or the pseudo-entity `SeatAvailability`. */
   entity: string;
@@ -55,7 +55,7 @@ export function httpStatusOf(error: unknown): number | undefined {
 /**
  * The one SignalR connection for the whole Angular app.
  *
- * Design (REALTIME_SIGNALR_PLAN.md §0): the server pushes a *signal* ("Bookings row X changed"), never
+ * Design (docs/02-Project-Concept-and-Solution.md (Real-time updates) §0): the server pushes a *signal* ("Bookings row X changed"), never
  * the data. Screens react by re-fetching through the normal REST API, so the existing per-endpoint
  * authorization stays the only gate on who can read what — nothing sensitive travels over the socket.
  *

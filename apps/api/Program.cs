@@ -19,6 +19,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using System.Text.Json.Serialization;
+using TicketPortal.Api.Startup;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -64,13 +65,11 @@ builder.Services.AddIdentity<ApplicationUser, ApplicationRole>(options =>
 var isTestEnvironment = builder.Environment.IsEnvironment("Testing");
 if (!builder.Environment.IsDevelopment() && !isTestEnvironment)
 {
-    var signingKey = builder.Configuration["JWT:SigningKey"];
-    var looksLikeAPlaceholder = string.IsNullOrWhiteSpace(signingKey)
-        || signingKey.Length < 32
-        || signingKey.Contains("ReplaceThisWith", StringComparison.OrdinalIgnoreCase)
-        || signingKey.Contains("Development-Only", StringComparison.OrdinalIgnoreCase);
-
-    if (looksLikeAPlaceholder)
+    // C7-5: the rule lives in StartupSettingsValidator (which also reports it as part of the full
+    // startup check); this early copy only exists because the JWT bearer setup below reads the key
+    // while services are still being registered, before ValidateOnStart can run.
+    if (StartupSettingsValidator.IsPlaceholderOrWeakSigningKey(
+            builder.Configuration["JWT:SigningKey"]))
     {
         throw new InvalidOperationException(
             "JWT:SigningKey is missing, a placeholder, or shorter than 32 characters. Set a real " +
@@ -81,18 +80,12 @@ if (!builder.Environment.IsDevelopment() && !isTestEnvironment)
 }
 
 var accessTokenMinutes = builder.Configuration.GetValue<int?>("Auth:AccessTokenMinutes") ?? 15;
-if (accessTokenMinutes is < 1 or > 60)
-{
-    throw new InvalidOperationException("Auth:AccessTokenMinutes must be between 1 and 60.");
-}
 
-if (builder.Environment.IsProduction()
-    && builder.Configuration.GetValue("Payments:DemoMode", false)
-    && !builder.Configuration.GetValue("Payments:AllowDemoInProduction", false))
-{
-    throw new InvalidOperationException(
-        "Payments:DemoMode cannot be enabled in Production unless Payments:AllowDemoInProduction is explicitly true.");
-}
+// C7-5: every other required value, range, URL-safety and cross-setting rule (token lifetime, demo
+// payments in Production, bootstrap admin, private storage, CORS, SMTP/reset URL, ERP URL) is checked
+// together by StartupSettingsValidator before the host serves a single request. No gateway or tax
+// setting is required (decision D5).
+builder.Services.AddStartupSettingsValidation();
 
 // ============================================================
 // 3. JWT Authentication
@@ -256,7 +249,7 @@ builder.Services.AddRateLimiter(options =>
         _ => Window(120 * testPermitMultiplier, TimeSpan.FromMinutes(1))));
 });
 
-// Real-time (SignalR) — see REALTIME_SIGNALR_PLAN.md. Chunk 1: the authenticated hub endpoint.
+// Real-time (SignalR) — see docs/02-Project-Concept-and-Solution.md (Real-time updates). Chunk 1: the authenticated hub endpoint.
 // Chunk 2: the change-capture services (attached to the DbContext in section 1). Switch the
 // whole feature off with "Realtime": { "Enabled": false } in appsettings (or the
 // Realtime__Enabled environment variable).
@@ -286,7 +279,9 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(corsAllowedOrigins)
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            // C7-3: lets the browser apps read the true total of a capped/paged list.
+            .WithExposedHeaders("X-Total-Count");
 
         // Left off on purpose: this API authenticates with a JWT sent as a normal
         // Authorization header (not a cookie), so the browser doesn't need "credentials"
@@ -431,24 +426,9 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Chunk 6: fail at startup — not on the first customer request — if any of the new settings is
-// malformed, so a typo can never silently turn a protection off. These read app.Configuration
-// (the FINAL configuration, including environment variables), not builder.Configuration.
-{
-    _ = SeatHoldLimits.FromConfiguration(app.Configuration);
-    _ = ExternalAvailabilityPolicy.GetFailureMode(app.Configuration);
-    _ = ExternalAvailabilityPolicy.GetCacheTtl(app.Configuration);
-
-    // Local/private destinations exist for a mock ERP on a developer machine. They must never be
-    // switchable on in Production, where they would expose internal services to the integration
-    // feature (SSRF).
-    if (app.Environment.IsProduction()
-        && IntegrationSecurityOptions.From(app.Configuration, app.Environment).AllowLocalDestinations)
-    {
-        throw new InvalidOperationException(
-            $"{IntegrationSecurityOptions.AllowLocalDestinationsKey} must not be enabled in Production.");
-    }
-}
+// Chunk 6's startup checks (hold limits, ERP availability policy, "AllowLocalDestinations must not be
+// on in Production") are part of StartupSettingsValidator (Chunk 7 / C7-5), which ValidateOnStart runs
+// against the FINAL configuration, including environment variables, before the API serves a request.
 
 
 // ============================================================

@@ -14,7 +14,7 @@ using Xunit;
 
 namespace TicketPortal.Api.Tests.Integration
 {
-    // REALTIME_SIGNALR_PLAN, Chunk 1 — hub foundation + authentication. No change events flow
+    // docs/02-Project-Concept-and-Solution.md (Real-time updates), Chunk 1 — hub foundation + authentication. No change events flow
     // yet (that is Chunk 2), so these tests prove the two things Chunk 1 owns:
     //   1. who may connect (anonymous yes, valid token yes, a token that fails validation = 401,
     //      never a silent downgrade to anonymous), and

@@ -37,7 +37,7 @@ namespace TicketPortal.Api.Services
         public const int HighestAllowedCacheSeconds = 300;
 
         // Read on every call (like SeatHold:Minutes) so tests can override it; validated at
-        // startup in Program.cs so a typo stops the API from starting instead of silently
+        // startup by Startup/StartupSettingsValidator.cs so a typo stops the API from starting instead of silently
         // picking a mode.
         public static AvailabilityFailureMode GetFailureMode(IConfiguration configuration)
         {
