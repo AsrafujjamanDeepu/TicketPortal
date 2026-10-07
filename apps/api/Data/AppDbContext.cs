@@ -470,7 +470,7 @@ namespace TicketPortal.Api.Data
             // for one TripSeat are rejected with a unique-index violation. If TicketStatus is ever
             // renumbered this filter MUST be changed in a new migration (a test pins both).
             modelBuilder.Entity<Ticket>().HasIndex(t => t.TripSeatId).IsUnique()
-                .HasFilter("[Status] NOT IN (5, 6) AND [IsDeleted] = 0");
+                .HasFilter("[Status] <> 5 AND [Status] <> 6 AND [IsDeleted] = 0");
             // C7-6: boarding/verify screens resolve a scanned QR by its exact server-issued payload.
             modelBuilder.Entity<Ticket>().HasIndex(t => t.QrCodePayload);
 

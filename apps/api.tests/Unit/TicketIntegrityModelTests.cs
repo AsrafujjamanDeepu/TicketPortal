@@ -40,7 +40,8 @@ namespace TicketPortal.Api.Tests.Unit
 
             Assert.True(index.IsUnique);
             Assert.NotNull(index.GetFilter());
-            Assert.Contains("[Status] NOT IN (5, 6)", index.GetFilter());
+            Assert.Contains("[Status] <> 5 AND [Status] <> 6", index.GetFilter());
+            Assert.DoesNotContain(" IN (", index.GetFilter()); // SQL Server filtered indexes reject IN / NOT IN
             Assert.Contains("[IsDeleted] = 0", index.GetFilter());
         }
 

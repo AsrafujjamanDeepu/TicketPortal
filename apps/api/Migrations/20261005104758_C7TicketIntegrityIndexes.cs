@@ -53,7 +53,7 @@ END");
                 table: "Tickets",
                 column: "TripSeatId",
                 unique: true,
-                filter: "[Status] NOT IN (5, 6) AND [IsDeleted] = 0");
+                filter: "[Status] <> 5 AND [Status] <> 6 AND [IsDeleted] = 0");
         }
 
         /// <inheritdoc />

@@ -830,7 +830,7 @@ namespace TicketPortal.Api.Migrations
 
                     b.HasIndex("TripSeatId")
                         .IsUnique()
-                        .HasFilter("[Status] NOT IN (5, 6) AND [IsDeleted] = 0");
+                        .HasFilter("[Status] <> 5 AND [Status] <> 6 AND [IsDeleted] = 0");
 
                     b.ToTable("Tickets", (string)null);
                 });
