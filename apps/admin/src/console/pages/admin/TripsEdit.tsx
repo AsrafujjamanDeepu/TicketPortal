@@ -441,7 +441,7 @@ const TripsEdit: React.FC = () => {
                                     </table>
                                 )}
                                 <div className="p-2 small text-muted border-top">
-                                    Changing seats is blocked once any seat on this trip is Held or Booked — release/cancel those first.
+                                    Once any seat on this trip is Held or Booked, its route, bus, terminals, times, currency and the fare of those seats are locked — use status Delayed with a reason, or cancel the trip.
                                 </div>
                             </div>
                         </div>

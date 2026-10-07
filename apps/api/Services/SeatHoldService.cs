@@ -171,11 +171,23 @@ namespace TicketPortal.Api.Services
             Guid? heldByUserId,
             string? clientIpAddress,
             string? userAgent,
-            bool skipSellabilityCheck = false)
+            bool skipSellabilityCheck = false,
+            SeatHoldLimits? limits = null)
         {
             if (tripSeatIds.Count == 0)
             {
                 throw new ArgumentException("At least one seat must be selected.", nameof(tripSeatIds));
+            }
+
+            // Chunk 6 / C6-2: refuse before any inventory is touched. A duplicated seat id used to
+            // fall through to the bulk UPDATE below, update fewer rows than requested, and come
+            // back as the misleading "just taken by another customer" message.
+            // limits is null for DemoDataSeeder (history backfill); SeatHoldsController always
+            // passes the configured limits, so a real customer request can never skip them.
+            var requestProblem = SeatHoldLimits.CheckRequest(tripSeatIds, limits);
+            if (requestProblem is not null)
+            {
+                throw requestProblem;
             }
 
             var now = DateTime.UtcNow;
@@ -237,6 +249,33 @@ namespace TicketPortal.Api.Services
 
             await using var transaction = await _db.Database.BeginTransactionAsync();
 
+            // Chunk 6 / C6-2: count this user's unexpired Active holds and enforce
+            // MaxActiveHoldsPerUser. Two requests from the same user arriving together would
+            // both read "2 holds" and both insert a third unless something serializes them, so
+            // an exclusive transaction-scoped application lock keyed on the user is taken first;
+            // the second request waits here until the first commits or rolls back, then sees the
+            // first request's hold in its count. (Holds past HoldExpiresAtUtc stop counting at
+            // once — they don't have to wait for the expiry sweep to run.)
+            if (limits is not null && heldByUserId.HasValue)
+            {
+                await AcquireUserHoldLockAsync(heldByUserId.Value);
+
+                var userId = heldByUserId.Value;
+                var activeHolds = await _db.SeatHolds.CountAsync(h =>
+                    h.HeldByUserId == userId
+                    && h.Status == SeatHoldStatus.Active
+                    && h.HoldExpiresAtUtc > now);
+
+                if (activeHolds >= limits.MaxActiveHoldsPerUser)
+                {
+                    await transaction.RollbackAsync();
+                    throw new SeatHoldLimitException(
+                        SeatHoldLimitKind.TooManyActiveHolds,
+                        $"You already have {activeHolds} active seat hold(s). Finish or release an existing " +
+                        "hold (or wait for it to expire) before holding more seats.");
+                }
+            }
+
             _db.SeatHolds.Add(hold);
 
             try
@@ -295,6 +334,25 @@ namespace TicketPortal.Api.Services
             await transaction.CommitAsync();
 
             return hold;
+        }
+
+        // Serializes hold creation per user for the MaxActiveHoldsPerUser check above. The lock is
+        // owned by the current transaction, so it is released automatically on commit, rollback,
+        // or a dropped connection — there is nothing to clean up. A wait longer than 10 seconds
+        // fails loudly (THROW) rather than letting the request proceed without the protection.
+        private async Task AcquireUserHoldLockAsync(Guid userId)
+        {
+            var resource = $"TicketPortal.SeatHold.User.{userId:N}";
+
+            await _db.Database.ExecuteSqlInterpolatedAsync($@"
+                DECLARE @lockResult int;
+                EXEC @lockResult = sp_getapplock
+                    @Resource = {resource},
+                    @LockMode = 'Exclusive',
+                    @LockOwner = 'Transaction',
+                    @LockTimeout = 10000;
+                IF @lockResult < 0
+                    THROW 51000, 'Could not acquire the seat-hold lock for this user.', 1;");
         }
 
         // The customer closes the tab, goes back, or deselects seats before paying — let the

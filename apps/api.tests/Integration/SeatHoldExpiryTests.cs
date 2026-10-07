@@ -37,9 +37,10 @@ namespace TicketPortal.Api.Tests.Integration
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 // PlatformManaged filter: same reasoning as SeatHoldConcurrencyTests — since
                 // Chunk 8, an ExternalApiManaged trip (Hanif in demo data) makes
-                // SeatHoldsController.Create call out to ExternalBookingSyncService first. That
-                // fails open safely with nothing listening on Integrations:HanifErpBaseUrl, but
-                // it's an unrelated dependency this expiry test has no business exercising.
+                // SeatHoldsController.Create call out to ExternalBookingSyncService first. With
+                // nothing reachable there the hold is refused (Chunk 6: fail-closed by default,
+                // decision D7), and it's an unrelated dependency this expiry test has no business
+                // exercising. Chunk 6's ERP behaviour is covered in ErpAvailabilityAndSecurityTests.
                 var candidate = await db.TripSeats
                     .Where(ts => ts.Status == TripSeatStatus.Available)
                     .Where(ts => ts.Trip.Status == TripStatus.Scheduled && ts.Trip.DepartureTimeUtc > DateTime.UtcNow)

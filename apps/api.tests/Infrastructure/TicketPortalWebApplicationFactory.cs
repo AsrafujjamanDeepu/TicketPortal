@@ -40,6 +40,20 @@ namespace TicketPortal.Api.Tests.Infrastructure
 
             builder.UseSetting("ConnectionStrings:DefaultConnection", ConnectionString);
 
+            // Chunk 6 / C6-2: the shared demo customers hold seats in many unrelated tests and
+            // never release them, so the per-user "active holds" cap is lifted for this host.
+            // SeatHoldLimitTests lowers it again (WithWebHostBuilder) for brand-new users, which
+            // is the only place that cap is meant to be exercised.
+            builder.UseSetting("SeatHold:MaxActiveHoldsPerUser", "1000");
+
+            // Chunk 6 / C6-4: no availability cache, so every test sees its own fake ERP's current
+            // answer rather than another test's. Cache behaviour has its own test that turns it on.
+            builder.UseSetting("Integrations:AvailabilityCacheSeconds", "0");
+
+            // Chunk 6 / C6-3: a throwaway value for tests' integrations to reference as
+            // "env:TEST_ERP_KEY" (resolved ONLY under Integrations:Secrets).
+            builder.UseSetting("Integrations:Secrets:TEST_ERP_KEY", "test-erp-secret-value-9f3a");
+
             // Chunk 10 security checklist: real deployments must never take a payment gateway
             // request seriously in a way that touches a live provider. Payments:DemoMode is
             // already true in the committed appsettings.json (Chunk 1), so no override is

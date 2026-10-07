@@ -196,7 +196,8 @@ namespace TicketPortal.Api.DTO
         [StringLength(1000)]
         public string? SecretReference { get; set; }
 
-        [Range(1, int.MaxValue, ErrorMessage = "TimeoutSeconds must be at least 1.")]
+        // Chunk 6 / C6-3: capped — an outbound call that may hang for hours ties up a worker.
+        [Range(1, 60, ErrorMessage = "TimeoutSeconds must be between 1 and 60.")]
         public int TimeoutSeconds { get; set; } = 30;
         public bool IsActive { get; set; } = true;
         public DateTime? LastSuccessfulSyncAtUtc { get; set; }
@@ -211,8 +212,8 @@ namespace TicketPortal.Api.DTO
     // Chunk 8 task 3: this is the read shape returned to the browser, and it deliberately does
     // NOT include the raw SecretReference — only whether one is set (HasSecret) and a masked
     // preview safe to display (e.g. "env:HAN••••_KEY"). The real secret value is never returned
-    // by any endpoint; see ExternalBookingSyncService.ResolveSecret for where it's actually
-    // read from (server-side only, at call time). Write it via OperatorIntegrationCreateDto/
+    // by any endpoint; see IntegrationSecretReference.Resolve for where it's actually
+    // read from (server-side only, at call time, only under Integrations:Secrets). Write it via OperatorIntegrationCreateDto/
     // OperatorIntegrationUpdateDto instead, which stay write-only for this field.
     public class OperatorIntegrationResponseDto
     {
@@ -224,6 +225,15 @@ namespace TicketPortal.Api.DTO
         public string? ApiKeyHeaderName { get; set; }
         public bool HasSecret { get; set; }
         public string? SecretReferenceMasked { get; set; }
+
+        // Chunk 6 / C6-3: set when the stored reference is not in the accepted 'env:NAME' form
+        // (a row saved before the rule existed, e.g. a literal key). The integration will not be
+        // called until an administrator fixes it. Null when fine or when there is no secret.
+        public string? SecretReferenceProblem { get; set; }
+
+        // True when the referenced value is actually present in server configuration. Says
+        // nothing about its content — the value itself is never returned.
+        public bool SecretConfigured { get; set; }
         public int TimeoutSeconds { get; set; } = 30;
         public bool IsActive { get; set; } = true;
         public DateTime? LastSuccessfulSyncAtUtc { get; set; }
@@ -250,6 +260,23 @@ namespace TicketPortal.Api.DTO
         public string? LastSyncStatus { get; set; }
         public DateTime? LastSyncAtUtc { get; set; }
         public int RecentFailureCount { get; set; } // Failed sync-log rows in the last 24h.
+
+        // Chunk 6 / C6-4. What customers experience on this operator's trips when the operator's
+        // system cannot be reached ("Closed" = seats can't be held, "Open" = holds continue on our
+        // own seat map), whether the GetSeatAvailability endpoint is configured, and — for an
+        // operator whose own system is the source of truth — whether something needs fixing.
+        public string AvailabilityFailureMode { get; set; } = "Closed";
+        public bool HasAvailabilityEndpoint { get; set; }
+        public bool NeedsAttention { get; set; }
+        public string? AttentionReason { get; set; }
+    }
+
+    // Chunk 6 / C6-4: the platform-wide integration policy in force, for the admin screen.
+    public class IntegrationPolicyDto
+    {
+        public string AvailabilityFailureMode { get; set; } = "Closed";
+        public int AvailabilityCacheSeconds { get; set; }
+        public bool AllowLocalDestinations { get; set; }
     }
 
     public class OperatorIntegrationEndpointCreateDto

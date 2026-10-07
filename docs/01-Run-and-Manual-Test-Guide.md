@@ -113,7 +113,17 @@ cd apps/mock-erp && npm install && npm start   # http://localhost:5099
 ```
 
 `apps/api/appsettings.Development.json` already points at it — nothing else to
-configure.
+configure (base URL `http://localhost:5099/api/v1`, secret
+`Integrations:Secrets:HANIF_ERP_API_KEY`, and `Integrations:AllowLocalDestinations=true`,
+which is what lets the API call a localhost address at all — outside Development
+it refuses non-HTTPS and private addresses).
+
+Open **http://localhost:5099/** in a browser: that page is the mock's remote control
+(pick a scenario, reset state, see the bookings, sold seats and recent requests it
+has received, including each request's `Idempotency-Key`). It is local-development
+only: it listens on `127.0.0.1`, refuses to start with `NODE_ENV=production`, and
+keeps everything in memory — restarting it forgets every booking. Its own tests:
+`cd apps/mock-erp && npm test`.
 
 ## 4.4 Ports & URLs at a glance
 
@@ -263,6 +273,16 @@ database (Section 5) for the cleanest run.
    an incognito window), select the *same* seat, click **Hold Seats & Continue** in
    both within a couple of seconds. **Expected:** one tab proceeds; the other shows
    a "just taken by another customer" toast and its seat map refreshes.
+4a. **Seat caps (needs the API's default limits: 6 seats per hold, 3 active holds per
+   user):** on a `Scheduled` PlatformManaged trip select **7** seats and click
+   **Hold Seats & Continue**. **Expected:** refused with *"You can hold at most 6
+   seat(s) in one booking…"*; no seat turns *Held*. Select 6 → the hold works.
+4b. **Active-hold cap (use a freshly registered account so earlier steps don't
+   interfere):** hold one seat, press Back (the hold stays active), hold one seat on
+   a second trip, then a third. **Expected:** the first three succeed; a fourth is
+   refused with *"You already have 3 active seat hold(s). Finish or release an
+   existing hold…"* and nothing is held. Let one hold expire (or release it from its
+   hold screen) → a new hold works again immediately.
 5. **Trip-state gating** (needs one seeded trip already `Cancelled` and one already
    `Completed` — check via Admin → Trips list, or set one yourself: log in as
    `admin`, open **Admin Console → Trips**, click a `Scheduled` trip, **Edit**, set
@@ -344,6 +364,7 @@ persisted after a reload → **Delete** it (confirm dialog) → confirm it's gon
 | 4 | **Crew Assignment** | Assign a driver/helper to a trip; remove the assignment |
 | 5 | **Branches** | Add an operator branch/office; edit its address; delete it |
 | 6 | **Trips & Scheduling** | Create a trip (route + bus + departure time); edit its fare; note the status dropdown deliberately has **no** "Cancelled" option — cancellation is the separate flow in step 7 |
+| 6b | **Editing a trip that already has sales (D6):** make sure a `Scheduled` trip has a held or booked seat (do 10.2 step 3 as `rahim.uddin` and leave the hold running, or use a trip with a paid booking). Back as the operator, open **Trips & Scheduling → Edit** on that trip. **Expected:** route, bus, terminals, departure/arrival time and currency are greyed out under a note explaining why. Change **Base fare** or the **Trip code** and save → succeeds. Set **Status** to `Delayed` with a reason and save → succeeds and the held seat is still held (also check the customer's seat map). Optional: as `admin`, edit the same trip in the admin console and change its departure time → rejected with *"This trip already has held or booked seats, so departureTimeUtc can no longer be changed…"*. A trip with **no** sales (all seats free) can still be rescheduled freely. To change the time/bus/route of a trip that has sales, use **Cancel trip…** (row 7) and create a new trip. |
 | 7 | **Trip cancellation cascade:** on **Trips & Scheduling**, pick a `Scheduled` trip with at least one paid booking, click **Cancel trip…**. **Expected:** a preview loads first (how many bookings/holds affected) *before* anything is confirmed. Enter a reason, confirm. **Expected:** trip → `Cancelled`; every active hold on it released; every paid booking gets a full, no-fee refund automatically. Confirm on the customer side that the refund appears under Cancellations. |
 | 8 | **Sales counter configuration** (**Counter Setup**) | Add a new sales counter for Green Line; edit its name; delete it |
 | 9 | **Staff HR — Profile tab** | Create a staff profile (needs an existing login's User ID, employee code, a role from the dropdown); edit an employee's Role — set `selina.counter.gl`'s role from CounterStaff to Supervisor and save (**Expected:** succeeds — a lower/lateral change), then try setting it to Manager (**Expected:** rejected — a Manager cannot promote CounterStaff into Manager tier); delete a profile |
@@ -550,26 +571,47 @@ button itself refuses to double-settle the same money.
 
 ## 10.13 Hanif ERP integration scenarios (optional — remote-controls the fake external ERP, not TicketPortal)
 
-Needs `apps/mock-erp` running (Section 4.3). Hanif Enterprise is
-`ExternalApiManaged` — its own ERP, not a TicketPortal counter login, is the source
-of truth for seat availability and booking confirmation. This `curl` switch is how
-you make the *stand-in* ERP behave a certain way before testing TicketPortal's
-**real** booking UI against it — it isn't a shortcut around TicketPortal's own
-buttons:
-
-```bash
-curl -X POST http://localhost:5099/__scenario -H "Content-Type: application/json" -d '{"scenario": "seat_unavailable"}'
-curl -X POST http://localhost:5099/__reset
-```
+Needs `apps/mock-erp` running (Section 4.3) and the API in Development. Hanif Enterprise
+is `ExternalApiManaged` — its own ERP, not a TicketPortal counter login, is the source
+of truth for seat availability and booking confirmation. Open
+**http://localhost:5099/** and pick the *stand-in* ERP's behaviour on that page before
+testing TicketPortal's **real** booking UI against it — it isn't a shortcut around
+TicketPortal's own buttons. (Without a browser: `curl -X POST http://localhost:5099/__scenario
+-H "Content-Type: application/json" -d '{"scenario":"seat_unavailable"}'`, and `POST
+/__reset`.)
 
 | Scenario | Then book a Hanif trip in the normal customer UI and expect... |
 |---|---|
-| `success` (default) | Confirms normally on the first try |
-| `pending_then_confirmed` | First attempt Pending; confirms after the background sweep (every 2 min) |
-| `seat_unavailable` | Seat-hold is refused immediately — no booking created |
-| `server_error` | After `MaxSyncAttempts` failed sweeps (default 5), booking auto-marked `Failed`, tickets cancelled, seats released, refund created |
-| `always_pending` | Retries forever, never hits the max-attempts limit — a documented scope boundary |
-| `slow` | ~8s response — exceeds the availability check's 5s cap but stays under the 30s confirm timeout |
+| `success` (default) | The hold works and the booking confirms on the first try. |
+| `pending_then_confirmed` | First attempt Pending; confirms after the background sweep (every 2 min). |
+| `always_pending` | Retries forever, never hits the max-attempts limit — a documented scope boundary. |
+| `seat_unavailable` | The mock reports seat A1 sold on every trip. Select A1 and hold: refused immediately with *"The operator's system reports seat(s) A1 already sold. Please choose different seats."* — no hold, no booking. Other seats still hold. |
+| `server_error` | **The hold itself is refused** (503, *"We couldn't confirm seat availability… try again in a few minutes"*) because the availability check fails and the platform is fail-**closed** (decision D7). To see the confirm-failure path instead: hold seats while on `success`, switch to `server_error`, then pay — after `MaxSyncAttempts` failed sweeps (default 5) the booking is auto-marked `Failed`, tickets cancelled, seats released, refund created. |
+| `slow` | Availability takes ~8 s, longer than the check's 5 s cap, so the hold is refused like `server_error`. (Switch to `slow` *after* holding to see a slow-but-under-30 s confirm.) |
+| `timeout` | Availability and confirm hang for 45 s: the hold is refused after the integration's timeout. |
+
+**D7 click-through.** With the mock on `server_error`: (1) as `rahim.uddin`, try to hold a
+Hanif seat → refused with the message above and the seat stays Available; (2) as `admin`
+open **Integration Monitoring** (`http://localhost:4300/integrations`) → the banner
+states the policy in force (*customers can't hold seats… until it responds again*) and
+the sync-log table lists the failed `GetSeatAvailability` calls (*Operator API returned 500…*);
+click **Test connection** on Hanif's row (the mock's `/health` still answers). (3) Optionally restart the API with
+`Integrations__AvailabilityFailureMode=Open` → the same hold now **succeeds** (a warning
+is logged) and the banner changes to say holds continue on TicketPortal's own seat
+map. Switch the mock back to `success` and the next hold works again within seconds
+(a failed check is only remembered for ~5 s; a good one for 30 s).
+
+**Idempotency click-through.** Book a Hanif trip with the mock on `pending_then_confirmed`,
+then watch the mock page: the same booking id appears once, **Attempts** goes to 2 after
+the next sweep, and the *Recent requests* table shows `Idempotency-Key: confirm-<booking id>`
+on both calls. **Replays** counts repeats of an already-confirmed booking.
+
+**Unsafe configuration is refused.** As `admin` open **Integration Monitoring** and try
+to edit Hanif's integration: a `SecretReference` that is a literal key or anything other
+than `env:NAME` (e.g. `env:JWT:SigningKey`) is rejected, and so is a Base URL on a
+private/loopback/metadata address or (outside Development) plain `http`. The secret's
+*value* is only ever supplied through server configuration
+(`Integrations__Secrets__NAME`), never typed into the UI or stored in the database.
 
 ---
 
@@ -578,8 +620,8 @@ curl -X POST http://localhost:5099/__reset
 These items are still open in [the remaining fix plan](03-Remaining-Fix-Plan.md). They are not evidence that the click-through guide is broken, but they define what this personal demo does not guarantee yet:
 
 - **Finance rules (Chunk 5) are implemented, with two limits:** a fixed commission is charged per ticket, settlement value becomes payable on approval, payouts are validated against their settlement, and commission rules use Dhaka dates and reject overlaps (see the plan for the recorded decisions D3/D8). Two overlapping-rule saves made in the same instant could both pass (Admin-only screen; the deterministic rule order keeps the outcome predictable), and wallets that already held money from *Draft* settlements before this change need the one-time reconciliation in the plan. The tax-liability ledger stays deferred.
-- **Trip rescheduling and inventory limits:** the UI validates trip status transitions, but the policy for changing a trip's time after ticket sales needs a decision. Hold rate limiting exists; maximum seats per hold and active holds per user are not yet configured.
-- **ERP hardening:** the mock ERP is a local simulator. There is no browser scenario selector yet; its scenario controls are developer helpers. The API needs an explicit ERP-unavailable policy and additional outbound URL/secret protections before production use.
+- **Trip rescheduling and inventory limits (Chunk 6, implemented):** once a trip has held/booked seats its time, bus, route, terminals, currency and those seats' fares are locked — record a delay with the `Delayed` status, or cancel and recreate the trip (decision D6; nobody is notified automatically because the project has no notification channel). A user may hold at most 6 seats at a time in one hold and have 3 active holds (`SeatHold:MaxSeatsPerHold`, `SeatHold:MaxActiveHoldsPerUser`). These changes are covered by new automated tests that **have not yet been run** (no .NET SDK was available when they were written) — run them before trusting this section.
+- **ERP hardening (Chunk 6, implemented):** the mock ERP has a browser control page; the API refuses literal/foreign secret references, non-HTTPS or private destinations and redirects, and a failed availability check refuses the hold by default (`Integrations:AvailabilityFailureMode`, decision D7). It is still a local simulator, not a certified operator connector, and idempotency only helps if the operator's real ERP honours the `Idempotency-Key` header.
 - **Database and release work:** the active-ticket-per-seat index is filtered but not unique; Bookings and Tickets list endpoints need paging; CI and centralized startup option validation remain follow-up work.
 - **Tax and live payments are outside this personal project's scope:** the payment flow is simulated, no real gateway is connected, and no statutory tax rate is seeded. Do not treat demo financial values as money movement, tax advice, or a contract.
 - **Verification scope:** the API suite passed 179 tests on 5 October 2026. That does not mean every screen has browser automation; this document is the manual UI walkthrough. The remaining plan lists the specific implementation and assurance work still open.
@@ -591,7 +633,7 @@ The workflows above use the visible application screens and buttons wherever the
 
 1. **Taking over another counter's pending payment.** The counter sale is one continuous staff session. There is no screen for resuming another staff member's pending booking. Do not use a real sale or another user's account to attempt this manually. Use the existing automated API tests when available, or leave this check to a future dedicated test.
 2. **Forging another operator's identifier in a create request.** Operator forms scope new data to the signed-in operator and do not expose another operator selector. The UI test verifies the visible boundary; it cannot prove backend rejection of a forged request. The authorization tests and remaining C2 work track backend coverage.
-3. **External ERP failure modes.** The normal customer booking journey remains a real UI test, but switching the mock ERP among `success`, `pending_then_confirmed`, `seat_unavailable`, `server_error`, `slow`, and `always_pending` is currently a developer helper, not a browser button. Do not confuse the mock's scenario controls with TicketPortal API testing. A local scenario page is listed as follow-up work.
+3. **External ERP failure modes.** The normal customer booking journey remains a real UI test; the mock ERP's scenarios (`success`, `pending_then_confirmed`, `always_pending`, `seat_unavailable`, `server_error`, `slow`, `timeout`) are switched with buttons on its local page, `http://localhost:5099/`. Do not confuse the mock's scenario controls with TicketPortal API testing. Two ERP guarantees still have no click path and are covered only by automated tests: that a redirect from the operator is not followed, and that a hostname resolving to a private address is refused.
 
 You can complete the normal feature walkthrough without Swagger or Postman. Use Section 13 for the automated test command if you also want to check backend behavior that has no UI action.
 
@@ -612,7 +654,8 @@ npx nx serve frontend           # http://localhost:4200
 npx nx serve admin              # http://localhost:4300 (console at /admin)
 
 # Optional: mock Hanif ERP (fake external system, not TicketPortal's UI)
-cd apps/mock-erp && npm install && npm start   # http://localhost:5099
+cd apps/mock-erp && npm install && npm start   # http://localhost:5099 (control page at /)
+cd apps/mock-erp && npm test                    # its own tests (Node 18+)
 
 # Reset the demo database
 ./scripts/reset-demo-db.sh        # macOS/Linux-style shell

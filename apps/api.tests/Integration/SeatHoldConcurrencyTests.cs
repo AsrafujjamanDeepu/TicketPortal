@@ -27,11 +27,12 @@ namespace TicketPortal.Api.Tests.Integration
         //
         // Deliberately excludes ExternalApiManaged operators (Hanif in demo data): since
         // Chunk 8, SeatHoldsController.Create calls out to ExternalBookingSyncService for those
-        // trips before ever reaching SeatHoldService, which — with nothing actually listening
-        // at Integrations:HanifErpBaseUrl during a test run — exercises Chunk 8's fail-open
-        // path (safe, but an unrelated dependency) instead of the plain internal race/gating
-        // logic this file is testing. Chunk 8's own integration behavior belongs in a test file
-        // of its own, not folded into this one by accident of which seat got picked.
+        // trips before ever reaching SeatHoldService, which — with nothing reachable at
+        // Integrations:HanifErpBaseUrl during a test run (and, since Chunk 6, local destinations
+        // refused outside Development) — hits the availability policy (fail-closed by default)
+        // instead of the plain internal race/gating logic this file is testing. The ERP behaviour
+        // belongs in a test file of its own (ErpAvailabilityAndSecurityTests), not folded into
+        // this one by accident of which seat got picked.
         private async Task<(Guid tripId, Guid tripSeatId)> FindAnAvailableSeatAsync()
         {
             using var scope = _factory.CreateScope();

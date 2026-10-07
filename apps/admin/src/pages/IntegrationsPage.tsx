@@ -2,8 +2,10 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import type {
   ApiError,
   BusOperator,
+  IntegrationPolicy,
   IntegrationSyncLog,
   OperatorIntegration,
+  OperatorIntegrationStatus,
   TestConnectionResult,
 } from '@ticketportal-mono/models';
 import { apiFetch } from '../lib/apiClient';
@@ -31,6 +33,10 @@ export function IntegrationsPage() {
   const [integrations, setIntegrations] = useState<OperatorIntegration[]>([]);
   const [operators, setOperators] = useState<BusOperator[]>([]);
   const [logs, setLogs] = useState<IntegrationSyncLog[]>([]);
+  // Chunk 6 / C6-4: the platform-wide policy in force, and the redacted status of every operator
+  // whose own system is the source of truth (so a broken setup is visible without opening logs).
+  const [policy, setPolicy] = useState<IntegrationPolicy | null>(null);
+  const [statuses, setStatuses] = useState<OperatorIntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -54,6 +60,22 @@ export function IntegrationsPage() {
       setIntegrations(integrationList);
       setOperators(operatorList);
       setLogs(logList);
+
+      // Secondary data: a failure here must not hide the main table.
+      try {
+        const externalOperators = operatorList.filter((o) => o.inventoryMode === 'ExternalApiManaged');
+        const [policyResult, statusResults] = await Promise.all([
+          apiFetch<IntegrationPolicy>('operatorintegrations/policy'),
+          Promise.all(
+            externalOperators.map((o) => apiFetch<OperatorIntegrationStatus>(`operatorintegrations/status/${o.id}`)),
+          ),
+        ]);
+        setPolicy(policyResult);
+        setStatuses(statusResults);
+      } catch {
+        setPolicy(null);
+        setStatuses([]);
+      }
     } catch (err) {
       setLoadError((err as ApiError).message ?? 'Could not load integrations.');
     } finally {
@@ -119,6 +141,38 @@ export function IntegrationsPage() {
         </div>
       </div>
 
+      {policy && (
+        <Card>
+          <p>
+            <strong>If an operator&apos;s system can&apos;t be reached:</strong>{' '}
+            {policy.availabilityFailureMode === 'Closed'
+              ? "customers can't hold seats on that operator's trips until it responds again (they see a \"try again shortly\" message). This protects against selling a seat the operator has already sold."
+              : "seat holds continue on TicketPortal's own seat map. Some of those bookings may later be rejected by the operator and refunded."}{' '}
+            <span className="tp-muted">
+              (Setting <code>Integrations:AvailabilityFailureMode</code> = {policy.availabilityFailureMode}; successful
+              availability answers are reused for {policy.availabilityCacheSeconds}s.)
+            </span>
+          </p>
+        </Card>
+      )}
+
+      {statuses.some((s) => s.needsAttention) && (
+        <Card>
+          <p className="error">
+            <strong>Needs attention</strong>
+          </p>
+          <ul>
+            {statuses
+              .filter((s) => s.needsAttention)
+              .map((s) => (
+                <li key={s.busOperatorId}>
+                  <strong>{s.busOperatorName}</strong> — {s.attentionReason}
+                </li>
+              ))}
+          </ul>
+        </Card>
+      )}
+
       <Card>
         {loading ? (
           <p className="tp-muted">Loading integrations…</p>
@@ -165,6 +219,17 @@ export function IntegrationsPage() {
                             ? ` · ${integration.secretReferenceMasked}`
                             : ''}
                         </div>
+                        {integration.secretReferenceProblem && (
+                          <div className="error data-table__secondary">{integration.secretReferenceProblem}</div>
+                        )}
+                        {!integration.secretReferenceProblem &&
+                          integration.hasSecret &&
+                          !integration.secretConfigured && (
+                            <div className="error data-table__secondary">
+                              The secret value is not set on the server (expected under Integrations:Secrets), so calls
+                              to this operator will fail.
+                            </div>
+                          )}
                       </td>
                       <td>{operator ? <StatusPill status={operator.inventoryMode} /> : '—'}</td>
                       <td>

@@ -26,7 +26,8 @@ namespace TicketPortal.Api.Controllers
         SeatHoldService seatHoldService,
         IConfiguration configuration,
         ExternalBookingSyncService externalSync,
-        ICurrentActorService currentActor) : ControllerBase
+        ICurrentActorService currentActor,
+        ILogger<SeatHoldsController> logger) : ControllerBase
     {
         // The "3 to 5 minute timer" from the concept (§5) — server-side, so a client can never
         // request its own (much longer) hold window. Chunk 3 task 3: now configurable via
@@ -94,15 +95,27 @@ namespace TicketPortal.Api.Controllers
                 return BadRequest(new { message = "Select at least one seat." });
             }
 
+            // Chunk 6 / C6-2: the two checks that need no database (repeated seat, too many seats
+            // for one hold) are made first, so a refused request never costs an ERP call or
+            // touches any inventory. SeatHoldService repeats them as the authoritative check.
+            var limits = SeatHoldLimits.FromConfiguration(configuration);
+            var requestProblem = SeatHoldLimits.CheckRequest(dto.TripSeatIds, limits);
+            if (requestProblem is not null)
+            {
+                return BadRequest(new { message = requestProblem.Message, code = requestProblem.Kind.ToString() });
+            }
+
             // Chunk 8 task 5: for a trip whose operator's own ERP is the source of truth
             // (ExternalApiManaged), our own TripSeat.Status can be stale — the operator may have
             // sold this exact seat through a channel we don't see. Ask their GetSeatAvailability
-            // endpoint before ever taking the hold. This fails OPEN (see
-            // ExternalBookingSyncService.CheckSeatAvailabilityAsync's own comment) — an
-            // unreachable ERP falls back to our own seat map rather than blocking every sale on
-            // that trip, so this is an extra check on top of SeatHoldService's own race-safe
-            // locking (and Chunk 3's TripNotBookableException checks below), never a replacement
-            // for either.
+            // endpoint before ever taking the hold. This is an extra check on top of
+            // SeatHoldService's own race-safe locking (and Chunk 3's TripNotBookableException
+            // checks below), never a replacement for either.
+            //
+            // Chunk 6 / C6-4 (decision D7): what happens when that check CANNOT be completed is
+            // Integrations:AvailabilityFailureMode. "Closed" (the default) refuses the hold with a
+            // 503 — we do not know whether the seat is free; "Open" lets it through on our own
+            // seat map and logs a warning. See ExternalAvailabilityPolicy for the trade-off.
             var trip = await db.Trips.FirstOrDefaultAsync(t => t.Id == dto.TripId);
             if (trip == null)
             {
@@ -116,8 +129,23 @@ namespace TicketPortal.Api.Controllers
                     .Select(ts => ts.SeatNumber)
                     .ToListAsync();
 
-                var availability = await externalSync.CheckSeatAvailabilityAsync(trip);
-                if (availability.Success)
+                var availability = await externalSync.CheckSeatAvailabilityAsync(trip, HttpContext.RequestAborted);
+                if (!availability.Success)
+                {
+                    if (ExternalAvailabilityPolicy.GetFailureMode(configuration) == AvailabilityFailureMode.Closed)
+                    {
+                        return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                        {
+                            message = ExternalAvailabilityPolicy.ClosedCustomerMessage,
+                            code = "OperatorAvailabilityUnavailable"
+                        });
+                    }
+
+                    logger.LogWarning(
+                        "Seat availability for Trip {TripId} could not be verified ({Reason}); AvailabilityFailureMode is Open, so the hold proceeds on our own seat map.",
+                        trip.Id, availability.ErrorMessage);
+                }
+                else
                 {
                     var conflictingSeats = requestedSeatNumbers
                         .Where(availability.SoldSeatNumbers.Contains)
@@ -143,9 +171,18 @@ namespace TicketPortal.Api.Controllers
                     HoldDurationMinutes,
                     GetCurrentUserId(),
                     HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    Request.Headers.UserAgent.ToString());
+                    Request.Headers.UserAgent.ToString(),
+                    limits: limits);
 
                 return CreatedAtAction(nameof(GetById), new { id = hold.Id }, ToResponseDto(hold));
+            }
+            // Chunk 6 / C6-2: a hoarding/sanity rule refused the request before any seat was
+            // touched. Too many active holds is a conflict with the user's own current state
+            // (409, with a message telling them what to do); a bad seat list is a 400.
+            catch (SeatHoldLimitException ex)
+            {
+                var body = new { message = ex.Message, code = ex.Kind.ToString() };
+                return ex.Kind == SeatHoldLimitKind.TooManyActiveHolds ? Conflict(body) : BadRequest(body);
             }
             catch (SeatsUnavailableException ex)
             {

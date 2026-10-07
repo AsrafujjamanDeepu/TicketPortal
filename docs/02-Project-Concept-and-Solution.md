@@ -32,7 +32,9 @@ The operator uses TicketPortal for online bookings and physical-counter sales. O
 
 ### API-connected operator
 
-The operator already has its own ERP. TicketPortal models online inventory checks and booking confirmation through an operator API. It does not import that operator's cash-counter sales. A small in-memory mock ERP is included to demonstrate the connection and common response scenarios.
+The operator already has its own ERP. TicketPortal models online inventory checks and booking confirmation through an operator API. It does not import that operator's cash-counter sales. A small in-memory mock ERP, with a local browser control page, is included to demonstrate the connection and common response scenarios.
+
+Because the operator's system — not TicketPortal's seat table — is the source of truth for these trips, an unreachable or unconfigured operator system **fails closed** by default (decision D7): customers cannot hold seats on that operator's trips until it answers, and are told to try again shortly, rather than TicketPortal selling a seat it cannot verify. A platform setting (`Integrations:AvailabilityFailureMode`) can switch this to "open" for an operator whose system is flaky and whose rejections are cheap to handle. A seat the operator reports as sold is always refused. The platform calls only addresses an administrator has configured, over HTTPS to public internet addresses (local addresses are allowed only in Development for the mock), never follows redirects, and takes each operator's secret from server configuration by name — never from the database — so a credential is not stored in or shown by the application. Confirmation and cancellation requests carry an `Idempotency-Key` so an operator that supports it can recognise a retry.
 
 ## Passenger booking journey
 
@@ -44,6 +46,12 @@ The operator already has its own ERP. TicketPortal models online inventory check
 6. View booking history, request cancellation/refund, see wallet activity, and file a complaint.
 
 The API and database enforce the seat lifecycle; holds expire and release inventory. The project includes regression tests for simultaneous holds and simultaneous booking creation.
+
+To stop one account from locking up a bus, a single hold may contain at most 6 seats and a user may have at most 3 unexpired holds at once (both configurable); a refused request changes nothing, and releasing or letting a hold expire frees the slot immediately.
+
+### Changing a trip after tickets are sold
+
+Once any seat on a trip is held or booked (or a ticket exists), the things a passenger relied on when choosing it — the operator, route, bus, terminals, departure and arrival times, currency, and the fare of the seats already taken — can no longer be edited (decision D6). Staff can still correct the trip code, change the fare of seats nobody has taken, and move the trip through its legal statuses; **Delayed** with a reason is how a delay is shown to passengers. To genuinely change the time, bus or route, staff cancel the trip, which refunds every booking and releases every hold, and create a new one. The project deliberately does not offer "reschedule and notify": it has no email/SMS/push channel, so a time change would reach passengers only when they arrived for the old time. Editing a trip never rebuilds its seats, so held, booked and blocked seats keep their state.
 
 ## Business model and financial solution
 
@@ -87,7 +95,8 @@ These are project security features, not a security certification. A production 
 - Payments and refunds are simulated. No card, bank, or mobile financial service is connected.
 - No active tax rate is seeded. Any optional configured tax is a demo calculation only, not VAT due.
 - Bangladesh tax treatment depends on the service classification and current applicable rules. Company refund terms, such as a bus marketplace's published cancellation policy, are commercial terms and are not law. TicketPortal does not copy those terms or claim compliance.
-- The ERP is a local simulator, not a real operator connector.
+- The ERP is a local simulator, not a real operator connector. The platform-side safeguards (fail-closed availability, destination and secret rules, idempotency header) are real, but idempotency only helps if the operator's own system honours the header.
+- Nobody is notified automatically of a trip delay or a failed operator check; there is no notification channel in this project.
 - The UI, seed data, and automated tests are for education and demonstration. Production launch needs the remaining hardening work in `03-Remaining-Fix-Plan.md`.
 
 ## Project value

@@ -11,6 +11,13 @@
         "cwd": "apps/mock-erp"
       }
     },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node --test test/mock-erp.test.js",
+        "cwd": "apps/mock-erp"
+      }
+    },
     "install": {
       "executor": "nx:run-commands",
       "options": {

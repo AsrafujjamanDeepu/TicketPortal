@@ -46,9 +46,11 @@ export const tripService = {
     return res.data;
   },
 
-  // NOTE: the backend deletes-and-recreates all TripSeats on every Update — if ANY seat on
-  // this trip is already Held or Booked, the DB's Restrict FK will reject the delete and the
-  // request comes back 409 Conflict with a message telling the caller to release/cancel first.
+  // NOTE (Chunk 6 / decision D6): TripSeats are reconciled in place, so status/TripCode/fare-of-
+  // free-seats edits work at any time. Once any seat is Held or Booked (or a live ticket exists)
+  // the API answers 409 { code: 'TripHasSales', message, lockedFields, lockedSeats } if the
+  // request changes the operator, route, bus, terminals, departure/arrival time, currency or the
+  // fare of a Held/Booked seat — set the status to Delayed with a reason, or cancel the trip.
   update: async (id: string, dto: TripUpdateDto): Promise<Trip> => {
     const res = await axios.put<Trip>(`${BASE_URL}/${id}`, dto);
     return res.data;

@@ -65,6 +65,13 @@
 
 <tp-modal [open]="tripModalOpen()" [title]="editingTrip() ? 'Edit Trip' : 'Add Trip'" (closed)="closeTripModal()">
   <form [formGroup]="tripForm" class="tp-form-grid">
+    @if (editingTripLocked()) {
+      <p class="tp-form-grid__span2 tp-muted tp-hint">
+        Seats on this trip are already held or booked, so its route, bus, terminals, times and currency are locked —
+        customers chose it on those terms. To tell passengers about a delay, set the status to Delayed and add a
+        reason. To change the time, bus or route, cancel the trip (every booking is refunded) and create a new one.
+      </p>
+    }
     <label>
       Trip code
       <input type="text" formControlName="tripCode" />

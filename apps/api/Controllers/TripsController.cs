@@ -884,6 +884,72 @@ namespace TicketPortal.Api.Controllers
 
 
             // =========================================================
+            // 15b. Sale lock + seat reconciliation plan (Chunk 6 / C6-1, decision D6).
+            //
+            // Once seats are Held/Booked or tickets exist, the things customers relied on —
+            // operator, route, bus, terminals, departure/arrival time, currency and the fare of
+            // the seats they hold — can't be edited. See TripEditGuard for the full rule and why
+            // (no customer-notification channel exists, so a silent change would strand people).
+            // A delay is recorded by moving the trip to Delayed with a DelayReason; a real change
+            // of time/bus/route is a cancel (refunds everyone) plus a new trip.
+            //
+            // This runs BEFORE anything is changed on the tracked entities below.
+            // =========================================================
+
+            var sales = await TripEditGuard.GetSalesSnapshotAsync(db, trip);
+
+            if (sales.HasSales)
+            {
+                var lockedFields = TripEditGuard.FindLockedFieldChanges(trip, dto);
+                var lockedSeats = TripEditGuard.FindLockedSeatChanges(trip, dto.TripSeats);
+
+                if (lockedFields.Count > 0 || lockedSeats.Count > 0)
+                {
+                    var what = string.Join(", ", lockedFields.Concat(lockedSeats.Select(s => $"seat {s}")));
+
+                    return Conflict(new
+                    {
+                        code = "TripHasSales",
+                        message = $"This trip already has held or booked seats, so {what} can no longer be changed. " +
+                                  "To tell customers about a delay, set the status to Delayed and add a reason. " +
+                                  "To change the time, bus or route, cancel the trip (every booking is refunded) " +
+                                  "and create a new one.",
+                        lockedFields,
+                        lockedSeats,
+                        heldSeats = sales.HeldSeats,
+                        bookedSeats = sales.BookedSeats,
+                        activeTickets = sales.ActiveTickets
+                    });
+                }
+
+                // Nothing locked changed — but the request's times may differ from the stored ones
+                // by a rounding amount (TripEditGuard.TimeTolerance). Keep exactly what is stored.
+                dto.DepartureTimeUtc = trip.DepartureTimeUtc;
+                dto.ArrivalTimeUtc = trip.ArrivalTimeUtc;
+            }
+
+            // Seats are reconciled in place (below) instead of deleted and recreated. A seat that
+            // has to go (e.g. bus swap on a trip with no sales) but is referenced by a hold item,
+            // ticket, booking passenger or external mapping can't be deleted — say so clearly
+            // rather than failing the whole save with a generic constraint error.
+            var seatPlan = TripEditGuard.PlanSeatChanges(trip, dto.TripSeats);
+
+            var undeletableSeats = await TripEditGuard.FindSeatsThatCannotBeRemovedAsync(db, seatPlan.ToRemove);
+
+            if (undeletableSeats.Count > 0)
+            {
+                return Conflict(new
+                {
+                    code = "TripSeatHasHistory",
+                    message = $"Seat(s) {string.Join(", ", undeletableSeats)} already have hold or booking history on this " +
+                              "trip, so they can't be removed from it (this usually means the bus was changed). " +
+                              "Cancel the trip and create a new one instead.",
+                    seats = undeletableSeats
+                });
+            }
+
+
+            // =========================================================
             // 15a. Re-resolve InventoryMode — mirrors Create's step 11a. Trip.InventoryMode is
             // deliberately frozen against a later change to the OPERATOR's own setting (see the
             // field comment on Trip.InventoryMode) — but that freeze doesn't apply here, because
@@ -936,35 +1002,49 @@ namespace TicketPortal.Api.Controllers
             // 17. Transaction
             // =========================================================
 
-            // NOTE: this still deletes-and-recreates TripSeats rather than diff-reconciling them
-            // (unlike BusOperatorsController.Update(), which reconciles OperatorRoutes in place).
-            // That's safe from a data-integrity standpoint — TripSeat rows that are Held/Booked
-            // are protected by Restrict FKs from SeatHoldItem/Booking, so the delete below simply
-            // fails with a Conflict instead of destroying an in-progress hold or a paid seat. The
-            // trade-off is that editing ANY field on a Trip (e.g. just DepartureTimeUtc) is
-            // blocked once a single seat on it has been held or booked. If that turns out to be
-            // too restrictive in practice, apply the same reconcile-in-place pattern used for
-            // OperatorRoutes here too.
+            // TripSeats are reconciled IN PLACE (Chunk 6 / C6-1), matching on the physical SeatId:
+            //   - seats in both the trip and the request keep their row — so their Status
+            //     (Held/Booked/Blocked), BlockReason and ExternalSeatKey survive — and only the
+            //     fare of a not-yet-sold seat is updated;
+            //   - seats missing from the request are removed (15b already proved they have no
+            //     history and aren't sold);
+            //   - seats new to the request are added as Available.
+            // The previous delete-and-recreate approach hit the Restrict foreign keys on the very
+            // first hold, so ANY edit — even a Delayed/Boarding status change — failed with a
+            // generic conflict, and it silently reset Blocked seats back to Available.
             await using var transaction =
                 await db.Database.BeginTransactionAsync();
 
             try
             {
                 // -----------------------------------------------------
-                // Remove existing TripSeats
+                // Reprice seats that stay (15b rejected a fare change on Held/Booked seats)
                 // -----------------------------------------------------
 
-                if (trip.TripSeats.Any())
+                foreach (var (existingSeat, requestedSeat) in seatPlan.ToKeep)
                 {
-                    db.TripSeats.RemoveRange(trip.TripSeats);
+                    if (existingSeat.Fare != requestedSeat.Fare)
+                    {
+                        existingSeat.Fare = requestedSeat.Fare;
+                    }
                 }
 
 
                 // -----------------------------------------------------
-                // Create new TripSeats
+                // Remove seats that are no longer part of the trip
                 // -----------------------------------------------------
 
-                var newTripSeats = dto.TripSeats
+                if (seatPlan.ToRemove.Count > 0)
+                {
+                    db.TripSeats.RemoveRange(seatPlan.ToRemove);
+                }
+
+
+                // -----------------------------------------------------
+                // Create TripSeats for seats the trip didn't have yet
+                // -----------------------------------------------------
+
+                var newTripSeats = seatPlan.ToAdd
                     .Select(s =>
                     {
                         var physicalSeat = physicalSeats[s.SeatId];
@@ -1054,8 +1134,8 @@ namespace TicketPortal.Api.Controllers
                 // Chunk 10 security checklist item 3 — see the identical fix in Create() above.
                 return Conflict(new
                 {
-                    message = "Could not save this Trip update. If seats on this Trip are " +
-                               "already Held or Booked, release/cancel them first.",
+                    message = "Could not save this Trip update. Check for a duplicate TripCode " +
+                               "or conflicting seat data and try again.",
                     detail = env.IsDevelopment() ? ex.InnerException?.Message : null,
                     innerDetail = env.IsDevelopment() ? ex.InnerException?.InnerException?.Message : null
                 });

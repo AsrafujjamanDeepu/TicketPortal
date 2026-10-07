@@ -85,28 +85,51 @@ namespace TicketPortal.Api.Services
         // multi-instance deployment would see up to AvailabilityCacheTtl of staleness per
         // instance, which is acceptable here since the hold itself is still re-validated against
         // TripSeat.Status at the database level regardless (see SeatHoldService).
+        //
+        // Chunk 6 / C6-4: the TTL is now Integrations:AvailabilityCacheSeconds (default 30, 0 turns
+        // the cache off — tests do that). A SUCCESSFUL answer is reused for the full TTL; a FAILED
+        // check is only remembered for a few seconds, so a flapping ERP is not hammered on every
+        // click but a recovered one is noticed almost immediately. Entries older than their TTL
+        // are never served — a stale "all clear" must not outlive the TTL because the ERP has since
+        // become unreachable.
         private static readonly ConcurrentDictionary<Guid, CachedAvailability> AvailabilityCache = new();
-        private static readonly TimeSpan AvailabilityCacheTtl = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan FailedAvailabilityCacheTtl = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan AvailabilityCheckTimeout = TimeSpan.FromSeconds(5);
+
+        // Chunk 6 / C6-5: sent on every ConfirmBooking / CancelBooking call, so an operator ERP that
+        // supports idempotency can recognise a RETRY of the same request (a timeout whose reply we
+        // never saw) instead of creating a second booking. The key is derived from the booking id,
+        // so every retry of the same booking carries the same key; the booking id is also still in
+        // the JSON body, which the original mock-erp contract keyed on.
+        private const string IdempotencyKeyHeader = "Idempotency-Key";
 
         private readonly AppDbContext _db;
         private readonly HttpClient _httpClient;
         private readonly IConfiguration _configuration;
         private readonly SeatHoldService _seatHoldService;
         private readonly ILogger<ExternalBookingSyncService> _logger;
+        private readonly IntegrationSecurityOptions _security;
+        private readonly ErpDestinationPolicy.HostResolver _resolver;
 
+        // The last two parameters are optional so DemoDataSeeder (which builds this service by
+        // hand and never calls an ERP) keeps compiling; dependency injection supplies both. With
+        // neither, the strict defaults apply: no local/private destinations, system DNS.
         public ExternalBookingSyncService(
             AppDbContext db,
             HttpClient httpClient,
             IConfiguration configuration,
             SeatHoldService seatHoldService,
-            ILogger<ExternalBookingSyncService> logger)
+            ILogger<ExternalBookingSyncService> logger,
+            IntegrationSecurityOptions? security = null,
+            ErpDestinationPolicy.HostResolver? resolver = null)
         {
             _db = db;
             _httpClient = httpClient;
             _configuration = configuration;
             _seatHoldService = seatHoldService;
             _logger = logger;
+            _security = security ?? new IntegrationSecurityOptions(AllowLocalDestinations: false);
+            _resolver = resolver ?? ErpDestinationPolicy.SystemResolver;
         }
 
         // Finds every Booking still waiting on an operator's confirmation and attempts one sync
@@ -146,6 +169,12 @@ namespace TicketPortal.Api.Services
             // BusOperator, which is the actual fix for "nothing happens."
             if (integration == null)
             {
+                // Chunk 6 / C6-4: still no row to attach an IntegrationSyncLog to, but this is no
+                // longer SILENT — a booking that needs the operator's confirmation and has no
+                // integration to get it from will never confirm, which someone has to notice.
+                _logger.LogWarning(
+                    "Booking {BookingId} needs external confirmation but operator {OperatorId} has no active OperatorIntegration.",
+                    booking.Id, booking.BusOperatorId);
                 return;
             }
 
@@ -184,6 +213,9 @@ namespace TicketPortal.Api.Services
                 StartedAtUtc = DateTime.UtcNow
             };
 
+            // Kept outside the try so the catch can scrub it from any text it records.
+            string? secret = null;
+
             try
             {
                 var requestBody = new
@@ -206,14 +238,19 @@ namespace TicketPortal.Api.Services
                 // built-in Uri(baseUri, relativeUri) combine, which silently drops BaseUrl's
                 // own path segment whenever the relative part starts with "/".
                 var path = endpoint.PathTemplate.Replace("{bookingId}", booking.Id.ToString());
-                var requestUri = new Uri(integration.BaseUrl.TrimEnd('/') + (path.StartsWith('/') ? path : "/" + path));
 
-                using var request = new HttpRequestMessage(new HttpMethod(endpoint.HttpMethod), requestUri)
+                // Chunk 6 / C6-3: refuses an unsafe destination (non-HTTPS, private/metadata
+                // address, ...) and an unusable secret BEFORE any request is built.
+                var call = await PrepareCallAsync(integration, path, ct);
+                secret = call.Secret;
+
+                using var request = new HttpRequestMessage(new HttpMethod(endpoint.HttpMethod), call.RequestUri)
                 {
                     Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
                 };
 
-                ApplyAuth(request, integration);
+                ApplyAuth(request, integration, secret);
+                request.Headers.TryAddWithoutValidation(IdempotencyKeyHeader, $"confirm-{booking.Id}");
 
                 // Per-call timeout via a linked CancellationTokenSource, NOT _httpClient.Timeout —
                 // this same _httpClient instance is reused across every booking in one sweep tick
@@ -226,7 +263,7 @@ namespace TicketPortal.Api.Services
 
                 using var response = await _httpClient.SendAsync(request, linkedCts.Token);
                 var responseJson = await response.Content.ReadAsStringAsync(ct);
-                log.ResponseJson = responseJson;
+                log.ResponseJson = Safe(responseJson, secret, 8000);
 
                 if (response.StatusCode == HttpStatusCode.Conflict)
                 {
@@ -240,7 +277,7 @@ namespace TicketPortal.Api.Services
                 else if (!response.IsSuccessStatusCode)
                 {
                     log.Status = IntegrationSyncStatus.Failed;
-                    log.ErrorMessage = $"Operator API returned {(int)response.StatusCode} {response.StatusCode}.";
+                    log.ErrorMessage = DescribeFailureStatus(response);
                     await ApplyTimeoutPolicyAsync(booking, integration, ct);
                 }
                 else
@@ -277,11 +314,11 @@ namespace TicketPortal.Api.Services
                 // integration can never take down the whole sweep either way — see
                 // ExternalBookingSyncSweepService, which sweeps every pending booking in one run.
                 log.Status = IntegrationSyncStatus.Failed;
-                log.ErrorMessage = ex.Message;
+                log.ErrorMessage = Safe(DescribeException(ex, integration.TimeoutSeconds), secret);
 
-                _logger.LogWarning(ex,
-                    "External booking sync failed for Booking {BookingId} via OperatorIntegration {IntegrationId}.",
-                    booking.Id, integration.Id);
+                _logger.LogWarning(
+                    "External booking sync failed for Booking {BookingId} via OperatorIntegration {IntegrationId}: {Reason}",
+                    booking.Id, integration.Id, log.ErrorMessage);
 
                 await ApplyTimeoutPolicyAsync(booking, integration, ct);
             }
@@ -445,18 +482,33 @@ namespace TicketPortal.Api.Services
         }
 
         // Chunk 8 task 5: called synchronously from SeatHoldsController before every hold on an
-        // ExternalApiManaged trip. Fails OPEN on any integration/network problem — an
-        // unreachable ERP must not block every sale on that trip, since TripSeat.Status in our
-        // own database is still the authoritative fallback (this is purely an extra check on
-        // top of it, not a replacement for it) — but every failure is fully logged here, so a
-        // persistently broken integration is visible on the integration screen rather than
-        // silently and permanently degrading to "no check at all".
+        // ExternalApiManaged trip, because for those trips the operator's own ERP — not our
+        // TripSeat table — is the source of truth for what has been sold.
+        //
+        // Chunk 6 / C6-4 (decision D7): this method no longer decides what a FAILED check means.
+        // It reports honestly (Success=false, with a reason that is safe to log) and the caller
+        // applies Integrations:AvailabilityFailureMode — "Closed" (default: refuse the hold, the
+        // seat's real state is unknown) or "Open" (let the hold through on our own seat map, as it
+        // used to always do). Previously a missing integration or endpoint was reported as a
+        // SUCCESS with nothing sold, i.e. it failed open silently. Every kind of failure —
+        // no integration, no endpoint, refused destination, missing secret, redirect, non-2xx,
+        // timeout — is a Success=false result here, and all but "no integration" (no log row can
+        // exist without one) also leave an IntegrationSyncLog row an administrator can read.
         public async Task<ExternalAvailabilityResult> CheckSeatAvailabilityAsync(Trip trip, CancellationToken ct = default)
         {
-            if (AvailabilityCache.TryGetValue(trip.Id, out var cached)
-                && DateTime.UtcNow - cached.CachedAtUtc < AvailabilityCacheTtl)
+            var cacheTtl = ExternalAvailabilityPolicy.GetCacheTtl(_configuration);
+
+            if (cacheTtl > TimeSpan.Zero
+                && AvailabilityCache.TryGetValue(trip.Id, out var cached))
             {
-                return cached.Result;
+                var allowedAge = cached.Result.Success
+                    ? cacheTtl
+                    : TimeSpan.FromTicks(Math.Min(cacheTtl.Ticks, FailedAvailabilityCacheTtl.Ticks));
+
+                if (DateTime.UtcNow - cached.CachedAtUtc < allowedAge)
+                {
+                    return cached.Result;
+                }
             }
 
             var integration = await _db.OperatorIntegrations
@@ -464,13 +516,19 @@ namespace TicketPortal.Api.Services
                 .Where(i => i.BusOperatorId == trip.BusOperatorId && i.IsActive)
                 .FirstOrDefaultAsync(ct);
 
-            // No integration configured for this operator — nothing to check against, so don't
-            // block the hold; our own seat map is the only source of truth there is right now.
             if (integration == null)
             {
-                var openResult = new ExternalAvailabilityResult { Success = true };
-                AvailabilityCache[trip.Id] = new CachedAvailability { CachedAtUtc = DateTime.UtcNow, Result = openResult };
-                return openResult;
+                _logger.LogWarning(
+                    "Trip {TripId} is ExternalApiManaged but operator {OperatorId} has no active OperatorIntegration, so seat availability cannot be verified.",
+                    trip.Id, trip.BusOperatorId);
+
+                // Not cached: a fix (adding the integration) should take effect on the next click.
+                return new ExternalAvailabilityResult
+                {
+                    Success = false,
+                    NotConfigured = true,
+                    ErrorMessage = "This operator has no active integration configured."
+                };
             }
 
             var endpoint = integration.Endpoints.FirstOrDefault(e => e.IsActive
@@ -487,35 +545,39 @@ namespace TicketPortal.Api.Services
             };
 
             ExternalAvailabilityResult result;
+            string? secret = null;
+            var cacheable = true;
 
             if (endpoint == null)
             {
                 log.Status = IntegrationSyncStatus.Skipped;
                 log.ErrorMessage = "OperatorIntegration has no active endpoint with Purpose 'GetSeatAvailability'.";
-                result = new ExternalAvailabilityResult { Success = true, ErrorMessage = log.ErrorMessage };
+                result = new ExternalAvailabilityResult { Success = false, NotConfigured = true, ErrorMessage = log.ErrorMessage };
+                cacheable = false;
             }
             else
             {
                 try
                 {
                     var path = endpoint.PathTemplate.Replace("{tripId}", trip.Id.ToString());
-                    var requestUri = new Uri(integration.BaseUrl.TrimEnd('/') + (path.StartsWith('/') ? path : "/" + path));
+                    var call = await PrepareCallAsync(integration, path, ct);
+                    secret = call.Secret;
 
-                    using var request = new HttpRequestMessage(new HttpMethod(endpoint.HttpMethod), requestUri);
-                    ApplyAuth(request, integration);
+                    using var request = new HttpRequestMessage(new HttpMethod(endpoint.HttpMethod), call.RequestUri);
+                    ApplyAuth(request, integration, secret);
 
                     var timeoutSeconds = Math.Min(AvailabilityCheckTimeout.TotalSeconds, integration.TimeoutSeconds);
                     using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
                     using var response = await _httpClient.SendAsync(request, linkedCts.Token);
-                    var responseJson = await response.Content.ReadAsStringAsync(ct);
-                    log.ResponseJson = responseJson;
+                    var responseJson = await response.Content.ReadAsStringAsync(linkedCts.Token);
+                    log.ResponseJson = Safe(responseJson, secret, 8000);
 
                     if (!response.IsSuccessStatusCode)
                     {
                         log.Status = IntegrationSyncStatus.Failed;
-                        log.ErrorMessage = $"Operator API returned {(int)response.StatusCode} {response.StatusCode}.";
+                        log.ErrorMessage = DescribeFailureStatus(response);
                         result = new ExternalAvailabilityResult { Success = false, ErrorMessage = log.ErrorMessage };
                     }
                     else
@@ -530,14 +592,20 @@ namespace TicketPortal.Api.Services
                         result = new ExternalAvailabilityResult { Success = true, SoldSeatNumbers = sold };
                     }
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    // The CALLER gave up (the customer closed the tab) — that says nothing about
+                    // the operator's system, so don't log it as an integration failure.
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     log.Status = IntegrationSyncStatus.Failed;
-                    log.ErrorMessage = ex.Message;
-                    _logger.LogWarning(ex,
-                        "GetSeatAvailability failed for Trip {TripId} via OperatorIntegration {IntegrationId}.",
-                        trip.Id, integration.Id);
-                    result = new ExternalAvailabilityResult { Success = false, ErrorMessage = ex.Message };
+                    log.ErrorMessage = Safe(DescribeException(ex, (int)Math.Min(AvailabilityCheckTimeout.TotalSeconds, integration.TimeoutSeconds)), secret);
+                    _logger.LogWarning(
+                        "GetSeatAvailability failed for Trip {TripId} via OperatorIntegration {IntegrationId}: {Reason}",
+                        trip.Id, integration.Id, log.ErrorMessage);
+                    result = new ExternalAvailabilityResult { Success = false, ErrorMessage = log.ErrorMessage };
                 }
             }
 
@@ -545,7 +613,11 @@ namespace TicketPortal.Api.Services
             _db.IntegrationSyncLogs.Add(log);
             await _db.SaveChangesAsync(ct);
 
-            AvailabilityCache[trip.Id] = new CachedAvailability { CachedAtUtc = DateTime.UtcNow, Result = result };
+            if (cacheable && cacheTtl > TimeSpan.Zero)
+            {
+                AvailabilityCache[trip.Id] = new CachedAvailability { CachedAtUtc = DateTime.UtcNow, Result = result };
+            }
+
             return result;
         }
 
@@ -569,6 +641,9 @@ namespace TicketPortal.Api.Services
 
             if (integration == null)
             {
+                _logger.LogWarning(
+                    "Booking {BookingId} has an external booking key but operator {OperatorId} has no active OperatorIntegration, so the cancellation was not propagated.",
+                    booking.Id, booking.BusOperatorId);
                 return;
             }
 
@@ -592,12 +667,15 @@ namespace TicketPortal.Api.Services
             }
             else
             {
+                string? secret = null;
+
                 try
                 {
                     var path = endpoint.PathTemplate
                         .Replace("{bookingId}", booking.Id.ToString())
                         .Replace("{externalBookingKey}", Uri.EscapeDataString(booking.ExternalBookingKey));
-                    var requestUri = new Uri(integration.BaseUrl.TrimEnd('/') + (path.StartsWith('/') ? path : "/" + path));
+                    var call = await PrepareCallAsync(integration, path, ct);
+                    secret = call.Secret;
 
                     var requestJson = JsonSerializer.Serialize(new
                     {
@@ -606,16 +684,17 @@ namespace TicketPortal.Api.Services
                     });
                     log.RequestJson = requestJson;
 
-                    using var request = new HttpRequestMessage(new HttpMethod(endpoint.HttpMethod), requestUri)
+                    using var request = new HttpRequestMessage(new HttpMethod(endpoint.HttpMethod), call.RequestUri)
                     {
                         Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
                     };
-                    ApplyAuth(request, integration);
+                    ApplyAuth(request, integration, secret);
+                    request.Headers.TryAddWithoutValidation(IdempotencyKeyHeader, $"cancel-{booking.Id}");
 
                     using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(integration.TimeoutSeconds));
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
                     using var response = await _httpClient.SendAsync(request, linkedCts.Token);
-                    log.ResponseJson = await response.Content.ReadAsStringAsync(ct);
+                    log.ResponseJson = Safe(await response.Content.ReadAsStringAsync(ct), secret, 8000);
 
                     log.Status = response.IsSuccessStatusCode ? IntegrationSyncStatus.Succeeded : IntegrationSyncStatus.Failed;
                     if (response.IsSuccessStatusCode)
@@ -624,16 +703,16 @@ namespace TicketPortal.Api.Services
                     }
                     else
                     {
-                        log.ErrorMessage = $"Operator API returned {(int)response.StatusCode} {response.StatusCode}.";
+                        log.ErrorMessage = DescribeFailureStatus(response);
                     }
                 }
                 catch (Exception ex)
                 {
                     log.Status = IntegrationSyncStatus.Failed;
-                    log.ErrorMessage = ex.Message;
-                    _logger.LogWarning(ex,
-                        "CancelBooking propagation failed for Booking {BookingId} via OperatorIntegration {IntegrationId}.",
-                        booking.Id, integration.Id);
+                    log.ErrorMessage = Safe(DescribeException(ex, integration.TimeoutSeconds), secret);
+                    _logger.LogWarning(
+                        "CancelBooking propagation failed for Booking {BookingId} via OperatorIntegration {IntegrationId}: {Reason}",
+                        booking.Id, integration.Id, log.ErrorMessage);
                 }
             }
 
@@ -663,18 +742,21 @@ namespace TicketPortal.Api.Services
 
             var sw = Stopwatch.StartNew();
             TestConnectionResult result;
+            string? secret = null;
 
             try
             {
-                var requestUri = new Uri(integration.BaseUrl.TrimEnd('/') + "/health");
-                using var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-                ApplyAuth(request, integration);
+                var call = await PrepareCallAsync(integration, "/health", ct);
+                secret = call.Secret;
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, call.RequestUri);
+                ApplyAuth(request, integration, secret);
 
                 var timeoutSeconds = Math.Min(10, integration.TimeoutSeconds);
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
                 using var response = await _httpClient.SendAsync(request, linkedCts.Token);
-                log.ResponseJson = await response.Content.ReadAsStringAsync(ct);
+                log.ResponseJson = Safe(await response.Content.ReadAsStringAsync(ct), secret, 8000);
                 sw.Stop();
 
                 log.Status = response.IsSuccessStatusCode ? IntegrationSyncStatus.Succeeded : IntegrationSyncStatus.Failed;
@@ -683,7 +765,9 @@ namespace TicketPortal.Api.Services
                     Success = response.IsSuccessStatusCode,
                     Message = response.IsSuccessStatusCode
                         ? $"Reached {integration.BaseUrl} — {(int)response.StatusCode} {response.StatusCode}."
-                        : $"{integration.BaseUrl} responded {(int)response.StatusCode} {response.StatusCode}.",
+                        : ((int)response.StatusCode is >= 300 and < 400)
+                            ? $"{integration.BaseUrl} answered with a redirect ({(int)response.StatusCode}); redirects are not followed."
+                            : $"{integration.BaseUrl} responded {(int)response.StatusCode} {response.StatusCode}.",
                     StatusCode = (int)response.StatusCode,
                     DurationMs = sw.ElapsedMilliseconds,
                 };
@@ -701,8 +785,9 @@ namespace TicketPortal.Api.Services
             {
                 sw.Stop();
                 log.Status = IntegrationSyncStatus.Failed;
-                log.ErrorMessage = ex.Message;
-                result = new TestConnectionResult { Success = false, Message = ex.Message, DurationMs = sw.ElapsedMilliseconds };
+                var reason = Safe(DescribeException(ex, Math.Min(10, integration.TimeoutSeconds)), secret) ?? "The call failed.";
+                log.ErrorMessage = reason;
+                result = new TestConnectionResult { Success = false, Message = reason, DurationMs = sw.ElapsedMilliseconds };
             }
 
             log.CompletedAtUtc = DateTime.UtcNow;
@@ -712,34 +797,78 @@ namespace TicketPortal.Api.Services
             return result;
         }
 
-        // Chunk 8 task 3: SecretReference is a POINTER, never the secret itself. "env:VAR_NAME"
-        // resolves VAR_NAME from IConfiguration (which includes real process environment
-        // variables in ASP.NET Core's default configuration pipeline) at call time — the actual
-        // secret value is never stored in the database and never appears in an API response (see
-        // OperatorIntegrationResponseDto, which exposes only HasSecret + a masked preview). A
-        // bare value with no "env:" prefix is still honored so nothing seeded before this
-        // convention existed breaks, but every integration from here on should use "env:...".
-        private string ResolveSecret(OperatorIntegration integration)
+        // ---------------------------------------------------------------------------------
+        // Call preparation, auth and safe logging (Chunk 6 / C6-3)
+        // ---------------------------------------------------------------------------------
+
+        private sealed record PreparedCall(Uri RequestUri, string? Secret);
+
+        // Everything that must be true before this server sends a request on an administrator's
+        // behalf, in one place so all four call types get it:
+        //   1. BaseUrl passes the destination policy (https, no userinfo, and every address it
+        //      resolves to is public — or local in Development). Re-checked on EVERY call, so a
+        //      record that was fine when saved but whose DNS has since changed is still refused;
+        //      ErpHttpHandlerFactory checks the address actually connected to as well.
+        //   2. The endpoint path cannot change scheme/host/port (it is appended to BaseUrl).
+        //   3. If the AuthType needs a secret, it resolves from Integrations:Secrets:NAME. A
+        //      missing secret is an immediate, clear failure — nothing is sent un-authenticated.
+        // BaseUrl is expected to be just the operator's origin plus an optional path prefix, with
+        // PathTemplate supplying the rest — plain concatenation rather than Uri(base, relative),
+        // which would silently drop BaseUrl's own path whenever the relative part starts with "/".
+        private async Task<PreparedCall> PrepareCallAsync(OperatorIntegration integration, string path, CancellationToken ct)
         {
-            var reference = integration.SecretReference;
-            if (string.IsNullOrWhiteSpace(reference))
+            var check = await ErpDestinationPolicy.ValidateBaseUrlAsync(
+                integration.BaseUrl, _security.AllowLocalDestinations, _resolver, ct);
+
+            if (!check.IsAllowed)
             {
-                return string.Empty;
+                throw new IntegrationConfigurationException($"Destination refused: {check.Reason}");
             }
 
-            const string envPrefix = "env:";
-            if (reference.StartsWith(envPrefix, StringComparison.OrdinalIgnoreCase))
+            var baseUrl = integration.BaseUrl.Trim();
+            var baseUri = new Uri(baseUrl);
+            var requestUri = new Uri(baseUrl.TrimEnd('/') + (path.StartsWith('/') ? path : "/" + path));
+
+            if (!string.Equals(requestUri.Scheme, baseUri.Scheme, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(requestUri.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase)
+                || requestUri.Port != baseUri.Port)
             {
-                var variableName = reference[envPrefix.Length..];
-                return _configuration[variableName] ?? Environment.GetEnvironmentVariable(variableName) ?? string.Empty;
+                throw new IntegrationConfigurationException(
+                    "Destination refused: the endpoint path would change the request's host.");
             }
 
-            return reference;
+            string? secret = null;
+
+            if (RequiresSecret(integration))
+            {
+                secret = IntegrationSecretReference.Resolve(_configuration, integration.SecretReference);
+
+                if (secret is null)
+                {
+                    throw new IntegrationConfigurationException(
+                        IntegrationSecretReference.TryGetName(integration.SecretReference, out var name)
+                            ? $"The integration's secret is not configured (expected a value at '{IntegrationSecretReference.ConfigurationSection}:{name}')."
+                            : "The integration's SecretReference is missing or not in the accepted 'env:NAME' form.");
+                }
+            }
+
+            return new PreparedCall(requestUri, secret);
         }
 
-        private void ApplyAuth(HttpRequestMessage request, OperatorIntegration integration)
+        private static bool RequiresSecret(OperatorIntegration integration) => integration.AuthType switch
         {
-            var secret = ResolveSecret(integration);
+            IntegrationAuthType.ApiKey => !string.IsNullOrWhiteSpace(integration.ApiKeyHeaderName),
+            IntegrationAuthType.BearerToken => true,
+            IntegrationAuthType.Basic => true,
+            _ => false,
+        };
+
+        private static void ApplyAuth(HttpRequestMessage request, OperatorIntegration integration, string? secret)
+        {
+            if (secret is null)
+            {
+                return; // AuthType None / OAuth2 (not implemented) / ApiKey with no header name.
+            }
 
             switch (integration.AuthType)
             {
@@ -755,15 +884,27 @@ namespace TicketPortal.Api.Services
                     var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(secret));
                     request.Headers.Authorization = new AuthenticationHeaderValue("Basic", encoded);
                     break;
-
-                // None, a misconfigured ApiKey (no header name set), and OAuth2 (needs a
-                // token-fetch flow this project doesn't have yet) all send no auth header — same
-                // "not implemented yet" reasoning as IPaymentGatewayVerifier for anything
-                // genuinely gateway/provider-specific.
-                default:
-                    break;
             }
         }
+
+        // Text that is about to be stored in IntegrationSyncLog (readable by administrators) or
+        // logged: the secret scrubbed out of it (an operator can echo a key back in an error
+        // body) and the length capped to what the column allows.
+        private static string? Safe(string? text, string? secret, int maxLength = 1000)
+        {
+            var redacted = IntegrationSecretReference.Redact(text, secret);
+            return redacted is not null && redacted.Length > maxLength ? redacted[..maxLength] : redacted;
+        }
+
+        private static string DescribeFailureStatus(HttpResponseMessage response) =>
+            ((int)response.StatusCode is >= 300 and < 400)
+                ? $"Operator API returned a redirect ({(int)response.StatusCode}); redirects are not followed."
+                : $"Operator API returned {(int)response.StatusCode} {response.StatusCode}.";
+
+        private static string DescribeException(Exception ex, int timeoutSeconds) =>
+            ex is OperationCanceledException
+                ? $"The operator API did not respond within {timeoutSeconds} second(s)."
+                : ex.Message;
 
         private class ConfirmBookingResponse
         {
@@ -786,15 +927,20 @@ namespace TicketPortal.Api.Services
     }
 
     // Result of CheckSeatAvailabilityAsync — public because SeatHoldsController consumes it
-    // directly. Success=false means the check itself couldn't be completed (network/timeout/
-    // non-2xx), NOT that seats are unavailable; the caller fails open on Success=false (see
-    // SeatHoldsController's comment for why) and only refuses seats that are actually present in
-    // SoldSeatNumbers on a Success=true result.
+    // directly. Success=false means the check itself couldn't be completed (not configured,
+    // refused destination, network/timeout/non-2xx), NOT that seats are unavailable. What a
+    // failed check means for the customer is Integrations:AvailabilityFailureMode (see
+    // ExternalAvailabilityPolicy); on a Success=true result the caller refuses exactly the seats
+    // that are present in SoldSeatNumbers.
     public class ExternalAvailabilityResult
     {
         public bool Success { get; init; }
         public HashSet<string> SoldSeatNumbers { get; init; } = new(StringComparer.OrdinalIgnoreCase);
         public string? ErrorMessage { get; init; }
+
+        // Chunk 6: true when the check could not even be attempted because the operator has no
+        // active integration / no GetSeatAvailability endpoint (as opposed to the call failing).
+        public bool NotConfigured { get; init; }
     }
 
     // Result of TestConnectionAsync — consumed by OperatorIntegrationsController's

@@ -35,6 +35,17 @@ import { TripsService } from '../../services/trips.service';
 import { toDateTimeLocalValue } from '../../../../core/utils/utc';
 import { formatMoney } from '../../../finance/shared/money.util';
 
+// Chunk 6 / C6-1: the trip fields the API locks once seats are Held/Booked (TripEditGuard.cs).
+const SALE_LOCKED_TRIP_CONTROLS = [
+  'busRouteId',
+  'busId',
+  'departureTerminalId',
+  'arrivalTerminalId',
+  'departureTimeUtc',
+  'arrivalTimeUtc',
+  'currency',
+] as const;
+
 const TRIP_STATUSES: TripStatus[] = ['Scheduled', 'Boarding', 'Departed', 'Running', 'Arrived', 'Completed', 'Delayed', 'Cancelled'];
 
 @Component({
@@ -75,6 +86,11 @@ export class TripsSchedulingComponent implements OnInit {
   protected readonly saving = signal(false);
   protected readonly tripModalOpen = signal(false);
   protected readonly editingTrip = signal<Trip | null>(null);
+  // Chunk 6 / C6-1 (decision D6): true while editing a trip that already has Held/Booked seats.
+  // The API refuses to change what customers relied on (route, bus, terminals, times, currency)
+  // once that is the case, so the modal shows those fields read-only instead of letting the user
+  // type a change that comes back as a 409. See apps/api/Services/TripEditGuard.cs.
+  protected readonly editingTripLocked = signal(false);
   protected readonly scheduleModalOpen = signal(false);
   protected readonly editingSchedule = signal<Schedule | null>(null);
 
@@ -251,6 +267,8 @@ export class TripsSchedulingComponent implements OnInit {
 
   openTripModal(trip: Trip | null = null): void {
     this.editingTrip.set(trip);
+    const locked = trip !== null && trip.tripSeats.some((s) => s.status === 'Held' || s.status === 'Booked');
+    this.editingTripLocked.set(locked);
     this.tripForm.reset(
       trip
         ? {
@@ -282,12 +300,21 @@ export class TripsSchedulingComponent implements OnInit {
             delayReason: '',
           },
     );
+    for (const name of SALE_LOCKED_TRIP_CONTROLS) {
+      const control = this.tripForm.controls[name];
+      if (locked) {
+        control.disable();
+      } else {
+        control.enable();
+      }
+    }
     this.tripModalOpen.set(true);
   }
 
   closeTripModal(): void {
     this.tripModalOpen.set(false);
     this.editingTrip.set(null);
+    this.editingTripLocked.set(false);
   }
 
   saveTrip(): void {
@@ -305,8 +332,10 @@ export class TripsSchedulingComponent implements OnInit {
       departureTerminalId: raw.departureTerminalId,
       arrivalTerminalId: raw.arrivalTerminalId,
       tripCode: raw.tripCode,
-      departureTimeUtc: new Date(raw.departureTimeUtc).toISOString(),
-      arrivalTimeUtc: new Date(raw.arrivalTimeUtc).toISOString(),
+      // A locked trip's times are resent exactly as the API gave them (the form's minute-precision
+      // value could differ by a few seconds, which the API would rightly treat as a change).
+      departureTimeUtc: existing && this.editingTripLocked() ? existing.departureTimeUtc : new Date(raw.departureTimeUtc).toISOString(),
+      arrivalTimeUtc: existing && this.editingTripLocked() ? existing.arrivalTimeUtc : new Date(raw.arrivalTimeUtc).toISOString(),
       baseFare: raw.baseFare,
       currency: raw.currency,
       isWheelchairAccessible: raw.isWheelchairAccessible,

@@ -5,6 +5,7 @@
 using TicketPortal.Api.Data;
 using TicketPortal.Api.DTO;
 using TicketPortal.Api.Models.Integrations;
+using TicketPortal.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,10 @@ namespace TicketPortal.Api.Controllers
         {
             if (!User.IsInRole("Admin")) return Forbid();
 
+            // Chunk 6 / C6-3: the method and path are appended to an outbound request.
+            var endpointProblem = IntegrationInputRules.ValidateEndpoint(dto.HttpMethod, dto.PathTemplate);
+            if (endpointProblem != null) return BadRequest(new { message = endpointProblem });
+
             var item = new OperatorIntegrationEndpoint
             {
                 OperatorIntegrationId = dto.OperatorIntegrationId,
@@ -67,6 +72,9 @@ namespace TicketPortal.Api.Controllers
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
+
+            var endpointProblem = IntegrationInputRules.ValidateEndpoint(dto.HttpMethod, dto.PathTemplate);
+            if (endpointProblem != null) return BadRequest(new { message = endpointProblem });
 
             if (!item.RowVersion.SequenceEqual(dto.RowVersion))
             {

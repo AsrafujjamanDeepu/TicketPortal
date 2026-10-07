@@ -706,10 +706,11 @@ namespace TicketPortal.Api.Data
         // BaseUrl points at apps/mock-erp by default (see docs/docs/03-Remaining-Fix-Plan.md
         // for how to run it), overridable via Integrations:HanifErpBaseUrl for anyone pointing
         // this at a real server instead. SecretReference is "env:HANIF_ERP_API_KEY" — a POINTER
-        // the sync engine resolves at call time (see ExternalBookingSyncService.ResolveSecret),
-        // never a literal secret value sitting in seeded demo data. appsettings.Development.json
-        // sets a matching demo default so a fresh clone works out of the box; override the
-        // HANIF_ERP_API_KEY environment variable for anything beyond local demo use.
+        // the sync engine resolves at call time (see IntegrationSecretReference — it only reads
+        // Integrations:Secrets:HANIF_ERP_API_KEY), never a literal secret value sitting in seeded
+        // demo data. appsettings.Development.json sets a matching demo default so a fresh clone
+        // works out of the box; set Integrations__Secrets__HANIF_ERP_API_KEY for anything beyond
+        // local demo use.
         private static async Task SeedHanifIntegrationAsync(AppDbContext db, DemoContext ctx, IConfiguration configuration)
         {
             var baseUrl = configuration["Integrations:HanifErpBaseUrl"];

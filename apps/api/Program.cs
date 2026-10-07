@@ -344,7 +344,22 @@ builder.Services.AddHostedService<PaymentReconciliationSweepService>();
 // engine for API-connected operators — see Services/ExternalBookingSyncService.cs and
 // Services/ExternalBookingSyncSweepService.cs. Typed-client registration so HttpClient arrives
 // pooled/managed by IHttpClientFactory instead of the service newing one up itself.
-builder.Services.AddHttpClient<ExternalBookingSyncService>();
+//
+// Chunk 6 / C6-3: this client only ever talks to addresses an administrator typed in, so it gets
+// a locked-down primary handler (no redirects, no proxy, address re-checked at connect time —
+// see Services/IntegrationSecurity.cs) and a cap on how large a reply it will buffer. The
+// options are resolved lazily (not read from builder.Configuration here) so the final
+// configuration — environment variables, test overrides — is what takes effect.
+builder.Services.AddSingleton(sp => IntegrationSecurityOptions.From(
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<IHostEnvironment>()));
+builder.Services.AddSingleton<ErpDestinationPolicy.HostResolver>(ErpDestinationPolicy.SystemResolver);
+builder.Services.AddHttpClient<ExternalBookingSyncService>(client =>
+    {
+        client.MaxResponseContentBufferSize = 1_000_000; // 1 MB — far above any legitimate reply.
+    })
+    .ConfigurePrimaryHttpMessageHandler(sp =>
+        ErpHttpHandlerFactory.Create(sp.GetRequiredService<IntegrationSecurityOptions>()));
 builder.Services.AddHostedService<ExternalBookingSyncSweepService>();
 
 
@@ -415,6 +430,25 @@ builder.Services.AddSwaggerGen(options =>
 
 
 var app = builder.Build();
+
+// Chunk 6: fail at startup — not on the first customer request — if any of the new settings is
+// malformed, so a typo can never silently turn a protection off. These read app.Configuration
+// (the FINAL configuration, including environment variables), not builder.Configuration.
+{
+    _ = SeatHoldLimits.FromConfiguration(app.Configuration);
+    _ = ExternalAvailabilityPolicy.GetFailureMode(app.Configuration);
+    _ = ExternalAvailabilityPolicy.GetCacheTtl(app.Configuration);
+
+    // Local/private destinations exist for a mock ERP on a developer machine. They must never be
+    // switchable on in Production, where they would expose internal services to the integration
+    // feature (SSRF).
+    if (app.Environment.IsProduction()
+        && IntegrationSecurityOptions.From(app.Configuration, app.Environment).AllowLocalDestinations)
+    {
+        throw new InvalidOperationException(
+            $"{IntegrationSecurityOptions.AllowLocalDestinationsKey} must not be enabled in Production.");
+    }
+}
 
 
 // ============================================================

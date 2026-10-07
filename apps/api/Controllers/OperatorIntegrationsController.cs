@@ -41,7 +41,10 @@ namespace TicketPortal.Api.Controllers
     public class OperatorIntegrationsController(
         AppDbContext db,
         ICurrentActorService currentActor,
-        ExternalBookingSyncService externalSync) : ControllerBase
+        ExternalBookingSyncService externalSync,
+        IConfiguration configuration,
+        IntegrationSecurityOptions security,
+        ErpDestinationPolicy.HostResolver hostResolver) : ControllerBase
     {
         [HttpGet]
         public async Task<IActionResult> GetAll()
@@ -82,10 +85,14 @@ namespace TicketPortal.Api.Controllers
             if (busOperator == null) return NotFound();
 
             var integration = await db.OperatorIntegrations
+                .Include(i => i.Endpoints)
                 .Where(i => i.BusOperatorId == busOperatorId)
                 .OrderByDescending(i => i.IsActive)
                 .ThenByDescending(i => i.CreatedAtUtc)
                 .FirstOrDefaultAsync();
+
+            var hasAvailabilityEndpoint = integration != null && integration.Endpoints.Any(e => e.IsActive
+                && string.Equals(e.Purpose, "GetSeatAvailability", StringComparison.OrdinalIgnoreCase));
 
             var dto = new OperatorIntegrationStatusDto
             {
@@ -96,6 +103,8 @@ namespace TicketPortal.Api.Controllers
                 IntegrationName = integration?.Name,
                 IsActive = integration?.IsActive ?? false,
                 LastSuccessfulSyncAtUtc = integration?.LastSuccessfulSyncAtUtc,
+                AvailabilityFailureMode = ExternalAvailabilityPolicy.GetFailureMode(configuration).ToString(),
+                HasAvailabilityEndpoint = hasAvailabilityEndpoint,
             };
 
             if (integration != null)
@@ -115,7 +124,38 @@ namespace TicketPortal.Api.Controllers
                 dto.LastSyncAtUtc = lastLog?.StartedAtUtc;
             }
 
+            // Chunk 6 / C6-4: an operator whose own system is the source of truth cannot sell
+            // safely (Closed) or verifiably (Open) unless this is all in place — say what is not.
+            if (busOperator.InventoryMode == OperatorInventoryMode.ExternalApiManaged)
+            {
+                dto.AttentionReason =
+                    integration == null ? "No integration is configured, so seat availability and booking confirmation cannot be checked."
+                    : !integration.IsActive ? "The integration is switched off."
+                    : !hasAvailabilityEndpoint ? "The integration has no active GetSeatAvailability endpoint."
+                    : (IntegrationSecretReference.Validate(integration.SecretReference) is not null) ? "The integration's secret reference is not valid."
+                    : dto.LastSyncStatus == nameof(IntegrationSyncStatus.Failed) ? "The most recent call to the operator's system failed."
+                    : null;
+
+                dto.NeedsAttention = dto.AttentionReason != null;
+            }
+
             return Ok(dto);
+        }
+
+        // Chunk 6 / C6-4: the platform-wide policy in force (what customers see when an
+        // operator's system can't be reached). Same permission as the operator's own status view.
+        [HttpGet("policy")]
+        public async Task<IActionResult> GetPolicy()
+        {
+            var actor = await currentActor.ResolveAsync(User);
+            if (!actor.HasPermission(Permissions.IntegrationsRead)) return Forbid();
+
+            return Ok(new IntegrationPolicyDto
+            {
+                AvailabilityFailureMode = ExternalAvailabilityPolicy.GetFailureMode(configuration).ToString(),
+                AvailabilityCacheSeconds = (int)ExternalAvailabilityPolicy.GetCacheTtl(configuration).TotalSeconds,
+                AllowLocalDestinations = security.AllowLocalDestinations,
+            });
         }
 
         // Chunk 8 task 9: backs the admin integration screen's "Test connection" button.
@@ -139,6 +179,9 @@ namespace TicketPortal.Api.Controllers
         public async Task<IActionResult> Create(OperatorIntegrationCreateDto dto)
         {
             if (!User.IsInRole("Admin")) return Forbid();
+
+            var invalid = await ValidateInputAsync(dto, HttpContext.RequestAborted);
+            if (invalid != null) return invalid;
 
             var item = new OperatorIntegration
             {
@@ -169,6 +212,9 @@ namespace TicketPortal.Api.Controllers
 
             if (dto.RowVersion == null || dto.RowVersion.Length == 0)
                 return BadRequest(new { message = "RowVersion is required." });
+
+            var invalid = await ValidateInputAsync(dto, HttpContext.RequestAborted);
+            if (invalid != null) return invalid;
 
             if (!item.RowVersion.SequenceEqual(dto.RowVersion))
             {
@@ -235,7 +281,36 @@ namespace TicketPortal.Api.Controllers
             return NoContent();
         }
 
-        private static OperatorIntegrationResponseDto ToResponseDto(OperatorIntegration x) => new()
+        // Chunk 6 / C6-3: what an administrator may type into an integration, checked on save so
+        // they get a clear 400 here instead of a failed call later. The same destination check is
+        // repeated before every outbound call (DNS can change after save); nothing here is trusted
+        // later on the strength of having passed once. Error text never echoes the secret field.
+        private async Task<IActionResult?> ValidateInputAsync(OperatorIntegrationCreateDto dto, CancellationToken ct)
+        {
+            var secretProblem = IntegrationSecretReference.Validate(dto.SecretReference);
+            if (secretProblem != null)
+            {
+                return BadRequest(new { message = secretProblem, field = "secretReference" });
+            }
+
+            var headerProblem = IntegrationInputRules.ValidateApiKeyHeaderName(dto.ApiKeyHeaderName);
+            if (headerProblem != null)
+            {
+                return BadRequest(new { message = headerProblem, field = "apiKeyHeaderName" });
+            }
+
+            var destination = await ErpDestinationPolicy.ValidateBaseUrlAsync(
+                dto.BaseUrl, security.AllowLocalDestinations, hostResolver, ct);
+
+            if (!destination.IsAllowed)
+            {
+                return BadRequest(new { message = destination.Reason, field = "baseUrl" });
+            }
+
+            return null;
+        }
+
+        private OperatorIntegrationResponseDto ToResponseDto(OperatorIntegration x) => new()
         {
             Id = x.Id,
             BusOperatorId = x.BusOperatorId,
@@ -245,6 +320,8 @@ namespace TicketPortal.Api.Controllers
             ApiKeyHeaderName = x.ApiKeyHeaderName,
             HasSecret = !string.IsNullOrEmpty(x.SecretReference),
             SecretReferenceMasked = MaskSecret(x.SecretReference),
+            SecretReferenceProblem = IntegrationSecretReference.Validate(x.SecretReference),
+            SecretConfigured = IntegrationSecretReference.Resolve(configuration, x.SecretReference) != null,
             TimeoutSeconds = x.TimeoutSeconds,
             IsActive = x.IsActive,
             LastSuccessfulSyncAtUtc = x.LastSuccessfulSyncAtUtc,
@@ -253,14 +330,16 @@ namespace TicketPortal.Api.Controllers
             RowVersion = x.RowVersion,
         };
 
-        // "env:HANIF_ERP_API_KEY" -> "env:••••KEY". Just enough to confirm at a glance which
-        // reference is configured without ever rendering the full string — see the class-level
-        // comment on OperatorIntegrationResponseDto for why the raw value never reaches here.
+        // A valid reference ("env:HANIF_ERP_API_KEY") is only the NAME of a configuration entry —
+        // not itself secret — so it is shown in full, which is what an administrator needs to
+        // know which entry to set. Anything else is a legacy row that may hold a literal secret
+        // (the old code accepted one), so none of it is echoed back: it is fully masked.
         private static string? MaskSecret(string? reference)
         {
             if (string.IsNullOrEmpty(reference)) return null;
-            if (reference.Length <= 8) return new string('•', reference.Length);
-            return $"{reference[..4]}••••{reference[^4..]}";
+            return IntegrationSecretReference.TryGetName(reference, out _)
+                ? reference
+                : new string('•', Math.Min(reference.Length, 12));
         }
     }
 }
