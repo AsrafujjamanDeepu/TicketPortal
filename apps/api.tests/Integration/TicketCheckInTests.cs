@@ -67,30 +67,46 @@ namespace TicketPortal.Api.Tests.Integration
         private static Task<HttpResponseMessage> CheckInAsync(HttpClient client, string ticketNumber) =>
             client.PostAsync($"/api/tickets/{ticketNumber}/check-in", new StringContent(string.Empty));
 
+        // The seed gives Shohagh exactly ONE Issued ticket (the agent-sold booking on SHO-2) and every
+        // test in this collection shares one database, so a test that checks it in must put it back -
+        // otherwise later tests that need a Shohagh Issued ticket (TicketQrScanTests) find none.
+        private async Task RestoreToIssuedAsync(string ticketNumber)
+        {
+            using var scope = _factory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Tickets.IgnoreQueryFilters().Where(t => t.TicketNumber == ticketNumber)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.Status, TicketStatus.Issued)
+                    .SetProperty(t => t.CheckedInAtUtc, (DateTime?)null));
+        }
+
         [Fact]
         public async Task Supervisor_CanCheckInAnIssuedTicket_AndASecondScanIsIdempotent_NotAnError()
         {
             var ticketNumber = await FindAnIssuedTicketForOperatorOfAsync(DemoAccounts.ShohaghSupervisor);
             var supervisorClient = await _factory.CreateAuthenticatedClientAsync(DemoAccounts.ShohaghSupervisor, DemoAccounts.Password);
-
-            var firstScan = await CheckInAsync(supervisorClient, ticketNumber);
-            Assert.Equal(HttpStatusCode.OK, firstScan.StatusCode);
-
-            using (var scope = _factory.CreateScope())
+            try
             {
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var ticket = await db.Tickets.AsNoTracking().SingleAsync(t => t.TicketNumber == ticketNumber);
-                Assert.Equal(TicketStatus.CheckedIn, ticket.Status);
-                Assert.NotNull(ticket.CheckedInAtUtc);
+                var firstScan = await CheckInAsync(supervisorClient, ticketNumber);
+                Assert.Equal(HttpStatusCode.OK, firstScan.StatusCode);
+
+                using (var scope = _factory.CreateScope())
+                {
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var ticket = await db.Tickets.AsNoTracking().SingleAsync(t => t.TicketNumber == ticketNumber);
+                    Assert.Equal(TicketStatus.CheckedIn, ticket.Status);
+                    Assert.NotNull(ticket.CheckedInAtUtc);
+                }
+
+                // Chunk 4 task 1/5: a second scan of an already-checked-in ticket is a normal
+                // boarding-desk event, not an error — must stay 200, not 400/409.
+                var secondScan = await CheckInAsync(supervisorClient, ticketNumber);
+                Assert.Equal(HttpStatusCode.OK, secondScan.StatusCode);
+
+                var secondBody = await secondScan.Content.ReadAsStringAsync();
+                Assert.Contains("true", secondBody, StringComparison.OrdinalIgnoreCase); // alreadyCheckedIn: true
             }
-
-            // Chunk 4 task 1/5: a second scan of an already-checked-in ticket is a normal
-            // boarding-desk event, not an error — must stay 200, not 400/409.
-            var secondScan = await CheckInAsync(supervisorClient, ticketNumber);
-            Assert.Equal(HttpStatusCode.OK, secondScan.StatusCode);
-
-            var secondBody = await secondScan.Content.ReadAsStringAsync();
-            Assert.Contains("true", secondBody, StringComparison.OrdinalIgnoreCase); // alreadyCheckedIn: true
+            finally { await RestoreToIssuedAsync(ticketNumber); }
         }
 
         [Fact]

@@ -427,7 +427,8 @@ namespace TicketPortal.Api.Tests.Integration
             // second sweep is a genuine RETRY of the same request.
             await using var a = await ArrangeAsync(
                 needSeats: false,
-                configureHost: b => b.UseSetting("Integrations:MaxSyncAttempts", "1000"));
+                // 20 is the highest value the startup validator accepts (1-20); two sweeps can never reach it.
+                configureHost: b => b.UseSetting("Integrations:MaxSyncAttempts", "20"));
             a.Erp.Responder = request => request.Path.EndsWith("/bookings/confirm")
                 ? new FakeErpServer.FakeResponse(202, "{\"status\":\"Pending\"}")
                 : FakeErpServer.DefaultResponder(request);

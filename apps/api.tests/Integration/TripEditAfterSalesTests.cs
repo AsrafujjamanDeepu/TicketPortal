@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using TicketPortal.Api.Data;
 using TicketPortal.Api.Models.Enums;
+using TicketPortal.Api.Services;
 using TicketPortal.Api.Tests.Infrastructure;
 using Xunit;
 using static TicketPortal.Api.Tests.Infrastructure.HoldTestSupport;
@@ -88,6 +89,22 @@ namespace TicketPortal.Api.Tests.Integration
         {
             using var scope = _factory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // The demo seed deliberately leaves ONE long (180-minute) mid-checkout hold - scenario 8 - on the
+            // only trip that has no ticket, so it stays visibly "active" in demos. These tests need a trip with
+            // no held seat, so free any Active hold on a ticket-free trip exactly as the real expiry job would
+            // (make it overdue, then run the same sweep method). Nothing else in the suite uses that hold.
+            var ticketFreeTripIds = await db.Trips
+                .Where(t => t.Status == TripStatus.Scheduled
+                    && t.DepartureTimeUtc > DateTime.UtcNow.AddHours(3)
+                    && t.InventoryMode == OperatorInventoryMode.PlatformManaged
+                    && !db.Tickets.Any(k => k.TripId == t.Id))
+                .Select(t => t.Id)
+                .ToListAsync();
+            await db.SeatHolds
+                .Where(h => h.Status == SeatHoldStatus.Active && ticketFreeTripIds.Contains(h.TripId))
+                .ExecuteUpdateAsync(s => s.SetProperty(h => h.HoldExpiresAtUtc, DateTime.UtcNow.AddMinutes(-1)));
+            await scope.ServiceProvider.GetRequiredService<SeatHoldService>().ExpireOverdueHoldsAsync();
 
             var tripId = await db.Trips
                 .Where(t => t.Status == TripStatus.Scheduled
